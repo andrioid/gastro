@@ -1,0 +1,14 @@
+---
+type Props struct {
+    Title string
+}
+
+props := gastro.Props[Props]()
+Title := props.Title
+---
+<html>
+<head><title>{{ .Title }}</title></head>
+<body>
+    <slot />
+</body>
+</html>

@@ -1,0 +1,4 @@
+---
+Title := "About"
+---
+<h1>{{ .Title }}</h1>
