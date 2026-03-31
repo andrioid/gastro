@@ -1,0 +1,16 @@
+---
+use Layout "components/layout.gastro"
+
+Title := "SSE + Datastar Example"
+---
+<Layout Title={.Title}>
+    <h1>SSE + Datastar Counter</h1>
+    <p>Click the button to increment the counter via a server-sent event.</p>
+
+    <div id="count">0</div>
+    <button data-on:click="@get('/api/increment')">Increment</button>
+
+    <h2>Live Clock</h2>
+    <p>This clock updates every second via an SSE stream.</p>
+    <div id="clock" data-init="@get('/api/clock')">--:--:--</div>
+</Layout>

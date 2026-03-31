@@ -165,6 +165,18 @@ string->bool, string->int, float64->int, etc.
 `Recover(w, r)` is a deferred function that catches panics in handlers,
 logs them, and returns 500.
 
+#### `sse.go`
+
+`NewSSE(w, r)` upgrades an `http.ResponseWriter` to a Server-Sent Events
+stream. Provides `Send(eventType, data...)`, `IsClosed()`, and `Context()`.
+Framework-agnostic -- works with Datastar, HTMX, or any SSE client.
+
+#### `datastar/` (subpackage)
+
+`pkg/gastro/datastar` wraps the generic SSE helper with Datastar-specific
+convenience methods: `PatchElements()`, `PatchSignals()`, `RemoveElement()`.
+See [sse.md](sse.md) for usage.
+
 ### `internal/lsp/`
 
 **Purpose:** Language server internals.
