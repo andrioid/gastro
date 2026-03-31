@@ -42,3 +42,10 @@ func (c *Context) Error(code int, msg string) {
 func (c *Context) Header(key, val string) {
 	c.w.Header().Set(key, val)
 }
+
+// SSE upgrades the response to a Server-Sent Events stream.
+// The caller should use the returned SSE to send events, then return
+// from the handler to close the connection.
+func (c *Context) SSE() *SSE {
+	return NewSSE(c.w, c.r)
+}
