@@ -2,6 +2,8 @@ package template
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
@@ -27,6 +29,7 @@ type Diagnostic struct {
 	EndLine   int
 	EndChar   int
 	Message   string
+	Severity  int // 1=Error, 2=Warning. Zero is treated as 1 (Error) by the LSP server.
 }
 
 // VariableCompletions returns completion items for {{ . }} expressions
@@ -144,14 +147,17 @@ func OffsetToLineChar(text string, offset int) (int, int) {
 }
 
 // Diagnose checks a template body for common errors: unknown variables,
-// invalid double-dot syntax, and unknown components.
+// invalid double-dot syntax, unknown components, and invalid component props.
 //
 // When the template is syntactically valid, it uses Go's text/template/parse
 // to build an AST and walks it with scope awareness (range/with blocks rebind
 // the dot context). When parsing fails (common during editing), variable
 // checks are skipped to avoid false positives — only double-dot syntax and
 // unknown component checks run in that case.
-func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.UseDeclaration, typeMap map[string]string, resolver FieldResolver) []Diagnostic {
+//
+// propsMap maps component names to their Props struct fields for prop
+// validation. Pass nil to skip component prop checks.
+func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.UseDeclaration, typeMap map[string]string, resolver FieldResolver, propsMap map[string][]codegen.StructField) []Diagnostic {
 	var diags []Diagnostic
 
 	exportedNames := make(map[string]bool, len(info.ExportedVars))
@@ -170,6 +176,7 @@ func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.
 	}
 
 	diags = append(diags, diagnoseUnknownComponents(templateBody, uses)...)
+	diags = append(diags, DiagnoseComponentProps(templateBody, uses, propsMap)...)
 
 	return diags
 }
@@ -216,5 +223,135 @@ func diagnoseUnknownComponents(templateBody string, uses []parser.UseDeclaration
 			})
 		}
 	}
+	return diags
+}
+
+// ResolveComponentProps reads a component .gastro file and extracts its Props
+// struct fields. openDocs maps file URIs to their content (for unsaved changes);
+// if the file isn't open, it's read from disk. Returns nil fields (not an error)
+// when the component has no Props struct.
+func ResolveComponentProps(projectDir, componentPath string, openDocs map[string]string) ([]codegen.StructField, error) {
+	absPath := filepath.Join(projectDir, componentPath)
+
+	var content string
+	if docContent, ok := openDocs["file://"+absPath]; ok {
+		content = docContent
+	} else {
+		data, err := os.ReadFile(absPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading component %s: %w", componentPath, err)
+		}
+		content = string(data)
+	}
+
+	parsed, err := parser.Parse(componentPath, content)
+	if err != nil {
+		return nil, fmt.Errorf("parsing component %s: %w", componentPath, err)
+	}
+
+	_, typeDecls := codegen.HoistTypeDeclarations(parsed.Frontmatter)
+	if strings.TrimSpace(typeDecls) == "" {
+		return nil, nil
+	}
+
+	fields := codegen.ParseStructFields(typeDecls)
+	if len(fields) == 0 {
+		return nil, nil
+	}
+
+	return fields, nil
+}
+
+// componentTagRegex matches self-closing and open component tags with their props.
+var componentTagRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)((?:\s+\w+=(?:\{[^}]*\}|"[^"]*"))*)\s*/?>`)
+
+// componentPropRegex matches Key={.expr} or Key="literal" patterns inside a tag.
+var componentPropRegex = regexp.MustCompile(`(\w+)=(?:\{[^}]*\}|"[^"]*")`)
+
+// DiagnoseComponentProps checks that props passed to component tags match
+// the component's Props struct. Reports unknown props as errors and missing
+// props as warnings.
+func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
+	if len(propsMap) == 0 {
+		return nil
+	}
+
+	usePaths := make(map[string]string, len(uses))
+	for _, u := range uses {
+		usePaths[u.Name] = u.Path
+	}
+
+	var diags []Diagnostic
+
+	for _, idx := range componentTagRegex.FindAllStringSubmatchIndex(templateBody, -1) {
+		compName := templateBody[idx[2]:idx[3]]
+		propsStr := ""
+		if idx[4] >= 0 && idx[5] >= 0 {
+			propsStr = strings.TrimSpace(templateBody[idx[4]:idx[5]])
+		}
+
+		fields, ok := propsMap[compName]
+		if !ok {
+			continue
+		}
+
+		// Build set of known field names
+		fieldNames := make(map[string]bool, len(fields))
+		for _, f := range fields {
+			fieldNames[f.Name] = true
+		}
+
+		// Extract provided prop names
+		providedProps := make(map[string]bool)
+		propMatches := componentPropRegex.FindAllStringSubmatch(propsStr, -1)
+		for _, m := range propMatches {
+			providedProps[m[1]] = true
+		}
+
+		// Check for unknown props
+		for _, m := range componentPropRegex.FindAllStringSubmatchIndex(propsStr, -1) {
+			propName := propsStr[m[2]:m[3]]
+			if !fieldNames[propName] {
+				// Calculate position relative to the full template body
+				propAbsOffset := idx[4] + m[2]
+				// Skip leading whitespace that was trimmed
+				if propsStr != templateBody[idx[4]:idx[5]] {
+					propAbsOffset = strings.Index(templateBody[idx[4]:idx[5]], propsStr) + idx[4] + m[2]
+				}
+				startLine, startChar := OffsetToLineChar(templateBody, propAbsOffset)
+				endLine, endChar := OffsetToLineChar(templateBody, propAbsOffset+len(propName))
+
+				available := make([]string, 0, len(fields))
+				for _, f := range fields {
+					available = append(available, f.Name)
+				}
+				diags = append(diags, Diagnostic{
+					StartLine: startLine,
+					StartChar: startChar,
+					EndLine:   endLine,
+					EndChar:   endChar,
+					Message:   fmt.Sprintf("unknown prop %q on component <%s>; available: %s", propName, compName, strings.Join(available, ", ")),
+					Severity:  1,
+				})
+			}
+		}
+
+		// Check for missing props (warning)
+		tagStartLine, tagStartChar := OffsetToLineChar(templateBody, idx[0])
+		tagEndLine, tagEndChar := OffsetToLineChar(templateBody, idx[1])
+		for _, f := range fields {
+			if !providedProps[f.Name] {
+				diags = append(diags, Diagnostic{
+					StartLine: tagStartLine,
+					StartChar: tagStartChar,
+					EndLine:   tagEndLine,
+					EndChar:   tagEndChar,
+					Message:   fmt.Sprintf("missing prop %q on component <%s>", f.Name, compName),
+					Severity:  2,
+				})
+			}
+		}
+	}
+
 	return diags
 }

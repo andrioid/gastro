@@ -847,3 +847,221 @@ func setupTestProject(t *testing.T) string {
 
 	return dir
 }
+
+// setupTestProjectWithComponents creates a Go project with pages/ and
+// components/ directories, including a Card component with a Props struct.
+func setupTestProjectWithComponents(t *testing.T) string {
+	t.Helper()
+	dir := setupTestProject(t)
+
+	os.MkdirAll(filepath.Join(dir, "components"), 0o755)
+
+	cardContent := `---
+type Props struct {
+	Title string
+	Body  string
+}
+
+props := gastro.Props[Props]()
+Title := props.Title
+Body := props.Body
+---
+<div class="card">
+	<h2>{{ .Title }}</h2>
+	<p>{{ .Body }}</p>
+</div>`
+
+	os.WriteFile(filepath.Join(dir, "components", "card.gastro"), []byte(cardContent), 0o644)
+
+	return dir
+}
+
+func TestLSP_ComponentPropDiagnostics(t *testing.T) {
+	projectDir := setupTestProjectWithComponents(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// Open a page that uses Card with an unknown prop
+	gastroContent := `---
+use Card "components/card.gastro"
+Title := "Hello"
+---
+<Card Title={.Title} Bogus="bad" />`
+
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Collect publishDiagnostics notifications — there may be multiple as
+	// gopls and template diagnostics arrive separately and get merged.
+	foundUnknown := false
+	foundMissing := false
+	for attempts := 0; attempts < 5; attempts++ {
+		notification := client.recvNotification(t, "textDocument/publishDiagnostics", 3*time.Second)
+		if notification == nil {
+			break
+		}
+
+		params, _ := notification["params"].(map[string]any)
+		diags, _ := params["diagnostics"].([]any)
+
+		for _, d := range diags {
+			dm, _ := d.(map[string]any)
+			msg, _ := dm["message"].(string)
+			if strings.Contains(msg, `unknown prop "Bogus"`) {
+				foundUnknown = true
+				sev, _ := dm["severity"].(float64)
+				if int(sev) != 1 {
+					t.Errorf("unknown prop should be severity 1 (Error), got %v", sev)
+				}
+			}
+			if strings.Contains(msg, `missing prop "Body"`) {
+				foundMissing = true
+				sev, _ := dm["severity"].(float64)
+				if int(sev) != 2 {
+					t.Errorf("missing prop should be severity 2 (Warning), got %v", sev)
+				}
+			}
+		}
+
+		if foundUnknown && foundMissing {
+			break
+		}
+	}
+	if !foundUnknown {
+		stderr := client.drainStderr()
+		t.Errorf("expected diagnostic for unknown prop 'Bogus'\nstderr: %s", stderr)
+	}
+	if !foundMissing {
+		stderr := client.drainStderr()
+		t.Errorf("expected diagnostic for missing prop 'Body'\nstderr: %s", stderr)
+	}
+}
+
+func TestLSP_ComponentHover(t *testing.T) {
+	projectDir := setupTestProjectWithComponents(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// line 3: <Card Title={.Title} />
+	//          ^--- 'C' is at char 1 (0-indexed), 'Card' is chars 1-4
+	gastroContent := "---\nuse Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<Card Title={.Title} />"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Hover on "Card" (line 4, char 2 — inside the component name)
+	client.send("textDocument/hover", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 4, "character": 2},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+	result := resp["result"]
+	if result == nil {
+		t.Fatal("expected hover result, got nil")
+	}
+
+	rm, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected hover result as map, got %T", result)
+	}
+
+	contents, _ := rm["contents"].(map[string]any)
+	if contents == nil {
+		t.Fatal("expected hover contents, got nil")
+	}
+
+	value, _ := contents["value"].(string)
+	if !strings.Contains(value, "Props struct") {
+		t.Errorf("expected hover to show Props struct, got: %s", value)
+	}
+	if !strings.Contains(value, "Title") || !strings.Contains(value, "string") {
+		t.Errorf("expected hover to show Title field, got: %s", value)
+	}
+	if !strings.Contains(value, "Body") {
+		t.Errorf("expected hover to show Body field, got: %s", value)
+	}
+	if !strings.Contains(value, "components/card.gastro") {
+		t.Errorf("expected hover to show component path, got: %s", value)
+	}
+}
+
+func TestLSP_ComponentDefinition(t *testing.T) {
+	projectDir := setupTestProjectWithComponents(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// line 4: <Card Title={.Title} />
+	gastroContent := "---\nuse Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<Card Title={.Title} />"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Go-to-definition on "Card" (line 4, char 2)
+	client.send("textDocument/definition", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 4, "character": 2},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+	result := resp["result"]
+	if result == nil {
+		t.Fatal("expected definition result, got nil")
+	}
+
+	loc, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected Location object, got %T", result)
+	}
+
+	uri, _ := loc["uri"].(string)
+	expectedURI := "file://" + filepath.Join(projectDir, "components", "card.gastro")
+	if uri != expectedURI {
+		t.Errorf("expected uri=%s, got %s", expectedURI, uri)
+	}
+
+	r, _ := loc["range"].(map[string]any)
+	start, _ := r["start"].(map[string]any)
+	if start["line"] != float64(0) || start["character"] != float64(0) {
+		t.Errorf("expected definition at line 0, char 0, got line=%v char=%v", start["line"], start["character"])
+	}
+}

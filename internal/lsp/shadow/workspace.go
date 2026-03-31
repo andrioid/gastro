@@ -165,6 +165,17 @@ func (ws *Workspace) GetFile(gastroFile string) *VirtualFile {
 	return ws.files[gastroFile]
 }
 
+// FindGastroFileForVirtualPath returns the .gastro file path (relative to
+// project dir) that corresponds to a virtual .go file path, or "" if not found.
+func (ws *Workspace) FindGastroFileForVirtualPath(virtualPath string) string {
+	for gastroFile := range ws.files {
+		if ws.VirtualFilePath(gastroFile) == virtualPath {
+			return gastroFile
+		}
+	}
+	return ""
+}
+
 // Close removes the shadow workspace directory.
 func (ws *Workspace) Close() {
 	os.RemoveAll(ws.dir)

@@ -125,6 +125,98 @@ func RemapHoverRange(raw json.RawMessage, sm *sourcemap.SourceMap) json.RawMessa
 	return remapped
 }
 
+// URIChecker determines whether a URI belongs to the shadow workspace and
+// returns the original .gastro URI and source map for remapping. Returns
+// ("", nil) if the URI is not a virtual file.
+type URIChecker func(virtualURI string) (gastroURI string, sm *sourcemap.SourceMap)
+
+// RemapDefinitionResult rewrites URIs and positions in a gopls definition
+// response from virtual .go coordinates back to .gastro coordinates.
+// Handles Location, Location[], and LocationLink[] response formats.
+// Non-virtual URIs (real .go files) are passed through unchanged.
+func RemapDefinitionResult(raw json.RawMessage, check URIChecker) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return raw
+	}
+
+	var result any
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return raw
+	}
+
+	switch v := result.(type) {
+	case map[string]any:
+		// Single Location: { uri, range }
+		remapLocation(v, check)
+	case []any:
+		for _, item := range v {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, hasTargetURI := m["targetUri"]; hasTargetURI {
+				// LocationLink format
+				remapLocationLink(m, check)
+			} else {
+				// Location format
+				remapLocation(m, check)
+			}
+		}
+	}
+
+	remapped, err := json.Marshal(result)
+	if err != nil {
+		return raw
+	}
+	return remapped
+}
+
+// remapLocation rewrites uri and range in a Location object.
+func remapLocation(loc map[string]any, check URIChecker) {
+	uri, _ := loc["uri"].(string)
+	if uri == "" {
+		return
+	}
+
+	gastroURI, sm := check(uri)
+	if gastroURI == "" {
+		return
+	}
+
+	loc["uri"] = gastroURI
+	if r, ok := loc["range"].(map[string]any); ok {
+		remapPos(r, "start", sm)
+		remapPos(r, "end", sm)
+	}
+}
+
+// remapLocationLink rewrites URIs and ranges in a LocationLink object.
+func remapLocationLink(link map[string]any, check URIChecker) {
+	targetURI, _ := link["targetUri"].(string)
+	if targetURI == "" {
+		return
+	}
+
+	gastroURI, sm := check(targetURI)
+	if gastroURI == "" {
+		return
+	}
+
+	link["targetUri"] = gastroURI
+	if r, ok := link["targetRange"].(map[string]any); ok {
+		remapPos(r, "start", sm)
+		remapPos(r, "end", sm)
+	}
+	if r, ok := link["targetSelectionRange"].(map[string]any); ok {
+		remapPos(r, "start", sm)
+		remapPos(r, "end", sm)
+	}
+	if r, ok := link["originSelectionRange"].(map[string]any); ok {
+		remapPos(r, "start", sm)
+		remapPos(r, "end", sm)
+	}
+}
+
 // remapRange rewrites start/end positions in a range object (used by textEdit,
 // additionalTextEdits, etc.) from virtual to gastro coordinates.
 func remapRange(edit map[string]any, sm *sourcemap.SourceMap) {

@@ -25,12 +25,12 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 | 10. CLI: `gastro dev` | Done | 8 tests. File watcher, debounce, change classification, polling watcher. |
 | 11. Tree-sitter grammar | Done | Grammar, highlight queries, injection queries, test corpus. |
 | 12. LSP: foundation | Done | Shadow workspace (11 tests), source maps (3 tests), virtual `.go` file generation. |
-| 13. LSP: gopls proxy | In Progress | Proxy infrastructure done (8 tests). Hover works. Completions and diagnostics under investigation (see `.opencode/plans/lsp-debugging.md`). |
-| 14. LSP: template intelligence | Done | 5 tests. Variable/component/function completions, diagnostics for unknown vars/components. |
+| 13. LSP: gopls proxy | Done | 16 tests. Hover, completions, diagnostics, and go-to-definition forwarded through gopls with position remapping. Definition results remap all three LSP formats (Location, Location[], LocationLink[]). |
+| 14. LSP: template intelligence | Done | 64 tests. Variable/component/function completions, diagnostics for unknown vars/components, component prop validation (missing/unknown props), component signature hover, component go-to-definition. |
 | 15. Editor extensions | Done | VS Code extension (TextMate grammar + LSP client), Neovim plugin (tree-sitter + LSP). |
 | 16. Example: blog | Done | Working 4-page blog with Layout and PostCard components. Compiles and serves on port 4242. |
 
-**Test count:** 115 passing, 2 skipped (gopls proxy integration — see plan).
+**Test count:** 220 passing.
 
 ---
 

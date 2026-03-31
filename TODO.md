@@ -2,8 +2,8 @@
 
 ## Backlog
 
-- [ ] LSP should flag component props when missing or invalid
-- [ ] LSP should show component signature
+- [x] LSP should flag component props when missing or invalid
+- [x] LSP should show component signature
 - [x] SSE: Type-safe component rendering via `gastro.Render` struct
 - [x] Server-Side-Events response after initial render for pages. For use with DataStar and HTMX
   - [x] Generic SSE runtime helper (`pkg/gastro/sse.go`)

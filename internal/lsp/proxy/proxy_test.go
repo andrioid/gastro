@@ -329,3 +329,185 @@ func TestRemapHoverRange(t *testing.T) {
 		})
 	}
 }
+
+func TestRemapDefinitionResult_Location(t *testing.T) {
+	sm := sourcemap.New(2, 5) // gastro fm at line 2, virtual fm at line 5
+
+	checker := func(uri string) (string, *sourcemap.SourceMap) {
+		if uri == "file:///tmp/shadow/gastro_pages_index.go" {
+			return "file:///project/pages/index.gastro", sm
+		}
+		return "", nil
+	}
+
+	raw := json.RawMessage(`{
+		"uri": "file:///tmp/shadow/gastro_pages_index.go",
+		"range": {
+			"start": {"line": 6, "character": 5},
+			"end": {"line": 6, "character": 10}
+		}
+	}`)
+
+	result := proxy.RemapDefinitionResult(raw, checker)
+
+	var loc map[string]any
+	if err := json.Unmarshal(result, &loc); err != nil {
+		t.Fatalf("failed to parse result: %v", err)
+	}
+
+	if loc["uri"] != "file:///project/pages/index.gastro" {
+		t.Errorf("uri: got %v, want file:///project/pages/index.gastro", loc["uri"])
+	}
+
+	r := loc["range"].(map[string]any)
+	start := r["start"].(map[string]any)
+	gotLine := int(start["line"].(float64))
+	if gotLine != 3 {
+		t.Errorf("start.line: got %d, want 3", gotLine)
+	}
+}
+
+func TestRemapDefinitionResult_RealFile(t *testing.T) {
+	checker := func(uri string) (string, *sourcemap.SourceMap) {
+		// Not a virtual file
+		return "", nil
+	}
+
+	raw := json.RawMessage(`{
+		"uri": "file:///project/db/posts.go",
+		"range": {
+			"start": {"line": 15, "character": 0},
+			"end": {"line": 15, "character": 20}
+		}
+	}`)
+
+	result := proxy.RemapDefinitionResult(raw, checker)
+
+	var loc map[string]any
+	if err := json.Unmarshal(result, &loc); err != nil {
+		t.Fatalf("failed to parse result: %v", err)
+	}
+
+	if loc["uri"] != "file:///project/db/posts.go" {
+		t.Errorf("uri should be unchanged: got %v", loc["uri"])
+	}
+
+	r := loc["range"].(map[string]any)
+	start := r["start"].(map[string]any)
+	if int(start["line"].(float64)) != 15 {
+		t.Error("line should be unchanged for real files")
+	}
+}
+
+func TestRemapDefinitionResult_LocationLink(t *testing.T) {
+	sm := sourcemap.New(2, 5)
+
+	checker := func(uri string) (string, *sourcemap.SourceMap) {
+		if uri == "file:///tmp/shadow/gastro_pages_index.go" {
+			return "file:///project/pages/index.gastro", sm
+		}
+		return "", nil
+	}
+
+	raw := json.RawMessage(`[{
+		"targetUri": "file:///tmp/shadow/gastro_pages_index.go",
+		"targetRange": {
+			"start": {"line": 6, "character": 0},
+			"end": {"line": 6, "character": 20}
+		},
+		"targetSelectionRange": {
+			"start": {"line": 6, "character": 5},
+			"end": {"line": 6, "character": 10}
+		}
+	}]`)
+
+	result := proxy.RemapDefinitionResult(raw, checker)
+
+	var locs []map[string]any
+	if err := json.Unmarshal(result, &locs); err != nil {
+		t.Fatalf("failed to parse result: %v", err)
+	}
+
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 location, got %d", len(locs))
+	}
+
+	link := locs[0]
+	if link["targetUri"] != "file:///project/pages/index.gastro" {
+		t.Errorf("targetUri: got %v, want file:///project/pages/index.gastro", link["targetUri"])
+	}
+
+	tr := link["targetRange"].(map[string]any)
+	start := tr["start"].(map[string]any)
+	if int(start["line"].(float64)) != 3 {
+		t.Errorf("targetRange.start.line: got %v, want 3", start["line"])
+	}
+
+	tsr := link["targetSelectionRange"].(map[string]any)
+	selStart := tsr["start"].(map[string]any)
+	if int(selStart["line"].(float64)) != 3 {
+		t.Errorf("targetSelectionRange.start.line: got %v, want 3", selStart["line"])
+	}
+}
+
+func TestRemapDefinitionResult_LocationArray(t *testing.T) {
+	sm := sourcemap.New(2, 5)
+
+	checker := func(uri string) (string, *sourcemap.SourceMap) {
+		if uri == "file:///tmp/shadow/gastro_pages_index.go" {
+			return "file:///project/pages/index.gastro", sm
+		}
+		return "", nil
+	}
+
+	raw := json.RawMessage(`[
+		{
+			"uri": "file:///tmp/shadow/gastro_pages_index.go",
+			"range": {"start": {"line": 6, "character": 0}, "end": {"line": 6, "character": 10}}
+		},
+		{
+			"uri": "file:///project/db/posts.go",
+			"range": {"start": {"line": 20, "character": 0}, "end": {"line": 20, "character": 10}}
+		}
+	]`)
+
+	result := proxy.RemapDefinitionResult(raw, checker)
+
+	var locs []map[string]any
+	if err := json.Unmarshal(result, &locs); err != nil {
+		t.Fatalf("failed to parse result: %v", err)
+	}
+
+	if len(locs) != 2 {
+		t.Fatalf("expected 2 locations, got %d", len(locs))
+	}
+
+	// First location: virtual file -> remapped
+	if locs[0]["uri"] != "file:///project/pages/index.gastro" {
+		t.Errorf("first uri: got %v, want remapped gastro URI", locs[0]["uri"])
+	}
+
+	// Second location: real file -> unchanged
+	if locs[1]["uri"] != "file:///project/db/posts.go" {
+		t.Errorf("second uri: got %v, want unchanged real file URI", locs[1]["uri"])
+	}
+	r2 := locs[1]["range"].(map[string]any)
+	s2 := r2["start"].(map[string]any)
+	if int(s2["line"].(float64)) != 20 {
+		t.Error("second location line should be unchanged")
+	}
+}
+
+func TestRemapDefinitionResult_NullInput(t *testing.T) {
+	checker := func(uri string) (string, *sourcemap.SourceMap) { return "", nil }
+
+	result := proxy.RemapDefinitionResult(json.RawMessage("null"), checker)
+	if string(result) != "null" {
+		t.Errorf("null input should return null, got: %s", result)
+	}
+
+	result = proxy.RemapDefinitionResult(json.RawMessage(""), checker)
+	if string(result) != "" {
+		t.Errorf("empty input should return empty, got: %s", result)
+	}
+}

@@ -1,6 +1,9 @@
 package template_test
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andrioid/gastro/internal/codegen"
@@ -90,7 +93,7 @@ func TestDiagnostics_UnknownVariable(t *testing.T) {
 	templateBody := `<h1>{{ .Title }}</h1>
 <p>{{ .Unknown }}</p>`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -119,7 +122,7 @@ func TestDiagnostics_DoubleDotSyntax(t *testing.T) {
 	}
 	templateBody := `<title>{{ ..Title }}</title>`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -150,7 +153,7 @@ func TestDiagnostics_MultiLinePositions(t *testing.T) {
 <p>line 2</p>
 <p>{{ .Missing }}</p>`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -180,7 +183,7 @@ func TestDiagnose_RangeBlockVariables(t *testing.T) {
 <p>{{ .Author }}</p>
 {{ end }}`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
 
 	// .Slug and .Author are fields on range elements — must NOT be flagged
 	for _, d := range diags {
@@ -203,7 +206,7 @@ func TestDiagnose_WithBlockVariables(t *testing.T) {
 <p>{{ .Name }}</p>
 {{ end }}`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
 
 	for _, d := range diags {
 		if d.Message == `unknown template variable ".Name"` {
@@ -223,7 +226,7 @@ func TestDiagnose_IfBlockVariables(t *testing.T) {
 <h1>{{ .Missing }}</h1>
 {{ end }}`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -248,7 +251,7 @@ func TestDiagnose_DollarVarInRange(t *testing.T) {
 <p>{{ $.Title }}</p>
 {{ end }}`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -269,7 +272,7 @@ func TestDiagnose_EmptyBody(t *testing.T) {
 		},
 	}
 
-	diags := lsptemplate.Diagnose("", info, nil, nil, nil)
+	diags := lsptemplate.Diagnose("", info, nil, nil, nil, nil)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics for empty body, got %d", len(diags))
 	}
@@ -279,7 +282,7 @@ func TestDiagnose_NoExportsWithVars(t *testing.T) {
 	info := &codegen.FrontmatterInfo{}
 	templateBody := `<p>{{ .Title }}</p>`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -299,7 +302,7 @@ func TestOffsetToLineChar(t *testing.T) {
 	info := &codegen.FrontmatterInfo{}
 
 	// Single line: ".Unknown" at offset 4
-	diags := lsptemplate.Diagnose(`{{ .Unknown }}`, info, nil, nil, nil)
+	diags := lsptemplate.Diagnose(`{{ .Unknown }}`, info, nil, nil, nil, nil)
 	if len(diags) > 0 {
 		if diags[0].StartLine != 0 {
 			t.Errorf("single line: expected StartLine=0, got %d", diags[0].StartLine)
@@ -307,7 +310,7 @@ func TestOffsetToLineChar(t *testing.T) {
 	}
 
 	// First char of second line
-	diags = lsptemplate.Diagnose("x\n{{ .Unknown }}", info, nil, nil, nil)
+	diags = lsptemplate.Diagnose("x\n{{ .Unknown }}", info, nil, nil, nil, nil)
 	if len(diags) > 0 {
 		if diags[0].StartLine != 1 {
 			t.Errorf("second line: expected StartLine=1, got %d", diags[0].StartLine)
@@ -342,7 +345,7 @@ func TestDiagnostics_UnknownComponent(t *testing.T) {
 	templateBody := `<Card Title={.Name} />
 <Unknown />`
 
-	diags := lsptemplate.Diagnose(templateBody, info, uses, nil, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, uses, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -356,5 +359,208 @@ func TestDiagnostics_UnknownComponent(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected diagnostic for unknown component, got: %v", diags)
+	}
+}
+
+func TestResolveComponentProps(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a component with a Props struct
+	content := `---
+type Props struct {
+	Title string
+	Count int
+}
+
+props := gastro.Props[Props]()
+Title := props.Title
+---
+<div>{{ .Title }}</div>`
+
+	if err := os.MkdirAll(filepath.Join(dir, "components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "components", "card.gastro"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fields, err := lsptemplate.ResolveComponentProps(dir, "components/card.gastro", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fields) != 2 {
+		t.Fatalf("expected 2 fields, got %d", len(fields))
+	}
+	if fields[0].Name != "Title" || fields[0].Type != "string" {
+		t.Errorf("field 0: got %+v, want Title/string", fields[0])
+	}
+	if fields[1].Name != "Count" || fields[1].Type != "int" {
+		t.Errorf("field 1: got %+v, want Count/int", fields[1])
+	}
+}
+
+func TestResolveComponentProps_NoProps(t *testing.T) {
+	dir := t.TempDir()
+
+	content := `---
+Title := "Hello"
+---
+<div>{{ .Title }}</div>`
+
+	if err := os.WriteFile(filepath.Join(dir, "simple.gastro"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fields, err := lsptemplate.ResolveComponentProps(dir, "simple.gastro", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fields != nil {
+		t.Errorf("expected nil fields for component without Props, got %v", fields)
+	}
+}
+
+func TestResolveComponentProps_OpenDocument(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a stale version to disk
+	staleContent := `---
+type Props struct {
+	Old string
+}
+props := gastro.Props[Props]()
+---
+<div></div>`
+
+	if err := os.WriteFile(filepath.Join(dir, "card.gastro"), []byte(staleContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate an open document with a newer version
+	freshContent := `---
+type Props struct {
+	Title string
+	Body  string
+}
+props := gastro.Props[Props]()
+---
+<div></div>`
+
+	absPath := filepath.Join(dir, "card.gastro")
+	openDocs := map[string]string{
+		"file://" + absPath: freshContent,
+	}
+
+	fields, err := lsptemplate.ResolveComponentProps(dir, "card.gastro", openDocs)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fields) != 2 {
+		t.Fatalf("expected 2 fields from open doc, got %d", len(fields))
+	}
+	if fields[0].Name != "Title" {
+		t.Errorf("expected Title from open doc, got %s", fields[0].Name)
+	}
+	if fields[1].Name != "Body" {
+		t.Errorf("expected Body from open doc, got %s", fields[1].Name)
+	}
+}
+
+func TestDiagnoseComponentProps_UnknownProp(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Card": {
+			{Name: "Title", Type: "string"},
+			{Name: "Body", Type: "string"},
+		},
+	}
+
+	templateBody := `<Card Title={.Name} Bogus={.X} />`
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
+
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, `unknown prop "Bogus"`) {
+			found = true
+			if d.Severity != 1 {
+				t.Errorf("expected severity 1 (Error), got %d", d.Severity)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected diagnostic for unknown prop Bogus, got: %v", diags)
+	}
+}
+
+func TestDiagnoseComponentProps_MissingProp(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Card": {
+			{Name: "Title", Type: "string"},
+			{Name: "Body", Type: "string"},
+		},
+	}
+
+	// Only provide Title, missing Body
+	templateBody := `<Card Title={.Name} />`
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
+
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, `missing prop "Body"`) {
+			found = true
+			if d.Severity != 2 {
+				t.Errorf("expected severity 2 (Warning), got %d", d.Severity)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected warning for missing prop Body, got: %v", diags)
+	}
+}
+
+func TestDiagnoseComponentProps_NoPropsStruct(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Simple", Path: "components/simple.gastro"},
+	}
+	// Simple is not in propsMap — no Props struct
+	propsMap := map[string][]codegen.StructField{}
+
+	templateBody := `<Simple />`
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
+
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics for component without Props, got: %v", diags)
+	}
+}
+
+func TestDiagnoseComponentProps_WithChildren(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Layout": {
+			{Name: "Title", Type: "string"},
+		},
+	}
+
+	// Open tag with children — should check props on the open tag
+	templateBody := `<Layout Title={.Title}>
+<p>child content</p>
+</Layout>`
+
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
+
+	// Should not flag missing __children or any other internal prop
+	for _, d := range diags {
+		if strings.Contains(d.Message, "unknown prop") {
+			t.Errorf("unexpected unknown prop diagnostic: %s", d.Message)
+		}
 	}
 }

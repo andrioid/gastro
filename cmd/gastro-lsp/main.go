@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/lsp/proxy"
 	"github.com/andrioid/gastro/internal/lsp/shadow"
+	"github.com/andrioid/gastro/internal/lsp/sourcemap"
 	lsptemplate "github.com/andrioid/gastro/internal/lsp/template"
 	"github.com/andrioid/gastro/internal/parser"
 )
@@ -32,28 +34,30 @@ func main() {
 }
 
 type server struct {
-	documents      map[string]string // URI -> content
-	workspace      *shadow.Workspace
-	gopls          *proxy.GoplsProxy
-	projectDir     string
-	goplsOpenFiles map[string]int                                 // virtual URI -> version (tracks files opened in gopls)
-	writeMu        sync.Mutex                                     // protects stdout writes from concurrent goroutines
-	goplsDiags     map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
-	templateDiags  map[string][]map[string]any                    // URI -> template diagnostics (body)
-	typeCache      map[string]map[string]string                   // URI -> varName -> type string
-	fieldCache     map[string]map[string][]fieldInfo              // URI -> varName -> fields
-	typeFieldCache map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
+	documents           map[string]string // URI -> content
+	workspace           *shadow.Workspace
+	gopls               *proxy.GoplsProxy
+	projectDir          string
+	goplsOpenFiles      map[string]int                                 // virtual URI -> version (tracks files opened in gopls)
+	writeMu             sync.Mutex                                     // protects stdout writes from concurrent goroutines
+	goplsDiags          map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
+	templateDiags       map[string][]map[string]any                    // URI -> template diagnostics (body)
+	typeCache           map[string]map[string]string                   // URI -> varName -> type string
+	fieldCache          map[string]map[string][]fieldInfo              // URI -> varName -> fields
+	typeFieldCache      map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
+	componentPropsCache map[string][]codegen.StructField               // componentPath -> Props struct fields (nil = no props)
 }
 
 func newServer() *server {
 	return &server{
-		documents:      make(map[string]string),
-		goplsOpenFiles: make(map[string]int),
-		goplsDiags:     make(map[string][]map[string]any),
-		templateDiags:  make(map[string][]map[string]any),
-		typeCache:      make(map[string]map[string]string),
-		fieldCache:     make(map[string]map[string][]fieldInfo),
-		typeFieldCache: make(map[string]map[string][]lsptemplate.FieldEntry),
+		documents:           make(map[string]string),
+		goplsOpenFiles:      make(map[string]int),
+		goplsDiags:          make(map[string][]map[string]any),
+		templateDiags:       make(map[string][]map[string]any),
+		typeCache:           make(map[string]map[string]string),
+		fieldCache:          make(map[string]map[string][]fieldInfo),
+		typeFieldCache:      make(map[string]map[string][]lsptemplate.FieldEntry),
+		componentPropsCache: make(map[string][]codegen.StructField),
 	}
 }
 
@@ -306,6 +310,7 @@ func (s *server) handleDidChange(msg *jsonRPCMessage) {
 		delete(s.typeCache, uri) // invalidate caches on change
 		delete(s.fieldCache, uri)
 		delete(s.typeFieldCache, uri)
+		s.invalidateComponentPropsCache(uri)
 		s.syncToGopls(uri, content)
 		s.runTemplateDiagnostics(uri, content)
 	}
@@ -327,6 +332,7 @@ func (s *server) handleDidClose(msg *jsonRPCMessage) {
 	delete(s.typeCache, uri)
 	delete(s.fieldCache, uri)
 	delete(s.typeFieldCache, uri)
+	s.invalidateComponentPropsCache(uri)
 }
 
 // publishMergedDiagnostics combines gopls (frontmatter) and template (body)
@@ -374,19 +380,26 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 		}
 	}
 
-	templateDiags := lsptemplate.Diagnose(parsed.TemplateBody, info, parsed.Uses, types, resolver)
+	// Resolve component Props structs for prop validation
+	propsMap := s.resolveAllComponentProps(parsed.Uses)
+
+	templateDiags := lsptemplate.Diagnose(parsed.TemplateBody, info, parsed.Uses, types, resolver, propsMap)
 
 	// Convert to LSP diagnostic format, offsetting positions by the template body start line.
 	// TemplateBodyLine is 1-indexed; LSP positions are 0-indexed.
 	bodyLineOffset := parsed.TemplateBodyLine - 1
 	lspDiags := make([]map[string]any, 0, len(templateDiags))
 	for _, d := range templateDiags {
+		severity := d.Severity
+		if severity == 0 {
+			severity = 1 // Default to Error
+		}
 		lspDiags = append(lspDiags, map[string]any{
 			"range": map[string]any{
 				"start": map[string]any{"line": d.StartLine + bodyLineOffset, "character": d.StartChar},
 				"end":   map[string]any{"line": d.EndLine + bodyLineOffset, "character": d.EndChar},
 			},
-			"severity": 1, // Error
+			"severity": severity,
 			"message":  d.Message,
 			"source":   "gastro",
 		})
@@ -394,6 +407,51 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 
 	s.templateDiags[uri] = lspDiags
 	s.publishMergedDiagnostics(uri)
+}
+
+// resolveAllComponentProps builds a map from component name to its Props
+// struct fields, using the cache where possible.
+func (s *server) resolveAllComponentProps(uses []parser.UseDeclaration) map[string][]codegen.StructField {
+	if s.projectDir == "" || len(uses) == 0 {
+		return nil
+	}
+
+	result := make(map[string][]codegen.StructField, len(uses))
+	for _, u := range uses {
+		if cached, ok := s.componentPropsCache[u.Path]; ok {
+			if cached != nil {
+				result[u.Name] = cached
+			}
+			continue
+		}
+
+		fields, err := lsptemplate.ResolveComponentProps(s.projectDir, u.Path, s.documents)
+		if err != nil {
+			log.Printf("resolving component props for %s: %v", u.Path, err)
+			continue
+		}
+
+		s.componentPropsCache[u.Path] = fields
+		if fields != nil {
+			result[u.Name] = fields
+		}
+	}
+
+	return result
+}
+
+// invalidateComponentPropsCache removes cached props for a component file
+// when it changes. The URI is a file:// URI for the changed document.
+func (s *server) invalidateComponentPropsCache(uri string) {
+	filePath := uriToPath(uri)
+	if s.projectDir == "" || filePath == "" {
+		return
+	}
+	relPath, err := filepath.Rel(s.projectDir, filePath)
+	if err != nil {
+		return
+	}
+	delete(s.componentPropsCache, relPath)
 }
 
 // queryVariableTypes queries gopls for the types of exported frontmatter
@@ -652,15 +710,23 @@ func (s *server) handleHover(msg *jsonRPCMessage) *jsonRPCMessage {
 }
 
 // templateHover returns hover information for template body elements:
-// frontmatter variables, range/with element fields, and template functions.
+// frontmatter variables, range/with element fields, template functions,
+// and component tags.
 func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *parser.File) any {
-	tree, err := lsptemplate.ParseTemplateBody(parsed.TemplateBody, parsed.Uses)
-	if err != nil {
+	cursorOffset := cursorPosToBodyOffset(content, pos, parsed.TemplateBodyLine)
+	if cursorOffset < 0 {
 		return nil
 	}
 
-	cursorOffset := cursorPosToBodyOffset(content, pos, parsed.TemplateBodyLine)
-	if cursorOffset < 0 {
+	// Check if cursor is on a component tag name before trying AST-based hover.
+	// Component tags are raw text to the Go template parser, so NodeAtCursor
+	// won't find them.
+	if result := s.componentHover(parsed, cursorOffset); result != nil {
+		return result
+	}
+
+	tree, err := lsptemplate.ParseTemplateBody(parsed.TemplateBody, parsed.Uses)
+	if err != nil {
 		return nil
 	}
 
@@ -748,6 +814,69 @@ func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *
 	}
 }
 
+// componentTagNameRegex matches component tag names with their byte positions.
+var componentTagNameRegex = regexp.MustCompile(`</?([A-Z][a-zA-Z0-9]*)`)
+
+// componentHover checks if the cursor is on a component tag name and returns
+// hover information showing the component's Props struct fields.
+func (s *server) componentHover(parsed *parser.File, cursorOffset int) any {
+	body := parsed.TemplateBody
+	for _, idx := range componentTagNameRegex.FindAllStringSubmatchIndex(body, -1) {
+		nameStart, nameEnd := idx[2], idx[3]
+		if cursorOffset < nameStart || cursorOffset > nameEnd {
+			continue
+		}
+
+		compName := body[nameStart:nameEnd]
+
+		// Find the use declaration for this component
+		var usePath string
+		for _, u := range parsed.Uses {
+			if u.Name == compName {
+				usePath = u.Path
+				break
+			}
+		}
+		if usePath == "" {
+			continue
+		}
+
+		propsMap := s.resolveAllComponentProps(parsed.Uses)
+		fields := propsMap[compName]
+
+		bodyLineOffset := parsed.TemplateBodyLine - 1
+		startLine, startChar := lsptemplate.OffsetToLineChar(body, nameStart)
+		endLine, endChar := lsptemplate.OffsetToLineChar(body, nameEnd)
+
+		var value string
+		if len(fields) > 0 {
+			var sb strings.Builder
+			sb.WriteString("```go\ntype Props struct {\n")
+			for _, f := range fields {
+				sb.WriteString(fmt.Sprintf("    %s %s\n", f.Name, f.Type))
+			}
+			sb.WriteString("}\n```\n\n")
+			sb.WriteString("Component: " + usePath)
+			value = sb.String()
+		} else {
+			value = "Component: " + usePath + "\n\nNo Props struct defined."
+		}
+
+		return map[string]any{
+			"contents": map[string]any{
+				"kind":  "markdown",
+				"value": value,
+			},
+			"range": map[string]any{
+				"start": map[string]any{"line": startLine + bodyLineOffset, "character": startChar},
+				"end":   map[string]any{"line": endLine + bodyLineOffset, "character": endChar},
+			},
+		}
+	}
+
+	return nil
+}
+
 func (s *server) handleDefinition(msg *jsonRPCMessage) *jsonRPCMessage {
 	var params positionParams
 	json.Unmarshal(msg.Params, &params)
@@ -764,13 +893,94 @@ func (s *server) handleDefinition(msg *jsonRPCMessage) *jsonRPCMessage {
 
 	cursorLine := params.Position.Line + 1
 	if cursorLine < parsed.TemplateBodyLine {
+		// Frontmatter: forward to gopls and remap the result
 		result := s.forwardToGopls(params.TextDocument.URI, "textDocument/definition", params.Position)
 		if result != nil {
+			if raw, ok := result.(json.RawMessage); ok {
+				result = json.RawMessage(proxy.RemapDefinitionResult(raw, s.virtualURIChecker(params.TextDocument.URI)))
+			}
 			return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: result}
 		}
+		return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: nil}
+	}
+
+	// Template body: check for component tag go-to-definition
+	if loc := s.componentDefinition(parsed, params.Position); loc != nil {
+		return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: loc}
 	}
 
 	return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: nil}
+}
+
+// virtualURIChecker returns a proxy.URIChecker that resolves virtual file URIs
+// in the shadow workspace back to their .gastro source URIs.
+func (s *server) virtualURIChecker(requestingGastroURI string) proxy.URIChecker {
+	return func(virtualURI string) (string, *sourcemap.SourceMap) {
+		if s.workspace == nil {
+			return "", nil
+		}
+
+		virtualPath := uriToPath(virtualURI)
+
+		// Check if this virtual path belongs to our shadow workspace
+		gastroRelPath := s.workspace.FindGastroFileForVirtualPath(virtualPath)
+		if gastroRelPath == "" {
+			return "", nil
+		}
+
+		vf := s.workspace.GetFile(gastroRelPath)
+		if vf == nil {
+			return "", nil
+		}
+
+		gastroAbsPath := filepath.Join(s.projectDir, gastroRelPath)
+		return "file://" + gastroAbsPath, vf.SourceMap
+	}
+}
+
+// componentDefinition returns an LSP Location for the component file when
+// the cursor is on a component tag name in the template body.
+func (s *server) componentDefinition(parsed *parser.File, pos proxy.Position) any {
+	body := parsed.TemplateBody
+	bodyStartLine := parsed.TemplateBodyLine - 1 // 0-indexed
+	if pos.Line < bodyStartLine {
+		return nil
+	}
+
+	// Calculate byte offset within template body
+	lines := strings.Split(body, "\n")
+	relLine := pos.Line - bodyStartLine
+	offset := 0
+	for i := 0; i < relLine && i < len(lines); i++ {
+		offset += len(lines[i]) + 1
+	}
+	offset += pos.Character
+	if offset < 0 || offset > len(body) {
+		return nil
+	}
+
+	for _, idx := range componentTagNameRegex.FindAllStringSubmatchIndex(body, -1) {
+		nameStart, nameEnd := idx[2], idx[3]
+		if offset < nameStart || offset > nameEnd {
+			continue
+		}
+
+		compName := body[nameStart:nameEnd]
+		for _, u := range parsed.Uses {
+			if u.Name == compName {
+				absPath := filepath.Join(s.projectDir, u.Path)
+				return map[string]any{
+					"uri": "file://" + absPath,
+					"range": map[string]any{
+						"start": map[string]any{"line": 0, "character": 0},
+						"end":   map[string]any{"line": 0, "character": 0},
+					},
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // forwardToGopls sends a request to gopls with mapped positions and returns
@@ -810,10 +1020,8 @@ func (s *server) forwardToGopls(gastroURI, method string, pos proxy.Position) an
 		return nil
 	}
 
-	// For completion results, the positions don't need mapping back
-	// since they're insertion positions relative to the cursor.
-	// For hover/definition, we'd need to map range positions back.
-	// Return as-is for now — completions are the primary use case.
+	// Position remapping is handled by each caller (handleCompletion,
+	// handleHover, handleDefinition) since the response formats differ.
 	return json.RawMessage(result)
 }
 
