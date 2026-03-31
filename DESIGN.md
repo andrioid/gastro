@@ -15,12 +15,12 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 |-------|--------|-------|
 | 1. Parser | Done | 14 tests. Splits frontmatter/body, extracts imports and `use` declarations. |
 | 2. Frontmatter codegen | Done | 9 tests. Go AST analysis, variable extraction, gastro marker detection. |
-| 3. Template codegen | Partial | 9 tests. `<Component />` to template calls, `<slot />`, prop parsing. Codegen works but runtime template function registration is not wired. |
-| 4. Component system | Partial | 8 tests. `MapToStruct[T]` with type coercion works. End-to-end component invocation at runtime not yet wired. |
+| 3. Template codegen | Done | 12 tests. `<Component />` to template calls, `<slot />`, prop parsing, pipe expressions in props, child content extraction into `{{define}}` blocks. |
+| 4. Component system | Done | 8 tests. `MapToStruct[T]` with type coercion, component render functions (`func(map[string]any) template.HTML`), per-page init with component FuncMap, `__gastro_render_children` closure for slot content. |
 | 5. File router | Done | 10 tests. Directory-to-route mapping, `[param]` patterns, func name derivation. |
 | 6. Runtime library | Done | 13 tests. Context, DefaultFuncs (18 helpers), Recover. |
 | 7. Embedding | Partial | Design complete, `//go:embed` generation not yet wired into compiler. |
-| 8. CLI: `gastro generate` | Done | 4 tests. Compiler orchestrates parser + codegen + router, writes `.gastro/`. |
+| 8. CLI: `gastro generate` | Done | 6 tests. Compiler orchestrates parser + codegen + router, writes `.gastro/`. Static file serving detection. |
 | 9. CLI: `gastro build` | Done | Runs generate + `go build`. |
 | 10. CLI: `gastro dev` | Done | 8 tests. File watcher, debounce, change classification, polling watcher. |
 | 11. Tree-sitter grammar | Done | Grammar, highlight queries, injection queries, test corpus. |
@@ -28,9 +28,9 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 | 13. LSP: gopls proxy | In Progress | Proxy infrastructure done (8 tests). Hover works. Completions and diagnostics under investigation (see `.opencode/plans/lsp-debugging.md`). |
 | 14. LSP: template intelligence | Done | 5 tests. Variable/component/function completions, diagnostics for unknown vars/components. |
 | 15. Editor extensions | Done | VS Code extension (TextMate grammar + LSP client), Neovim plugin (tree-sitter + LSP). |
-| 16. Example: blog | Done | Working 4-page blog. Compiles and serves on port 4242. |
+| 16. Example: blog | Done | Working 4-page blog with Layout and PostCard components. Compiles and serves on port 4242. |
 
-**Test count:** 106 passing, 2 skipped (gopls proxy integration — see plan).
+**Test count:** 115 passing, 2 skipped (gopls proxy integration — see plan).
 
 ---
 
@@ -152,7 +152,7 @@ myapp/
     card.gastro
     header.gastro
     layout.gastro
-  public/                      <- static assets, embedded into binary
+  static/                      <- static assets, embedded into binary
     styles.css
     favicon.ico
     images/
@@ -175,7 +175,7 @@ myapp/
 
 - `pages/` -- file-based routing root.
 - `components/` -- reusable component directory.
-- `public/` -- static assets, served at the `/static/` URL prefix. Embedded
+- `static/` -- static assets, served at the `/static/` URL prefix. Embedded
   into the binary in production (embedding not yet wired).
 - `.gastro/` -- generated output (gitignored, never hand-edited).
 
@@ -545,8 +545,8 @@ func Routes(opts ...Option) http.Handler {
     mux.HandleFunc("GET /blog", pageBlogIndex)
     mux.HandleFunc("GET /blog/{slug}", pageBlogSlug)
 
-    // Static assets from public/
-    staticFS, _ := fs.Sub(publicFS, "public")
+    // Static assets from static/
+    staticFS, _ := fs.Sub(staticAssetFS, "static")
     mux.Handle("GET /static/",
         http.StripPrefix("/static/", http.FileServerFS(staticFS)))
 
@@ -630,8 +630,8 @@ import "embed"
 //go:embed templates/*
 var templateFS embed.FS
 
-//go:embed public/*
-var publicFS embed.FS
+//go:embed static/*
+var staticAssetFS embed.FS
 ```
 
 ### Dev vs Production
@@ -644,11 +644,11 @@ func getTemplateFS() fs.FS {
     return templateFS
 }
 
-func getPublicFS() fs.FS {
+func getStaticFS() fs.FS {
     if os.Getenv("GASTRO_DEV") == "1" {
-        return os.DirFS("public")
+        return os.DirFS("static")
     }
-    sub, _ := fs.Sub(publicFS, "public")
+    sub, _ := fs.Sub(staticAssetFS, "static")
     return sub
 }
 ```
@@ -829,7 +829,7 @@ virtual `.go` line numbers.
 | 21 | LSP template intelligence | Own logic: variable/function/component completions, type-aware hover     |
 | 22 | LSP binary                | Separate `gastro-lsp` binary                                             |
 | 23 | Syntax highlighting       | Tree-sitter first, with Go/HTML language injection                       |
-| 24 | Static assets             | `public/` directory, embedded via `//go:embed`                           |
+| 24 | Static assets             | `static/` directory, embedded via `//go:embed`                           |
 | 25 | Build output              | `gastro build` = generate + `go build` -> single binary                  |
 | 26 | Component import + LSP    | `use` lines commented out in gopls virtual file, handled by gastro-lsp   |
 
@@ -841,11 +841,11 @@ virtual `.go` line numbers.
 |-------|--------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
 | 1     | **Parser**                     | `.gastro` file parser: split frontmatter from template body. Handle `---` delimiters, `use` declarations, edge cases.                               |
 | 2     | **Frontmatter codegen**        | Go AST analysis: extract imports, `use` declarations, uppercase variable capture. Generate handler functions with data maps. Store struct pointers.  |
-| 3     | **Template codegen**           | Parse template body: transform `<Component />` tags into template function calls, handle `<slot />`, generate `html/template` code. **Note:** codegen transforms component syntax correctly, but the runtime template function registration (`__gastro_ComponentName`) in the generated router is not yet wired. |
-| 4     | **Component system**           | Props struct detection, `gastro.Props[T]()` codegen, `mapToStruct[T]` runtime helper. **Note:** unit-level codegen and type coercion work; end-to-end component invocation at runtime is not yet wired into the generated router. |
+| 3     | **Template codegen**           | Parse template body: transform `<Component />` tags into template function calls, handle `<slot />`, generate `html/template` code. Child content extracted into `{{define}}` blocks. Pipe expressions in props wrapped in parens. |
+| 4     | **Component system**           | Props struct detection, `gastro.Props[T]()` codegen, `MapToStruct[T]` runtime helper, component render functions, per-page init with component FuncMap registration, `__gastro_render_children` closure for slot content. End-to-end working. |
 | 5     | **File router**                | Walk `pages/`, generate route table, handle `[param]` patterns, generate `Routes()` function with options.                                          |
 | 6     | **Runtime library**            | `gastro` package: `Context`, `Props[T]`, `Recover`, `DefaultFuncs()`, `WithFuncs()` option, dev/prod FS abstraction.                                |
-| 7     | **Embedding & static assets**  | `//go:embed` for templates and `public/`, `fs.FS` abstraction, static file serving, dev vs prod mode.                                               |
+| 7     | **Embedding & static assets**  | `//go:embed` for templates and `static/`, `fs.FS` abstraction, static file serving, dev vs prod mode.                                               |
 | 8     | **CLI: `gastro generate`**     | One-shot code generation to `.gastro/`.                                                                                                             |
 | 9     | **CLI: `gastro build`**        | Generate + `go build` -> single deployable binary. Configurable output.                                                                             |
 | 10    | **CLI: `gastro dev`**          | File watcher, hybrid restart (template reload vs process restart), `GASTRO_DEV=1`.                                                                  |
@@ -899,7 +899,7 @@ gastro/
         blog/
           index.gastro
           [slug].gastro
-      public/
+      static/
         styles.css
       db/
         posts.go
@@ -943,3 +943,14 @@ import "github.com/yuin/goldmark"
 Utility functions that accept `*gastro.Context` can be written in normal Go
 packages and called from page frontmatter for shared patterns (e.g.,
 authentication guards).
+
+---
+
+## 20. Future Considerations
+
+- **Unify page and component internals.** Pages and components share the same
+  structure (frontmatter + template, exported variables into a data map, template
+  execution). A page is conceptually a component with HTTP request context.
+  Consider refactoring the codegen to use a single internal render mechanism
+  where a page is a thin HTTP adapter that calls it. This would reduce code
+  duplication in the generator templates and simplify the architecture.

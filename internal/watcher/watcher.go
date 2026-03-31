@@ -28,7 +28,7 @@ const (
 // ClassifyChange determines whether a file change needs a reload or restart.
 func ClassifyChange(file string, section Section) ChangeType {
 	// Static assets only need reload
-	if strings.HasPrefix(file, "public/") {
+	if strings.HasPrefix(file, "static/") {
 		return ChangeReload
 	}
 
@@ -50,6 +50,24 @@ func CollectGastroFiles(dir string) ([]string, error) {
 			return err
 		}
 		if !info.IsDir() && strings.HasSuffix(path, ".gastro") {
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	return files, err
+}
+
+// CollectAllFiles walks a directory and returns all file paths.
+// Used for watching static asset directories where any file type is relevant.
+func CollectAllFiles(dir string) ([]string, error) {
+	var files []string
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
 			files = append(files, path)
 		}
 		return nil

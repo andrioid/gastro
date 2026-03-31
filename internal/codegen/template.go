@@ -136,6 +136,9 @@ func replaceWithChildren(body string, known map[string]bool) (string, bool, erro
 	}
 	closeIdx += loc[1]
 
+	// Extract child content between open and close tags
+	childContent := body[loc[1]:closeIdx]
+
 	dictCall := buildDictCall(propsStr)
 	childTemplateName := fmt.Sprintf("%s_children", strings.ToLower(name))
 
@@ -144,7 +147,13 @@ func replaceWithChildren(body string, known map[string]bool) (string, bool, erro
 		name, dictCall, childTemplateName,
 	)
 
-	result := body[:loc[0]] + replacement + body[closeIdx+len(closeTag):]
+	// Append a {{define}} block so the child content is available as a sub-template
+	defineBlock := fmt.Sprintf(
+		"\n{{define %q}}%s{{end}}",
+		childTemplateName, childContent,
+	)
+
+	result := body[:loc[0]] + replacement + body[closeIdx+len(closeTag):] + defineBlock
 	return result, true, nil
 }
 
@@ -168,8 +177,12 @@ func buildDictCall(propsStr string) string {
 	for _, m := range matches {
 		key := m[1]
 		if m[2] != "" {
-			// {.expr} form
-			parts = append(parts, fmt.Sprintf("%q %s", key, m[2]))
+			// {.expr} form — wrap in parens if it contains a pipe
+			expr := m[2]
+			if strings.Contains(expr, "|") {
+				expr = "(" + expr + ")"
+			}
+			parts = append(parts, fmt.Sprintf("%q %s", key, expr))
 		} else {
 			// "literal" form
 			parts = append(parts, fmt.Sprintf("%q %q", key, m[3]))

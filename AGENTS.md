@@ -1,4 +1,7 @@
 - Write temporary files in `tmp/` and clean up files older than 7 days
+- Go versions should match across `go.mod`, `mise.toml` and examples in `examples/`
+- If you encounter any pre-existing issues. Add them to the plan and handle them last.
+- Agents are not allowed to write into `AGENTS.md`
 
 ### References
 

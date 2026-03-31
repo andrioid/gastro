@@ -77,6 +77,46 @@ func TestCompile_GeneratesTemplateFiles(t *testing.T) {
 	}
 }
 
+func TestCompile_GeneratesStaticHandler(t *testing.T) {
+	projectDir := filepath.Join("testdata", "basic")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(outputDir, "routes.go"))
+	s := string(content)
+
+	// testdata/basic/static/ exists, so the static handler should be generated
+	assertStringContains(t, s, `GET /static/`)
+	assertStringContains(t, s, `http.FileServer`)
+}
+
+func TestCompile_OmitsStaticHandlerWhenNoDir(t *testing.T) {
+	// Create a minimal project without a static/ directory
+	projectDir := t.TempDir()
+	pagesDir := filepath.Join(projectDir, "pages")
+	os.MkdirAll(pagesDir, 0o755)
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte("---\nTitle := \"Hi\"\n---\n<h1>{{ .Title }}</h1>"), 0o644)
+
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(outputDir, "routes.go"))
+	s := string(content)
+
+	// No static/ dir, so no static handler should be generated
+	if contains(s, "/static/") {
+		t.Error("routes.go should not contain /static/ when no static directory exists")
+	}
+}
+
 func assertStringContains(t *testing.T, s, substr string) {
 	t.Helper()
 	if !contains(s, substr) {

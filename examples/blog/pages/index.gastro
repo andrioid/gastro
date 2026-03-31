@@ -1,6 +1,9 @@
 ---
 import "myblog/db"
 
+use Layout "components/layout.gastro"
+use PostCard "components/post-card.gastro"
+
 ctx := gastro.Context()
 posts, err := db.ListPublished()
 if err != nil {
@@ -11,30 +14,11 @@ if err != nil {
 Posts := posts
 Title := "Home"
 ---
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>{{ .Title }} - My Blog</title>
-    <link rel="stylesheet" href="/static/styles.css">
-</head>
-<body>
-    <nav>
-        <a href="/" class="active">Home</a>
-        <a href="/about">About</a>
-        <a href="/blog">Blog</a>
-    </nav>
-    <main>
-        <h1>Welcome to My Blog</h1>
-        <section>
-            {{ range .Posts }}
-            <article class="post-card">
-                <h2><a href="/blog/{{ .Slug }}">{{ .Title }}</a></h2>
-                <p class="meta">By {{ .Author }} on {{ .CreatedAt | timeFormat "Jan 2, 2006" }}</p>
-            </article>
-            {{ end }}
-        </section>
-    </main>
-    <footer><p>Built with Gastro</p></footer>
-</body>
-</html>
+<Layout Title={.Title}>
+    <h1>Welcome to My Blog</h1>
+    <section>
+        {{ range .Posts }}
+        <PostCard Slug={.Slug} Title={.Title} Author={.Author} Date={.CreatedAt | timeFormat "Jan 2, 2006"} />
+        {{ end }}
+    </section>
+</Layout>

@@ -24,7 +24,7 @@ func TestClassifyChange_TemplateChange(t *testing.T) {
 }
 
 func TestClassifyChange_StaticAsset(t *testing.T) {
-	got := watcher.ClassifyChange("public/styles.css", watcher.SectionUnknown)
+	got := watcher.ClassifyChange("static/styles.css", watcher.SectionUnknown)
 	if got != watcher.ChangeReload {
 		t.Errorf("static asset change should only need reload, got %v", got)
 	}

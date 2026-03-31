@@ -1,0 +1,27 @@
+---
+type Props struct {
+    Title string
+}
+
+props := gastro.Props[Props]()
+Title := props.Title
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ .Title }} - My Blog</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+        <a href="/blog">Blog</a>
+    </nav>
+    <main>
+        <slot />
+    </main>
+    <footer><p>Built with Gastro</p></footer>
+</body>
+</html>

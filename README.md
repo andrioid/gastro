@@ -30,7 +30,7 @@ go build -o gastro ./cmd/gastro/
 myapp/
   pages/
     index.gastro
-  public/
+  static/
     styles.css
   main.go
   go.mod
@@ -142,7 +142,7 @@ Items := fetchItems()         // Uppercase -> {{ .Items }}
 
 ### Static Assets
 
-Files in `public/` are served at the `/static/` URL prefix. Reference them
+Files in `static/` are served at the `/static/` URL prefix. Reference them
 in templates as `/static/styles.css`, `/static/images/logo.png`, etc.
 
 ### Built-in Template Helpers
@@ -171,8 +171,8 @@ gastro.Routes(
 
 **Note:** Embedding of templates and static assets via `//go:embed` is designed
 but not yet wired into the compiler. For now, templates are compiled into the
-Go source at generation time. Static assets in `public/` are not yet served
-automatically — see the roadmap in [DESIGN.md](DESIGN.md).
+Go source at generation time. Static assets in `static/` are served from disk
+at the `/static/` URL prefix.
 
 ```sh
 gastro generate

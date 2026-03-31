@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Build gastro-lsp and bundle into the VS Code extension"
-#MISE sources=["cmd/gastro-lsp/**/*.go", "internal/**/*.go"]
-#MISE outputs=["editors/vscode/bin/gastro-lsp"]
 
 set -euo pipefail
 

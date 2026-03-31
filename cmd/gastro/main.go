@@ -154,11 +154,25 @@ func runDev() error {
 			case <-time.After(500 * time.Millisecond):
 			}
 
-			for _, dir := range []string{"pages", "components", "public"} {
+			for _, dir := range []string{"pages", "components"} {
 				files, err := watcher.CollectGastroFiles(dir)
 				if err != nil {
 					continue
 				}
+				for _, f := range files {
+					info, err := os.Stat(f)
+					if err != nil {
+						continue
+					}
+					if prev, ok := modTimes[f]; ok && info.ModTime().After(prev) {
+						debounced()
+					}
+					modTimes[f] = info.ModTime()
+				}
+			}
+
+			// Watch all files in static/ (not just .gastro)
+			if files, err := watcher.CollectAllFiles("static"); err == nil {
 				for _, f := range files {
 					info, err := os.Stat(f)
 					if err != nil {

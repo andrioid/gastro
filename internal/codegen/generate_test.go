@@ -50,9 +50,12 @@ Title := "Hello"`,
 func TestGenerate_ComponentRenderFunc(t *testing.T) {
 	file := &parser.File{
 		Filename: "components/card.gastro",
-		Frontmatter: `props := gastro.Props[Props]()
+		Frontmatter: `type Props struct {
+    Title string
+}
+props := gastro.Props[Props]()
 CSSClass := "card"`,
-		TemplateBody: `<div class="{{ .CSSClass }}"></div>`,
+		TemplateBody: `<div class="{{ .CSSClass }}">{{ .Children }}</div>`,
 		Uses:         []parser.UseDeclaration{},
 	}
 
@@ -68,11 +71,73 @@ CSSClass := "card"`,
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// Should have render function signature, not HTTP handler
+	assertContains(t, output, `func componentCard(propsMap map[string]any) template.HTML`)
+	assertNotContains(t, output, `http.ResponseWriter`)
+
+	// Should extract __children from props map
+	assertContains(t, output, `propsMap["__children"]`)
+	assertContains(t, output, `"Children": __children`)
+
+	// Should unpack props via MapToStruct with unique type name
+	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
+
+	// Should alias the props variable
+	assertContains(t, output, `props := __props`)
+
 	// Should contain the data map with exported vars
 	assertContains(t, output, `"CSSClass": CSSClass`)
 
+	// Should render into a buffer and return template.HTML
+	assertContains(t, output, `bytes.Buffer`)
+	assertContains(t, output, `return template.HTML`)
+
+	// Should hoist type declarations with unique name to avoid collisions
+	assertContains(t, output, "type componentCardProps struct")
+
 	// Should NOT contain gastroRuntime.NewContext (components don't have context)
 	assertNotContains(t, output, `gastroRuntime.NewContext(w, r)`)
+}
+
+func TestGenerate_PageWithComponents(t *testing.T) {
+	file := &parser.File{
+		Filename:    "pages/index.gastro",
+		Frontmatter: `ctx := gastro.Context()` + "\n" + `Title := "Hello"`,
+		TemplateBody: `{{ __gastro_Layout (dict "Title" .Title "__children" (__gastro_render_children "layout_children" .)) }}
+{{define "layout_children"}}<h1>{{ .Title }}</h1>{{end}}`,
+		Imports: []string{},
+		Uses: []parser.UseDeclaration{
+			{Name: "Layout", Path: "components/layout.gastro"},
+		},
+	}
+
+	info := &codegen.FrontmatterInfo{
+		ExportedVars: []codegen.VarInfo{{Name: "Title"}},
+		PrivateVars:  []codegen.VarInfo{{Name: "ctx"}},
+		IsPage:       true,
+	}
+
+	output, err := codegen.GenerateHandler(file, info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should use init-based template parsing
+	assertContains(t, output, `func init()`)
+	assertContains(t, output, `template.New("pageIndex")`)
+
+	// Should register component functions
+	assertContains(t, output, `__fm["__gastro_Layout"] = componentLayout`)
+
+	// Should register __gastro_render_children as a closure
+	assertContains(t, output, `__fm["__gastro_render_children"]`)
+	assertContains(t, output, `ExecuteTemplate`)
+
+	// Should still have HTTP handler signature
+	assertContains(t, output, `func pageIndex(w http.ResponseWriter, r *http.Request)`)
+
+	// Should import bytes
+	assertContains(t, output, `"bytes"`)
 }
 
 func TestGenerate_MultipleExportedVars(t *testing.T) {

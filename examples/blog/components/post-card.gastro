@@ -1,0 +1,18 @@
+---
+type Props struct {
+    Slug   string
+    Title  string
+    Author string
+    Date   string
+}
+
+props := gastro.Props[Props]()
+Slug := props.Slug
+Title := props.Title
+Author := props.Author
+Date := props.Date
+---
+<article class="post-card">
+    <h2><a href="/blog/{{ .Slug }}">{{ .Title }}</a></h2>
+    <p class="meta">By {{ .Author }} on {{ .Date }}</p>
+</article>

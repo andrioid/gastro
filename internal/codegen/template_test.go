@@ -90,6 +90,11 @@ func TestTransformTemplate_ComponentWithChildren(t *testing.T) {
 	assertContains(t, result, `__gastro_Layout`)
 	assertContains(t, result, `"Title" .Title`)
 	assertContains(t, result, `__gastro_render_children`)
+
+	// Child content should be extracted into a {{define}} block
+	assertContains(t, result, `{{define "layout_children"}}`)
+	assertContains(t, result, `<p>Hello</p>`)
+	assertContains(t, result, `{{end}}`)
 }
 
 func TestTransformTemplate_SlotBecomesChildren(t *testing.T) {
@@ -153,6 +158,24 @@ func TestTransformTemplate_ComponentNoProps(t *testing.T) {
 	want := `{{ __gastro_Header (dict) }}`
 	if result != want {
 		t.Errorf("component with no props:\ngot:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_PipeExpressionInProps(t *testing.T) {
+	body := `<Card Title={.Name} Date={.CreatedAt | timeFormat "Jan 2, 2006"} />`
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Pipe expressions must be wrapped in parens to avoid precedence issues
+	want := `{{ __gastro_Card (dict "Title" .Name "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
+	if result != want {
+		t.Errorf("pipe expression in props:\ngot:  %q\nwant: %q", result, want)
 	}
 }
 

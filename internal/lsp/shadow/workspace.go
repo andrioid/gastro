@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/andrioid/gastro/internal/codegen"
@@ -194,10 +195,14 @@ func (ws *Workspace) symlinkProject() error {
 	return nil
 }
 
-// commentOutImportsAndUses replaces `use` and `import` lines with comments.
-// These are already extracted by the parser and placed as top-level declarations
-// in the virtual file. Leaving them in the function body would be a Go syntax
-// error (imports inside a function body are invalid).
+// propsCallRegex matches "varname := gastro.Props[TypeName]()" and captures
+// the variable name and type name.
+var propsCallRegex = regexp.MustCompile(`^(\w+)\s*:=\s*gastro\.Props\[(\w+)\]\(\)$`)
+
+// commentOutImportsAndUses replaces `use` and `import` lines with comments,
+// and rewrites `gastro.Props[T]()` calls into typed variable declarations.
+// These transformations ensure the virtual file is valid Go while preserving
+// line numbers for source map accuracy.
 func commentOutImportsAndUses(frontmatter string) string {
 	var lines []string
 	inGroupedImport := false
@@ -229,6 +234,14 @@ func commentOutImportsAndUses(frontmatter string) string {
 		// Use declarations: use Name "path"
 		if strings.HasPrefix(trimmed, "use ") {
 			lines = append(lines, "// "+trimmed)
+			continue
+		}
+
+		// gastro.Props[T]() -> var varname T (gives gopls the correct type)
+		if m := propsCallRegex.FindStringSubmatch(trimmed); m != nil {
+			varName := m[1]
+			typeName := m[2]
+			lines = append(lines, fmt.Sprintf("var %s %s", varName, typeName))
 			continue
 		}
 

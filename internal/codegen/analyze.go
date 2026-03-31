@@ -36,7 +36,7 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 	// Wrap frontmatter in a valid Go file so go/parser can handle it.
 	// Type declarations (like `type Props struct{...}`) need to be at
 	// package level, so we hoist them out of the function body.
-	bodyLines, typeDecls := hoistTypeDeclarations(frontmatter)
+	bodyLines, typeDecls := HoistTypeDeclarations(frontmatter)
 	// Type declarations go after "package" but before the function wrapper.
 	// We need to count how many lines precede the frontmatter body code
 	// so we can map AST positions back to frontmatter line numbers.
@@ -144,10 +144,10 @@ func detectGastroMarkers(info *FrontmatterInfo, call *ast.CallExpr) {
 	}
 }
 
-// hoistTypeDeclarations extracts `type ... struct { ... }` declarations from
+// HoistTypeDeclarations extracts `type ... struct { ... }` declarations from
 // frontmatter and returns them separately, since they need to be at package
 // level for go/parser to accept them.
-func hoistTypeDeclarations(frontmatter string) (body string, typeDecls string) {
+func HoistTypeDeclarations(frontmatter string) (body string, typeDecls string) {
 	lines := strings.Split(frontmatter, "\n")
 	var bodyLines []string
 	var typeLines []string

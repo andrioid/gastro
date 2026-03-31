@@ -369,6 +369,45 @@ func TestWorkspace_FrontmatterEndLine(t *testing.T) {
 	}
 }
 
+func TestWorkspace_PropsCallRewritten(t *testing.T) {
+	projectDir := createTestProject(t)
+	ws, err := shadow.NewWorkspace(projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer ws.Close()
+
+	gastroContent := `---
+type Props struct {
+    Title string
+}
+
+props := gastro.Props[Props]()
+Title := props.Title
+---
+<h1>{{ .Title }}</h1>`
+
+	vf, err := ws.UpdateFile("components/card.gastro", gastroContent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	src := vf.GoSource
+
+	// gastro.Props[Props]() should be rewritten to a typed var declaration
+	if strings.Contains(src, "gastro.Props") {
+		t.Error("virtual file should not contain gastro.Props call")
+	}
+	if !strings.Contains(src, "var props Props") {
+		t.Error("expected 'var props Props' in virtual file")
+	}
+
+	// props.Title should still be accessible
+	if !strings.Contains(src, "props.Title") {
+		t.Error("expected props.Title to be preserved in virtual file")
+	}
+}
+
 // createTestProject creates a minimal Go project for testing.
 func createTestProject(t *testing.T) string {
 	t.Helper()
