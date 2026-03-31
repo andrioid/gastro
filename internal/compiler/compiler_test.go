@@ -89,9 +89,10 @@ func TestCompile_GeneratesStaticHandler(t *testing.T) {
 	content, _ := os.ReadFile(filepath.Join(outputDir, "routes.go"))
 	s := string(content)
 
-	// testdata/basic/static/ exists, so the static handler should be generated
+	// testdata/basic/static/ exists — routes.go should use embedded FS serving
 	assertStringContains(t, s, `GET /static/`)
-	assertStringContains(t, s, `http.FileServer`)
+	assertStringContains(t, s, `http.FileServerFS`)
+	assertStringContains(t, s, `gastroRuntime.GetStaticFS`)
 }
 
 func TestCompile_OmitsStaticHandlerWhenNoDir(t *testing.T) {
@@ -178,38 +179,162 @@ func TestCompile_ComponentComposition(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// The card component uses the badge component -- its generated code
-	// should contain init() with FuncMap wiring for Badge.
-	content, err := os.ReadFile(filepath.Join(outputDir, "components_card.go"))
+	// Component and page files should use the registry-based lookup.
+	// FuncMap wiring is now centralised in routes.go, not per-file.
+	for _, file := range []string{"components_card.go", "components_badge.go", "pages_index.go"} {
+		content, err := os.ReadFile(filepath.Join(outputDir, file))
+		if err != nil {
+			t.Fatalf("reading %s: %v", file, err)
+		}
+		s := string(content)
+		if contains(s, "func init()") {
+			t.Errorf("%s should not have init() -- template wiring is in routes.go", file)
+		}
+	}
+
+	// Card should use registry lookup for its own template.
+	cardContent, _ := os.ReadFile(filepath.Join(outputDir, "components_card.go"))
+	assertStringContains(t, string(cardContent), `__gastro_getTemplate("componentCard")`)
+
+	// Page should use registry lookup for its own template.
+	pageContent, _ := os.ReadFile(filepath.Join(outputDir, "pages_index.go"))
+	assertStringContains(t, string(pageContent), `__gastro_getTemplate("pageIndex")`)
+}
+
+func TestCompile_RoutesContainsTemplateFuncMapWiring(t *testing.T) {
+	projectDir := filepath.Join("testdata", "composition")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
 	if err != nil {
-		t.Fatalf("reading components_card.go: %v", err)
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(outputDir, "routes.go"))
+	s := string(content)
+
+	// Card template uses Badge -- routes.go should wire it up
+	assertStringContains(t, s, `fm["__gastro_Badge"] = componentBadge`)
+	// Page template uses Card -- routes.go should wire it up
+	assertStringContains(t, s, `fm["__gastro_Card"] = componentCard`)
+	// Both templates with uses should get render_children wiring
+	assertStringContains(t, s, `__gastro_render_children`)
+	assertStringContains(t, s, `ExecuteTemplate`)
+
+	// Routes should parse templates from FS and populate the registry
+	assertStringContains(t, s, `__gastro_templateRegistry`)
+	assertStringContains(t, s, `__gastro_parseTemplate`)
+	assertStringContains(t, s, `gastroRuntime.GetTemplateFS`)
+}
+
+func TestCompile_GeneratesEmbedFile(t *testing.T) {
+	projectDir := filepath.Join("testdata", "basic")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outputDir, "embed.go"))
+	if err != nil {
+		t.Fatalf("embed.go was not generated: %v", err)
 	}
 	s := string(content)
 
-	assertStringContains(t, s, `func init()`)
-	assertStringContains(t, s, `__fm["__gastro_Badge"] = componentBadge`)
-	assertStringContains(t, s, `__gastro_render_children`)
+	assertStringContains(t, s, `//go:embed templates/*`)
+	assertStringContains(t, s, `var templateFS embed.FS`)
+}
 
-	// The badge component has no uses -- should NOT have init()
-	badgeContent, err := os.ReadFile(filepath.Join(outputDir, "components_badge.go"))
+func TestCompile_EmbedFileIncludesStaticWhenPresent(t *testing.T) {
+	projectDir := filepath.Join("testdata", "basic")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
 	if err != nil {
-		t.Fatalf("reading components_badge.go: %v", err)
-	}
-	badgeStr := string(badgeContent)
-
-	if contains(badgeStr, "func init()") {
-		t.Error("badge component should not have init() -- it has no uses")
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// The page uses the card component -- should have init() with Card wiring
-	pageContent, err := os.ReadFile(filepath.Join(outputDir, "pages_index.go"))
+	content, _ := os.ReadFile(filepath.Join(outputDir, "embed.go"))
+	s := string(content)
+
+	// testdata/basic/static/ exists
+	assertStringContains(t, s, `//go:embed static/*`)
+	assertStringContains(t, s, `var staticAssetFS embed.FS`)
+}
+
+func TestCompile_EmbedFileOmitsStaticWhenAbsent(t *testing.T) {
+	projectDir := t.TempDir()
+	pagesDir := filepath.Join(projectDir, "pages")
+	os.MkdirAll(pagesDir, 0o755)
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte("---\nTitle := \"Hi\"\n---\n<h1>{{ .Title }}</h1>"), 0o644)
+
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
 	if err != nil {
-		t.Fatalf("reading pages_index.go: %v", err)
+		t.Fatalf("unexpected error: %v", err)
 	}
-	pageStr := string(pageContent)
 
-	assertStringContains(t, pageStr, `func init()`)
-	assertStringContains(t, pageStr, `__fm["__gastro_Card"] = componentCard`)
+	content, _ := os.ReadFile(filepath.Join(outputDir, "embed.go"))
+	s := string(content)
+
+	// Should have templates but NOT static
+	assertStringContains(t, s, `//go:embed templates/*`)
+	if contains(s, "staticAssetFS") {
+		t.Error("embed.go should not contain staticAssetFS when no static directory exists")
+	}
+}
+
+func TestCompile_CopiesStaticDir(t *testing.T) {
+	projectDir := filepath.Join("testdata", "basic")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// .gastro/static/ should be a real directory (not a symlink) so //go:embed works
+	staticDir := filepath.Join(outputDir, "static")
+	info, err := os.Lstat(staticDir)
+	if err != nil {
+		t.Fatalf("static dir was not created: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Error("static should be a real directory, not a symlink (Go embed doesn't follow directory symlinks)")
+	}
+	if !info.IsDir() {
+		t.Error("expected static to be a directory")
+	}
+
+	// Files from static/ should be present in the copy
+	entries, err := os.ReadDir(staticDir)
+	if err != nil {
+		t.Fatalf("reading static dir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Error("static dir copy should contain files from the source static/ directory")
+	}
+}
+
+func TestCompile_NoStaticDirWhenAbsent(t *testing.T) {
+	projectDir := t.TempDir()
+	pagesDir := filepath.Join(projectDir, "pages")
+	os.MkdirAll(pagesDir, 0o755)
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte("---\nTitle := \"Hi\"\n---\n<h1>{{ .Title }}</h1>"), 0o644)
+
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	staticDir := filepath.Join(outputDir, "static")
+	if _, err := os.Lstat(staticDir); err == nil {
+		t.Error("static dir should not exist when project has no static/ directory")
+	}
 }
 
 func assertStringContains(t *testing.T, s, substr string) {

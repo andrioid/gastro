@@ -19,7 +19,7 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 | 4. Component system | Done | 8 tests. `MapToStruct[T]` with type coercion, component render functions (`func(map[string]any) template.HTML`), per-page init with component FuncMap, `__gastro_render_children` closure for slot content. |
 | 5. File router | Done | 10 tests. Directory-to-route mapping, `[param]` patterns, func name derivation. |
 | 6. Runtime library | Done | 13 tests. Context, DefaultFuncs (18 helpers), Recover. |
-| 7. Embedding | Partial | Design complete, `//go:embed` generation not yet wired into compiler. |
+| 7. Embedding | Done | `//go:embed` generation wired. Template registry in `routes.go`. Dev/prod FS switching via `GASTRO_DEV`. `WithFuncs` wired. Static assets embedded via copy (Go embed does not follow directory symlinks). |
 | 8. CLI: `gastro generate` | Done | 6 tests. Compiler orchestrates parser + codegen + router, writes `.gastro/`. Static file serving detection. |
 | 9. CLI: `gastro build` | Done | Runs generate + `go build`. |
 | 10. CLI: `gastro dev` | Done | 8 tests. File watcher, debounce, change classification, polling watcher. |
@@ -30,7 +30,7 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 | 15. Editor extensions | Done | VS Code extension (TextMate grammar + LSP client), Neovim plugin (tree-sitter + LSP). |
 | 16. Example: blog | Done | Working 4-page blog with Layout and PostCard components. Compiles and serves on port 4242. |
 
-**Test count:** 220 passing.
+**Test count:** 232 passing.
 
 ---
 
@@ -176,7 +176,7 @@ myapp/
 - `pages/` -- file-based routing root.
 - `components/` -- reusable component directory.
 - `static/` -- static assets, served at the `/static/` URL prefix. Embedded
-  into the binary in production (embedding not yet wired).
+  into the binary in production via `//go:embed`.
 - `.gastro/` -- generated output (gitignored, never hand-edited).
 
 ---

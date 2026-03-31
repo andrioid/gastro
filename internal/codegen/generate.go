@@ -88,9 +88,6 @@ var handlerTmpl = template.Must(template.New("handler").Parse(`// Code generated
 package {{ .PackageName }}
 
 import (
-{{- if .Uses }}
-	"bytes"
-{{- end }}
 	"net/http"
 	"html/template"
 
@@ -104,30 +101,6 @@ import (
 var _ = gastroRuntime.NewContext
 var _ http.Handler
 var _ = template.Must
-{{- if .Uses }}
-var _ bytes.Buffer
-{{- end }}
-
-{{- if .Uses }}
-
-var {{ .FuncName }}Template = template.New("{{ .FuncName }}")
-
-func init() {
-	__fm := gastroRuntime.DefaultFuncs()
-{{- range .Uses }}
-	__fm["__gastro_{{ .Name }}"] = {{ .FuncName }}
-{{- end }}
-	__fm["__gastro_render_children"] = func(name string, data any) template.HTML {
-		var __buf bytes.Buffer
-		{{ .FuncName }}Template.ExecuteTemplate(&__buf, name, data)
-		return template.HTML(__buf.String())
-	}
-	template.Must({{ .FuncName }}Template.Funcs(__fm).Parse(` + "`" + `{{ .TemplateBody }}` + "`" + `))
-}
-{{- else }}
-
-var {{ .FuncName }}Template = template.Must(template.New("{{ .FuncName }}").Funcs(gastroRuntime.DefaultFuncs()).Parse(` + "`" + `{{ .TemplateBody }}` + "`" + `))
-{{- end }}
 
 func {{ .FuncName }}(w http.ResponseWriter, r *http.Request) {
 	defer gastroRuntime.Recover(w, r)
@@ -143,7 +116,7 @@ func {{ .FuncName }}(w http.ResponseWriter, r *http.Request) {
 	{{- end }}
 	}
 
-	{{ .FuncName }}Template.Execute(w, __data)
+	__gastro_getTemplate("{{ .FuncName }}").Execute(w, __data)
 }
 `))
 
@@ -178,27 +151,6 @@ var _ = log.Println
 type {{ .ExportedName }}Props = {{ .PropsTypeName }}
 {{- end }}
 
-{{- if .Uses }}
-
-var {{ .FuncName }}Template = template.New("{{ .FuncName }}")
-
-func init() {
-	__fm := gastroRuntime.DefaultFuncs()
-{{- range .Uses }}
-	__fm["__gastro_{{ .Name }}"] = {{ .FuncName }}
-{{- end }}
-	__fm["__gastro_render_children"] = func(name string, data any) template.HTML {
-		var __buf bytes.Buffer
-		{{ .FuncName }}Template.ExecuteTemplate(&__buf, name, data)
-		return template.HTML(__buf.String())
-	}
-	template.Must({{ .FuncName }}Template.Funcs(__fm).Parse(` + "`" + `{{ .TemplateBody }}` + "`" + `))
-}
-{{- else }}
-
-var {{ .FuncName }}Template = template.Must(template.New("{{ .FuncName }}").Funcs(gastroRuntime.DefaultFuncs()).Parse(` + "`" + `{{ .TemplateBody }}` + "`" + `))
-{{- end }}
-
 func {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	var __children template.HTML
 	if __c, __ok := propsMap["__children"]; __ok {
@@ -226,7 +178,7 @@ func {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	}
 
 	var __buf bytes.Buffer
-	{{ .FuncName }}Template.Execute(&__buf, __data)
+	__gastro_getTemplate("{{ .FuncName }}").Execute(&__buf, __data)
 	return template.HTML(__buf.String())
 }
 `))

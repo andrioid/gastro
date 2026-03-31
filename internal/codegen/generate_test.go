@@ -130,16 +130,13 @@ Tag := props.Tag`,
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should use init-based template parsing (not inline)
-	assertContains(t, output, `func init()`)
-	assertContains(t, output, `template.New("componentCard")`)
+	// Component wiring (FuncMap, render_children) is now centralised in
+	// the generated routes.go, not in each component file.
+	assertNotContains(t, output, `func init()`)
+	assertNotContains(t, output, `template.New("componentCard")`)
 
-	// Should register the used component function in the FuncMap
-	assertContains(t, output, `__fm["__gastro_Badge"] = componentBadge`)
-
-	// Should register __gastro_render_children closure
-	assertContains(t, output, `__fm["__gastro_render_children"]`)
-	assertContains(t, output, `ExecuteTemplate`)
+	// Should use the registry-based template lookup instead of a package-level var
+	assertContains(t, output, `__gastro_getTemplate("componentCard")`)
 
 	// Should still have component render function signature (not HTTP handler)
 	assertContains(t, output, `func componentCard(propsMap map[string]any) template.HTML`)
