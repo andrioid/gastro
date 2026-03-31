@@ -1,0 +1,10 @@
+---
+use Layout "components/layout.gastro"
+
+Title := "Call Center Dashboard"
+---
+<Layout Title={.Title}>
+    <div id="dashboard" data-init="@get('/api/dashboard')">
+        <p class="loading">Connecting...</p>
+    </div>
+</Layout>

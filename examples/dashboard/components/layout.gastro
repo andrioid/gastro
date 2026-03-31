@@ -1,0 +1,21 @@
+---
+type Props struct {
+    Title string
+}
+
+props := gastro.Props[Props]()
+Title := props.Title
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"></script>
+</head>
+<body>
+    <slot />
+</body>
+</html>

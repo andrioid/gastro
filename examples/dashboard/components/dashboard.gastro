@@ -1,0 +1,79 @@
+---
+use KpiCard "components/kpi-card.gastro"
+use AgentRow "components/agent-row.gastro"
+
+import "dashboard/mock"
+import "fmt"
+
+type Props struct {
+    ActiveCalls int
+    AvgWaitSecs int
+    CallsToday  int
+    QueueDepth  int
+    Agents      []mock.Agent
+}
+
+type RowData struct {
+    Name        string
+    Status      string
+    CallDur     string
+    Y           int
+    StatusColor string
+}
+
+props := gastro.Props[Props]()
+
+ActiveCalls := fmt.Sprintf("%d", props.ActiveCalls)
+AvgWait := fmt.Sprintf("%ds", props.AvgWaitSecs)
+CallsToday := fmt.Sprintf("%d", props.CallsToday)
+QueueDepth := fmt.Sprintf("%d", props.QueueDepth)
+
+rowHeight := 48
+rosterTop := 210
+
+rows := make([]RowData, len(props.Agents))
+for i, a := range props.Agents {
+    statusColor := "#94a3b8"
+    status := "Away"
+    if a.Status == mock.StatusAvailable {
+        statusColor = "#15803d"
+        status = "Available"
+    } else if a.Status == mock.StatusOnCall {
+        statusColor = "#c2410c"
+        status = "On Call"
+    }
+
+    rows[i] = RowData{
+        Name:        a.Name,
+        Status:      status,
+        CallDur:     a.CallDur,
+        Y:           rosterTop + i*rowHeight,
+        StatusColor: statusColor,
+    }
+}
+
+Rows := rows
+---
+<svg viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+    <defs>
+        <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="white" />
+            <stop offset="100%" stop-color="#f8fafc" />
+        </linearGradient>
+    </defs>
+
+    <text x="40" y="44" fill="#64748b" font-size="14" font-weight="600" letter-spacing="0.05em">CALL CENTER</text>
+
+    <KpiCard X={30}  Value={.ActiveCalls} Label="Active Calls" />
+    <KpiCard X={320} Value={.AvgWait}     Label="Avg Wait" />
+    <KpiCard X={610} Value={.CallsToday}  Label="Calls Today" />
+    <KpiCard X={900} Value={.QueueDepth}  Label="Queue Depth" />
+
+    <text x="56" y="200" fill="#94a3b8" font-size="11" font-weight="600" letter-spacing="0.08em">AGENT</text>
+    <text x="500" y="200" fill="#94a3b8" font-size="11" font-weight="600" letter-spacing="0.08em">STATUS</text>
+    <text x="1140" y="200" fill="#94a3b8" font-size="11" font-weight="600" letter-spacing="0.08em" text-anchor="end">DURATION</text>
+
+    {{ range .Rows }}
+    <AgentRow Name={.Name} Status={.Status} CallDur={.CallDur} Y={.Y} StatusColor={.StatusColor} />
+    {{ end }}
+</svg>

@@ -1,0 +1,20 @@
+---
+import "fmt"
+
+type Props struct {
+    X     int
+    Value string
+    Label string
+}
+
+props := gastro.Props[Props]()
+X := props.X
+CX := fmt.Sprintf("%d", props.X+135)
+Value := props.Value
+Label := props.Label
+---
+<g>
+    <rect x="{{ .X }}" y="60" width="270" height="110" rx="12" fill="url(#cardGrad)" stroke="#e2e8f0" stroke-width="1" />
+    <text x="{{ .CX }}" y="120" fill="#0f172a" font-size="48" font-weight="700" text-anchor="middle">{{ .Value }}</text>
+    <text x="{{ .CX }}" y="148" fill="#64748b" font-size="13" text-anchor="middle">{{ .Label }}</text>
+</g>
