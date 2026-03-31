@@ -149,7 +149,7 @@ in templates as `/static/styles.css`, `/static/images/logo.png`, etc.
 
 Available in all templates without registration:
 
-`upper`, `lower`, `title`, `trim`, `join`, `split`, `contains`, `replace`,
+`upper`, `lower`, `trim`, `join`, `split`, `contains`, `replace`,
 `default`, `safeHTML`, `safeAttr`, `safeURL`, `safeCSS`, `safeJS`, `dict`,
 `list`, `json`, `timeFormat`
 
@@ -221,9 +221,11 @@ dynamic pages, template helpers, and static assets.
 
 ## Documentation
 
-- [DESIGN.md](DESIGN.md) -- Complete design document with all decisions
-- [ARCHITECTURE.md](ARCHITECTURE.md) -- Code architecture and package guide
-- [CONTRIBUTING.md](CONTRIBUTING.md) -- How to contribute
+- [Design](docs/design.md) -- Complete design document with all decisions
+- [Architecture](docs/architecture.md) -- Code architecture and package guide
+- [Contributing](docs/contributing.md) -- How to contribute
+- [Pages](docs/pages.md) -- Page authoring guide and API reference
+- [Components](docs/components.md) -- Component authoring guide and API reference
 
 ## License
 

@@ -78,7 +78,7 @@ No feature is complete without test coverage.
 
 ## Project Structure
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for a detailed package guide.
+See [architecture.md](architecture.md) for a detailed package guide.
 
 Quick orientation:
 
@@ -105,7 +105,7 @@ Quick orientation:
 2. Write a test in `pkg/gastro/funcs_test.go`.
 3. If the function takes the piped value as input, it must be the **last**
    parameter (Go template pipe convention).
-4. Update the FuncMap table in `DESIGN.md`.
+4. Update the FuncMap table in `docs/design.md`.
 
 ### Adding a new CLI command
 

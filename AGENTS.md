@@ -6,6 +6,7 @@
 ### References
 
 - [README](README.md)
-- [System Architecture](ARCHITECTURE.md)
-- [Original Design Document](DESIGN.md)
-- [Guide for Developers and Agents](CONTRIBUTING.md)
+- [System Architecture](docs/architecture.md)
+- [Original Design Document](docs/design.md)
+- [Guide for Developers and Agents](docs/contributing.md)
+- Various other docs in `docs/`
