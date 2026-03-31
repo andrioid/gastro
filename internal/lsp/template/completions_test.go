@@ -90,7 +90,7 @@ func TestDiagnostics_UnknownVariable(t *testing.T) {
 	templateBody := `<h1>{{ .Title }}</h1>
 <p>{{ .Unknown }}</p>`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -119,7 +119,7 @@ func TestDiagnostics_DoubleDotSyntax(t *testing.T) {
 	}
 	templateBody := `<title>{{ ..Title }}</title>`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -150,7 +150,7 @@ func TestDiagnostics_MultiLinePositions(t *testing.T) {
 <p>line 2</p>
 <p>{{ .Missing }}</p>`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -180,7 +180,7 @@ func TestDiagnose_RangeBlockVariables(t *testing.T) {
 <p>{{ .Author }}</p>
 {{ end }}`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
 
 	// .Slug and .Author are fields on range elements — must NOT be flagged
 	for _, d := range diags {
@@ -203,7 +203,7 @@ func TestDiagnose_WithBlockVariables(t *testing.T) {
 <p>{{ .Name }}</p>
 {{ end }}`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
 
 	for _, d := range diags {
 		if d.Message == `unknown template variable ".Name"` {
@@ -223,7 +223,7 @@ func TestDiagnose_IfBlockVariables(t *testing.T) {
 <h1>{{ .Missing }}</h1>
 {{ end }}`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -248,7 +248,7 @@ func TestDiagnose_DollarVarInRange(t *testing.T) {
 <p>{{ $.Title }}</p>
 {{ end }}`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -269,7 +269,7 @@ func TestDiagnose_EmptyBody(t *testing.T) {
 		},
 	}
 
-	diags := lsptemplate.Diagnose("", info, nil)
+	diags := lsptemplate.Diagnose("", info, nil, nil, nil)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics for empty body, got %d", len(diags))
 	}
@@ -279,7 +279,7 @@ func TestDiagnose_NoExportsWithVars(t *testing.T) {
 	info := &codegen.FrontmatterInfo{}
 	templateBody := `<p>{{ .Title }}</p>`
 
-	diags := lsptemplate.Diagnose(templateBody, info, nil)
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil)
 
 	found := false
 	for _, d := range diags {
@@ -299,7 +299,7 @@ func TestOffsetToLineChar(t *testing.T) {
 	info := &codegen.FrontmatterInfo{}
 
 	// Single line: ".Unknown" at offset 4
-	diags := lsptemplate.Diagnose(`{{ .Unknown }}`, info, nil)
+	diags := lsptemplate.Diagnose(`{{ .Unknown }}`, info, nil, nil, nil)
 	if len(diags) > 0 {
 		if diags[0].StartLine != 0 {
 			t.Errorf("single line: expected StartLine=0, got %d", diags[0].StartLine)
@@ -307,7 +307,7 @@ func TestOffsetToLineChar(t *testing.T) {
 	}
 
 	// First char of second line
-	diags = lsptemplate.Diagnose("x\n{{ .Unknown }}", info, nil)
+	diags = lsptemplate.Diagnose("x\n{{ .Unknown }}", info, nil, nil, nil)
 	if len(diags) > 0 {
 		if diags[0].StartLine != 1 {
 			t.Errorf("second line: expected StartLine=1, got %d", diags[0].StartLine)
@@ -342,7 +342,7 @@ func TestDiagnostics_UnknownComponent(t *testing.T) {
 	templateBody := `<Card Title={.Name} />
 <Unknown />`
 
-	diags := lsptemplate.Diagnose(templateBody, info, uses)
+	diags := lsptemplate.Diagnose(templateBody, info, uses, nil, nil)
 
 	found := false
 	for _, d := range diags {

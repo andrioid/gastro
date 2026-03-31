@@ -25,12 +25,27 @@ func ParseTemplateBody(body string, uses []gastroparser.UseDeclaration) (*parse.
 	return trees["template"], nil
 }
 
+// Go template builtins that text/template/parse requires in the FuncMap.
+// These are automatically available at runtime via template.New().Funcs()
+// but parse.Parse() needs explicit registration.
+var goTemplateBuiltins = []string{
+	"and", "or", "not",
+	"eq", "ne", "lt", "le", "gt", "ge",
+	"print", "printf", "println",
+	"len", "index", "slice", "call",
+	"html", "js", "urlquery",
+}
+
 // buildStubFuncMap creates a FuncMap with string stubs for all template
 // functions that may appear in a gastro template. The parser only checks
 // key existence — the values are never called.
 func buildStubFuncMap(uses []gastroparser.UseDeclaration) map[string]any {
 	defaultFuncs := gastro.DefaultFuncs()
-	stubFuncs := make(map[string]any, len(defaultFuncs)+len(uses)+1)
+	stubFuncs := make(map[string]any, len(defaultFuncs)+len(uses)+len(goTemplateBuiltins)+2)
+
+	for _, name := range goTemplateBuiltins {
+		stubFuncs[name] = ""
+	}
 
 	for name := range defaultFuncs {
 		stubFuncs[name] = ""

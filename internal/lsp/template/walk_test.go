@@ -12,7 +12,7 @@ func parseAndWalk(t *testing.T, body string, exportedNames map[string]bool) []ls
 	if err != nil {
 		t.Fatalf("ParseTemplateBody failed: %v", err)
 	}
-	return lsptemplate.WalkDiagnostics(tree, body, exportedNames)
+	return lsptemplate.WalkDiagnostics(tree, body, exportedNames, nil, nil)
 }
 
 func hasDiagMessage(diags []lsptemplate.Diagnostic, msg string) bool {
@@ -170,7 +170,7 @@ func TestWalk_ChainedFieldAccessUnknownRoot(t *testing.T) {
 }
 
 func TestWalk_EmptyTree(t *testing.T) {
-	diags := lsptemplate.WalkDiagnostics(nil, "", nil)
+	diags := lsptemplate.WalkDiagnostics(nil, "", nil, nil, nil)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics for nil tree, got %d", len(diags))
 	}
@@ -377,6 +377,216 @@ func TestNodeAtCursor_NilTree(t *testing.T) {
 	target := lsptemplate.NodeAtCursor(nil, 5)
 	if target != nil {
 		t.Errorf("expected nil for nil tree, got %+v", target)
+	}
+}
+
+// mockResolver returns a resolver that maps type names to field entries.
+func mockResolver(types map[string][]lsptemplate.FieldEntry) lsptemplate.FieldResolver {
+	return func(typeName string, chainExpr string) []lsptemplate.FieldEntry {
+		return types[typeName]
+	}
+}
+
+func TestWalk_RangeWithFieldInfo_UnknownField(t *testing.T) {
+	exports := map[string]bool{"Posts": true}
+	typeMap := map[string]string{"Posts": "[]db.Post"}
+	resolver := mockResolver(map[string][]lsptemplate.FieldEntry{
+		"db.Post": {
+			{Name: "Title", Type: "string"},
+			{Name: "Slug", Type: "string"},
+			{Name: "Author", Type: "string"},
+		},
+	})
+
+	body := `{{ range .Posts }}{{ .Titl }}{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+
+	if !hasDiagMessage(diags, `unknown field ".Titl" on type "db.Post"`) {
+		t.Errorf("expected diagnostic for .Titl inside range, got: %v", diags)
+	}
+}
+
+func TestWalk_RangeWithFieldInfo_KnownField(t *testing.T) {
+	exports := map[string]bool{"Posts": true}
+	typeMap := map[string]string{"Posts": "[]db.Post"}
+	resolver := mockResolver(map[string][]lsptemplate.FieldEntry{
+		"db.Post": {
+			{Name: "Title", Type: "string"},
+			{Name: "Slug", Type: "string"},
+		},
+	})
+
+	body := `{{ range .Posts }}{{ .Title }}{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics for known field, got: %v", diags)
+	}
+}
+
+func TestWalk_NestedRangeWithFieldInfo(t *testing.T) {
+	exports := map[string]bool{"Categories": true}
+	typeMap := map[string]string{"Categories": "[]db.Category"}
+	resolver := mockResolver(map[string][]lsptemplate.FieldEntry{
+		"db.Category": {
+			{Name: "Name", Type: "string"},
+			{Name: "Items", Type: "[]db.Item"},
+		},
+		"db.Item": {
+			{Name: "Label", Type: "string"},
+			{Name: "Price", Type: "int"},
+		},
+	})
+
+	body := `{{ range .Categories }}{{ range .Items }}{{ .Label }}{{ .Missing }}{{ end }}{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+
+	if !hasDiagMessage(diags, `unknown field ".Missing" on type "db.Item"`) {
+		t.Errorf("expected diagnostic for .Missing in nested range, got: %v", diags)
+	}
+	if hasDiagMessage(diags, `unknown field ".Label"`) {
+		t.Error(".Label should not be flagged — it's a known field on db.Item")
+	}
+}
+
+func TestWalk_ChainedFieldWithTypeInfo(t *testing.T) {
+	exports := map[string]bool{"Post": true}
+	typeMap := map[string]string{"Post": "db.Post"}
+	resolver := mockResolver(map[string][]lsptemplate.FieldEntry{
+		"db.Post": {
+			{Name: "Title", Type: "string"},
+			{Name: "Author", Type: "db.Author"},
+		},
+	})
+
+	// .Post.Missing — Post is exported, but Missing is not a field on db.Post
+	body := `{{ .Post.Missing }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+
+	if !hasDiagMessage(diags, `unknown field ".Missing" on type "db.Post"`) {
+		t.Errorf("expected diagnostic for .Post.Missing, got: %v", diags)
+	}
+}
+
+func TestWalk_ChainedFieldKnown(t *testing.T) {
+	exports := map[string]bool{"Post": true}
+	typeMap := map[string]string{"Post": "db.Post"}
+	resolver := mockResolver(map[string][]lsptemplate.FieldEntry{
+		"db.Post": {
+			{Name: "Title", Type: "string"},
+		},
+	})
+
+	body := `{{ .Post.Title }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics for .Post.Title, got: %v", diags)
+	}
+}
+
+func TestWalk_RangeElseBranchKeepsOuterScope(t *testing.T) {
+	exports := map[string]bool{"Items": true, "Title": true}
+	body := `{{ range .Items }}
+<p>{{ .Name }}</p>
+{{ else }}
+<p>{{ .Title }}</p>
+<p>{{ .Missing }}</p>
+{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
+
+	// .Title in else branch should be checked against exports (not skipped)
+	if hasDiagMessage(diags, `unknown template variable ".Title"`) {
+		t.Error(".Title in else branch should not be flagged — it's exported")
+	}
+	// .Missing in else branch should be flagged
+	if !hasDiagMessage(diags, `unknown template variable ".Missing"`) {
+		t.Error("expected diagnostic for .Missing in range else branch")
+	}
+}
+
+func TestWalk_WithFieldInfo(t *testing.T) {
+	exports := map[string]bool{"Author": true}
+	typeMap := map[string]string{"Author": "db.Author"}
+	resolver := mockResolver(map[string][]lsptemplate.FieldEntry{
+		"db.Author": {
+			{Name: "Name", Type: "string"},
+			{Name: "Email", Type: "string"},
+		},
+	})
+
+	body := `{{ with .Author }}{{ .Name }}{{ .Missing }}{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+
+	if hasDiagMessage(diags, `unknown field ".Name"`) {
+		t.Error(".Name should not be flagged — it's a known field on db.Author")
+	}
+	if !hasDiagMessage(diags, `unknown field ".Missing" on type "db.Author"`) {
+		t.Errorf("expected diagnostic for .Missing in with block, got: %v", diags)
+	}
+}
+
+func TestWalk_RangeNoFieldInfo_StillSkips(t *testing.T) {
+	exports := map[string]bool{"Posts": true}
+	body := `{{ range .Posts }}{{ .Anything }}{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No typeMap or resolver — should skip silently
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics without type info, got: %v", diags)
+	}
+}
+
+func TestWalk_GoBuiltinFunctions(t *testing.T) {
+	exports := map[string]bool{"Status": true, "Items": true}
+	body := `{{ if eq .Status "active" }}
+<p>{{ len .Items }}</p>
+{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatalf("template with Go builtins should parse: %v", err)
+	}
+
+	diags := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics for template with builtins, got: %v", diags)
 	}
 }
 

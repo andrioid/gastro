@@ -2,17 +2,28 @@ package template
 
 import (
 	"fmt"
+	"strings"
 	"text/template/parse"
 )
+
+// FieldEntry describes a single field on a type, including its type
+// for recursive resolution of nested range/with blocks.
+type FieldEntry struct {
+	Name string
+	Type string // e.g. "string", "[]db.Item", "*db.Author"
+}
+
+// FieldResolver resolves a type's fields given the type name and a Go
+// expression that evaluates to a value of that type (for gopls probing).
+// Returns nil if the type is unknown or can't be resolved.
+type FieldResolver func(typeName string, chainExpr string) []FieldEntry
 
 // WalkDiagnostics walks a parsed template tree and produces diagnostics for
 // unknown variable references, respecting scope changes from range/with blocks.
 //
-// At depth 0, .FieldName is checked against exportedNames.
-// At depth > 0 (inside range/with), .FieldName checks are silently skipped
-// because the dot has been rebound to the range element or with value.
-// $.FieldName is always checked regardless of depth ($ refers to root data).
-func WalkDiagnostics(tree *parse.Tree, body string, exportedNames map[string]bool) []Diagnostic {
+// typeMap maps top-level variable names to their type strings (e.g. "Posts" → "[]db.Post").
+// resolver lazily resolves a type name to its fields. Both can be nil for basic checking.
+func WalkDiagnostics(tree *parse.Tree, body string, exportedNames map[string]bool, typeMap map[string]string, resolver FieldResolver) []Diagnostic {
 	if tree == nil || tree.Root == nil {
 		return nil
 	}
@@ -20,96 +31,405 @@ func WalkDiagnostics(tree *parse.Tree, body string, exportedNames map[string]boo
 	w := &walker{
 		body:          body,
 		exportedNames: exportedNames,
+		typeMap:       typeMap,
+		resolver:      resolver,
 	}
-	w.walkList(tree.Root, 0)
+	root := walkScope{depth: 0}
+	w.walkList(tree.Root, root)
 	return w.diags
 }
 
 type walker struct {
 	body          string
 	exportedNames map[string]bool
+	typeMap       map[string]string // top-level var → type string
+	resolver      FieldResolver
 	diags         []Diagnostic
 }
 
-func (w *walker) walkList(list *parse.ListNode, depth int) {
+// walkScope tracks the current template scope during AST walking.
+type walkScope struct {
+	depth         int
+	allowedFields map[string]FieldEntry // field name → entry; nil = no type info
+	typeName      string                // element type for error messages (e.g. "db.Post")
+	chainExpr     string                // Go expression to reach this type (e.g. "Posts[0]")
+}
+
+func (w *walker) walkList(list *parse.ListNode, scope walkScope) {
 	if list == nil {
 		return
 	}
 	for _, node := range list.Nodes {
-		w.walkNode(node, depth)
+		w.walkNode(node, scope)
 	}
 }
 
-func (w *walker) walkNode(node parse.Node, depth int) {
+func (w *walker) walkNode(node parse.Node, scope walkScope) {
 	if node == nil {
 		return
 	}
 
 	switch n := node.(type) {
 	case *parse.ListNode:
-		w.walkList(n, depth)
+		w.walkList(n, scope)
 
 	case *parse.ActionNode:
-		w.walkPipe(n.Pipe, depth)
+		w.walkPipe(n.Pipe, scope)
 
 	case *parse.RangeNode:
-		// The pipe (what's being ranged over) is evaluated at current depth
-		w.walkPipe(n.Pipe, depth)
-		// The body has dot rebound to each element
-		w.walkList(n.List, depth+1)
-		w.walkList(n.ElseList, depth+1)
+		w.walkPipe(n.Pipe, scope)
+		innerScope := w.resolveRangeScope(n.Pipe, scope)
+		w.walkList(n.List, innerScope)
+		// Else branch does NOT rebind dot — it runs when the collection
+		// is empty, so the outer dot binding is preserved.
+		w.walkList(n.ElseList, scope)
 
 	case *parse.WithNode:
-		// The pipe (the with value) is evaluated at current depth
-		w.walkPipe(n.Pipe, depth)
-		// The body has dot rebound to the with value
-		w.walkList(n.List, depth+1)
-		w.walkList(n.ElseList, depth+1)
+		w.walkPipe(n.Pipe, scope)
+		innerScope := w.resolveWithScope(n.Pipe, scope)
+		w.walkList(n.List, innerScope)
+		// Else branch does NOT rebind dot — it runs when the value is
+		// falsy, so the outer dot binding is preserved.
+		w.walkList(n.ElseList, scope)
 
 	case *parse.IfNode:
-		// if does NOT rebind dot
-		w.walkPipe(n.Pipe, depth)
-		w.walkList(n.List, depth)
-		w.walkList(n.ElseList, depth)
+		w.walkPipe(n.Pipe, scope)
+		w.walkList(n.List, scope)
+		w.walkList(n.ElseList, scope)
 
 	case *parse.TemplateNode:
-		w.walkPipe(n.Pipe, depth)
+		w.walkPipe(n.Pipe, scope)
 
 	case *parse.PipeNode:
-		w.walkPipe(n, depth)
+		w.walkPipe(n, scope)
 
 	case *parse.FieldNode:
-		w.checkField(n, depth)
+		w.checkField(n, scope)
 
 	case *parse.VariableNode:
-		w.checkVariable(n, depth)
+		w.checkVariable(n, scope)
 
 	case *parse.CommandNode:
-		w.walkCommand(n, depth)
+		w.walkCommand(n, scope)
 
 	case *parse.ChainNode:
-		w.walkNode(n.Node, depth)
-
-		// Text, Dot, String, Number, Bool, Nil, Comment, Break, Continue
-		// — no variable references to check
+		w.walkNode(n.Node, scope)
 	}
 }
 
-func (w *walker) walkPipe(pipe *parse.PipeNode, depth int) {
+func (w *walker) walkPipe(pipe *parse.PipeNode, scope walkScope) {
 	if pipe == nil {
 		return
 	}
 	for _, cmd := range pipe.Cmds {
-		w.walkCommand(cmd, depth)
+		w.walkCommand(cmd, scope)
 	}
 }
 
-func (w *walker) walkCommand(cmd *parse.CommandNode, depth int) {
+func (w *walker) walkCommand(cmd *parse.CommandNode, scope walkScope) {
 	if cmd == nil {
 		return
 	}
 	for _, arg := range cmd.Args {
-		w.walkNode(arg, depth)
+		w.walkNode(arg, scope)
+	}
+}
+
+// resolveRangeScope builds the scope for a range block body by resolving the
+// element type of the range target variable.
+func (w *walker) resolveRangeScope(pipe *parse.PipeNode, outer walkScope) walkScope {
+	inner := walkScope{depth: outer.depth + 1}
+
+	rangeVar := pipeFieldName(pipe)
+	if rangeVar == "" {
+		return inner
+	}
+
+	var containerType, chainBase string
+
+	if outer.depth == 0 {
+		// Range on a top-level variable
+		if w.typeMap != nil {
+			containerType = w.typeMap[rangeVar]
+			chainBase = rangeVar
+		}
+	} else if outer.allowedFields != nil {
+		// Range on an element field (nested range)
+		if entry, ok := outer.allowedFields[rangeVar]; ok {
+			containerType = entry.Type
+			if outer.chainExpr != "" {
+				chainBase = outer.chainExpr + "." + rangeVar
+			}
+		}
+	}
+
+	if containerType == "" || w.resolver == nil {
+		return inner
+	}
+
+	elemType := ElementTypeFromContainer(containerType)
+	if elemType == "" {
+		return inner
+	}
+
+	queryType := strings.TrimPrefix(elemType, "*")
+	chainExpr := chainBase + "[0]"
+
+	fields := w.resolver(queryType, chainExpr)
+	if fields == nil {
+		return inner
+	}
+
+	inner.allowedFields = fieldEntryMap(fields)
+	inner.typeName = elemType
+	inner.chainExpr = chainExpr
+	return inner
+}
+
+// resolveWithScope builds the scope for a with block body by resolving the
+// type of the with target variable.
+func (w *walker) resolveWithScope(pipe *parse.PipeNode, outer walkScope) walkScope {
+	inner := walkScope{depth: outer.depth + 1}
+
+	withVar := pipeFieldName(pipe)
+	if withVar == "" {
+		return inner
+	}
+
+	var varType, chainBase string
+
+	if outer.depth == 0 {
+		if w.typeMap != nil {
+			varType = w.typeMap[withVar]
+			chainBase = withVar
+		}
+	} else if outer.allowedFields != nil {
+		if entry, ok := outer.allowedFields[withVar]; ok {
+			varType = entry.Type
+			if outer.chainExpr != "" {
+				chainBase = outer.chainExpr + "." + withVar
+			}
+		}
+	}
+
+	if varType == "" || w.resolver == nil {
+		return inner
+	}
+
+	// With doesn't extract element type — the dot becomes the value itself.
+	// But strip pointer for field resolution.
+	queryType := strings.TrimPrefix(varType, "*")
+	chainExpr := chainBase
+
+	fields := w.resolver(queryType, chainExpr)
+	if fields == nil {
+		return inner
+	}
+
+	inner.allowedFields = fieldEntryMap(fields)
+	inner.typeName = varType
+	inner.chainExpr = chainExpr
+	return inner
+}
+
+// fieldEntryMap converts a slice of FieldEntry to a map keyed by name.
+func fieldEntryMap(entries []FieldEntry) map[string]FieldEntry {
+	m := make(map[string]FieldEntry, len(entries))
+	for _, e := range entries {
+		m[e.Name] = e
+	}
+	return m
+}
+
+// checkField handles .FieldName and .Field.SubField nodes.
+func (w *walker) checkField(n *parse.FieldNode, scope walkScope) {
+	if len(n.Ident) == 0 {
+		return
+	}
+
+	fieldName := n.Ident[0]
+
+	if scope.depth == 0 {
+		// Top-level: check against exported frontmatter names
+		if !w.exportedNames[fieldName] {
+			w.emitFieldDiag(n, fieldName, "")
+			return
+		}
+		// Check chained sub-fields if type info is available
+		w.checkChainedFields(n, 1, fieldName)
+	} else {
+		// Inside range/with: check against allowed fields
+		if scope.allowedFields == nil {
+			return // no type info — skip silently
+		}
+		entry, ok := scope.allowedFields[fieldName]
+		if !ok {
+			w.emitFieldDiag(n, fieldName, scope.typeName)
+			return
+		}
+		// Check chained sub-fields using the field's type
+		w.checkChainedFieldsWithType(n, 1, entry.Type, scope.chainExpr+"."+fieldName)
+	}
+}
+
+// checkChainedFields validates sub-fields of a top-level variable (e.g. .Post.Title).
+func (w *walker) checkChainedFields(n *parse.FieldNode, startIdx int, rootVar string) {
+	if w.typeMap == nil || w.resolver == nil || startIdx >= len(n.Ident) {
+		return
+	}
+
+	varType, ok := w.typeMap[rootVar]
+	if !ok {
+		return
+	}
+
+	queryType := strings.TrimPrefix(varType, "*")
+	chainExpr := rootVar
+
+	for i := startIdx; i < len(n.Ident); i++ {
+		fields := w.resolver(queryType, chainExpr)
+		if fields == nil {
+			return // can't resolve further — stop checking
+		}
+
+		fieldMap := fieldEntryMap(fields)
+		subField := n.Ident[i]
+		entry, ok := fieldMap[subField]
+		if !ok {
+			w.emitChainedFieldDiag(n, i, queryType)
+			return
+		}
+
+		queryType = strings.TrimPrefix(entry.Type, "*")
+		chainExpr = chainExpr + "." + subField
+	}
+}
+
+// checkChainedFieldsWithType validates sub-fields starting from a known type.
+func (w *walker) checkChainedFieldsWithType(n *parse.FieldNode, startIdx int, currentType, currentChain string) {
+	if w.resolver == nil || startIdx >= len(n.Ident) || currentType == "" {
+		return
+	}
+
+	queryType := strings.TrimPrefix(currentType, "*")
+
+	for i := startIdx; i < len(n.Ident); i++ {
+		fields := w.resolver(queryType, currentChain)
+		if fields == nil {
+			return
+		}
+
+		fieldMap := fieldEntryMap(fields)
+		subField := n.Ident[i]
+		entry, ok := fieldMap[subField]
+		if !ok {
+			w.emitChainedFieldDiag(n, i, queryType)
+			return
+		}
+
+		queryType = strings.TrimPrefix(entry.Type, "*")
+		currentChain = currentChain + "." + subField
+	}
+}
+
+// emitFieldDiag emits a diagnostic for an unknown field at position 0 of a FieldNode.
+func (w *walker) emitFieldDiag(n *parse.FieldNode, fieldName, typeName string) {
+	offset := int(n.Pos)
+	startLine, startChar := OffsetToLineChar(w.body, offset)
+	endOffset := offset + 1 + len(fieldName)
+	endLine, endChar := OffsetToLineChar(w.body, endOffset)
+
+	msg := fmt.Sprintf("unknown template variable %q", "."+fieldName)
+	if typeName != "" {
+		msg = fmt.Sprintf("unknown field %q on type %q", "."+fieldName, typeName)
+	}
+
+	w.diags = append(w.diags, Diagnostic{
+		StartLine: startLine, StartChar: startChar,
+		EndLine: endLine, EndChar: endChar,
+		Message: msg,
+	})
+}
+
+// emitChainedFieldDiag emits a diagnostic for an unknown sub-field in a chain.
+func (w *walker) emitChainedFieldDiag(n *parse.FieldNode, identIdx int, parentType string) {
+	subField := n.Ident[identIdx]
+	// Calculate the offset: Pos is the initial dot, then each ident has a dot + name
+	offset := int(n.Pos)
+	for i := 0; i < identIdx; i++ {
+		offset += 1 + len(n.Ident[i]) // dot + identifier
+	}
+	// offset now points to the dot before this sub-field
+	startLine, startChar := OffsetToLineChar(w.body, offset)
+	endOffset := offset + 1 + len(subField)
+	endLine, endChar := OffsetToLineChar(w.body, endOffset)
+
+	w.diags = append(w.diags, Diagnostic{
+		StartLine: startLine, StartChar: startChar,
+		EndLine: endLine, EndChar: endChar,
+		Message: fmt.Sprintf("unknown field %q on type %q", "."+subField, parentType),
+	})
+}
+
+// checkVariable handles $-prefixed variables. $.FieldName always refers to the
+// root data, so it is checked against exports regardless of depth.
+func (w *walker) checkVariable(n *parse.VariableNode, scope walkScope) {
+	if len(n.Ident) < 2 || n.Ident[0] != "$" {
+		return
+	}
+
+	fieldName := n.Ident[1]
+	if !w.exportedNames[fieldName] {
+		offset := int(n.Pos) - 1 // Pos is at '.', '$' is one before
+		startLine, startChar := OffsetToLineChar(w.body, offset)
+		endOffset := int(n.Pos) + 1 + len(fieldName)
+		endLine, endChar := OffsetToLineChar(w.body, endOffset)
+
+		w.diags = append(w.diags, Diagnostic{
+			StartLine: startLine, StartChar: startChar,
+			EndLine: endLine, EndChar: endChar,
+			Message: fmt.Sprintf("unknown template variable %q", "."+fieldName),
+		})
+		return
+	}
+
+	// Check chained sub-fields: $.Post.Title
+	if w.typeMap != nil && w.resolver != nil && len(n.Ident) > 2 {
+		varType, ok := w.typeMap[fieldName]
+		if !ok {
+			return
+		}
+		queryType := strings.TrimPrefix(varType, "*")
+		chainExpr := fieldName
+
+		for i := 2; i < len(n.Ident); i++ {
+			fields := w.resolver(queryType, chainExpr)
+			if fields == nil {
+				return
+			}
+			fm := fieldEntryMap(fields)
+			subField := n.Ident[i]
+			entry, ok := fm[subField]
+			if !ok {
+				// Calculate offset for the sub-field in the $.A.B.C chain
+				subOffset := int(n.Pos) // starts at '.' after '$'
+				for j := 1; j < i; j++ {
+					subOffset += 1 + len(n.Ident[j]) // dot + ident
+				}
+				startLine, startChar := OffsetToLineChar(w.body, subOffset)
+				endOffset := subOffset + 1 + len(subField)
+				endLine, endChar := OffsetToLineChar(w.body, endOffset)
+
+				w.diags = append(w.diags, Diagnostic{
+					StartLine: startLine, StartChar: startChar,
+					EndLine: endLine, EndChar: endChar,
+					Message: fmt.Sprintf("unknown field %q on type %q", "."+subField, queryType),
+				})
+				return
+			}
+			queryType = strings.TrimPrefix(entry.Type, "*")
+			chainExpr = chainExpr + "." + subField
+		}
 	}
 }
 
@@ -120,8 +440,6 @@ type ScopeInfo struct {
 }
 
 // CursorScope walks the template AST to determine what scope the cursor is in.
-// cursorOffset is the byte offset of the cursor within the template body.
-// Returns the innermost scope context, or depth 0 if the cursor is at top level.
 func CursorScope(tree *parse.Tree, cursorOffset int) ScopeInfo {
 	if tree == nil || tree.Root == nil {
 		return ScopeInfo{}
@@ -172,7 +490,6 @@ func cursorScopeNode(node parse.Node, cursor int, current ScopeInfo) ScopeInfo {
 		}
 
 	case *parse.IfNode:
-		// if does not rebind dot — keep current scope
 		if nodeContainsCursor(n.List, cursor) {
 			return cursorScopeList(n.List, cursor, current)
 		}
@@ -184,7 +501,6 @@ func cursorScopeNode(node parse.Node, cursor int, current ScopeInfo) ScopeInfo {
 	return current
 }
 
-// nodeContainsCursor checks if the cursor byte offset falls within a ListNode's range.
 func nodeContainsCursor(list *parse.ListNode, cursor int) bool {
 	if list == nil || len(list.Nodes) == 0 {
 		return false
@@ -194,18 +510,13 @@ func nodeContainsCursor(list *parse.ListNode, cursor int) bool {
 	return cursor >= int(first.Position()) && cursor <= int(last.Position())+nodeLen(last)
 }
 
-// nodeLen estimates the byte length of a node. For text nodes this is exact;
-// for others it's approximate. Used only for cursor containment checks.
 func nodeLen(node parse.Node) int {
 	if tn, ok := node.(*parse.TextNode); ok {
 		return len(tn.Text)
 	}
-	// For non-text nodes, use the String() representation length as estimate
 	return len(node.String())
 }
 
-// pipeFieldName extracts the first field name from a pipe expression.
-// For "range .Posts", returns "Posts". For complex pipes, returns "".
 func pipeFieldName(pipe *parse.PipeNode) string {
 	if pipe == nil || len(pipe.Cmds) == 0 {
 		return ""
@@ -229,8 +540,7 @@ type HoverTarget struct {
 }
 
 // NodeAtCursor walks the template AST to find the leaf node at the given
-// byte offset within the template body. Returns nil if the cursor is not
-// on a meaningful token (e.g. on HTML text or whitespace).
+// byte offset within the template body.
 func NodeAtCursor(tree *parse.Tree, cursorOffset int) *HoverTarget {
 	if tree == nil || tree.Root == nil {
 		return nil
@@ -258,10 +568,8 @@ func nodeAtCursorNode(node parse.Node, cursor int) *HoverTarget {
 	switch n := node.(type) {
 	case *parse.ListNode:
 		return nodeAtCursorList(n, cursor)
-
 	case *parse.ActionNode:
 		return nodeAtCursorPipe(n.Pipe, cursor)
-
 	case *parse.RangeNode:
 		if r := nodeAtCursorPipe(n.Pipe, cursor); r != nil {
 			return r
@@ -270,7 +578,6 @@ func nodeAtCursorNode(node parse.Node, cursor int) *HoverTarget {
 			return r
 		}
 		return nodeAtCursorList(n.ElseList, cursor)
-
 	case *parse.WithNode:
 		if r := nodeAtCursorPipe(n.Pipe, cursor); r != nil {
 			return r
@@ -279,7 +586,6 @@ func nodeAtCursorNode(node parse.Node, cursor int) *HoverTarget {
 			return r
 		}
 		return nodeAtCursorList(n.ElseList, cursor)
-
 	case *parse.IfNode:
 		if r := nodeAtCursorPipe(n.Pipe, cursor); r != nil {
 			return r
@@ -288,18 +594,13 @@ func nodeAtCursorNode(node parse.Node, cursor int) *HoverTarget {
 			return r
 		}
 		return nodeAtCursorList(n.ElseList, cursor)
-
 	case *parse.TemplateNode:
 		return nodeAtCursorPipe(n.Pipe, cursor)
-
 	case *parse.PipeNode:
 		return nodeAtCursorPipe(n, cursor)
-
 	case *parse.CommandNode:
 		return nodeAtCursorCommand(n, cursor)
-
 	case *parse.FieldNode:
-		// .FieldName — Pos is at the dot, range is 1 + len(Ident[0])
 		if len(n.Ident) > 0 {
 			start := int(n.Pos)
 			end := start + 1 + len(n.Ident[0])
@@ -307,24 +608,20 @@ func nodeAtCursorNode(node parse.Node, cursor int) *HoverTarget {
 				return &HoverTarget{Kind: "field", Name: n.Ident[0], Pos: start, EndPos: end}
 			}
 		}
-
 	case *parse.VariableNode:
-		// $.FieldName — Pos points to the '.' after '$', so '$' is at Pos-1
 		if len(n.Ident) >= 2 && n.Ident[0] == "$" {
-			start := int(n.Pos) - 1                 // include the '$'
-			end := int(n.Pos) + 1 + len(n.Ident[1]) // dot + fieldName
+			start := int(n.Pos) - 1
+			end := int(n.Pos) + 1 + len(n.Ident[1])
 			if cursor >= start && cursor < end {
 				return &HoverTarget{Kind: "variable", Name: n.Ident[1], Pos: start, EndPos: end}
 			}
 		}
-
 	case *parse.IdentifierNode:
 		start := int(n.Pos)
 		end := start + len(n.Ident)
 		if cursor >= start && cursor < end {
 			return &HoverTarget{Kind: "function", Name: n.Ident, Pos: start, EndPos: end}
 		}
-
 	case *parse.ChainNode:
 		return nodeAtCursorNode(n.Node, cursor)
 	}
@@ -354,64 +651,4 @@ func nodeAtCursorCommand(cmd *parse.CommandNode, cursor int) *HoverTarget {
 		}
 	}
 	return nil
-}
-
-// checkField handles .FieldName nodes. At depth 0, the first field in the
-// chain is checked against exported frontmatter names.
-func (w *walker) checkField(n *parse.FieldNode, depth int) {
-	if depth > 0 {
-		return // dot has been rebound — can't validate without type info
-	}
-
-	if len(n.Ident) == 0 {
-		return
-	}
-
-	fieldName := n.Ident[0]
-	if w.exportedNames[fieldName] {
-		return
-	}
-
-	// Position is the byte offset of the dot before the field name
-	offset := int(n.Pos)
-	startLine, startChar := OffsetToLineChar(w.body, offset)
-	// End position covers ".FieldName" (dot + first identifier)
-	endOffset := offset + 1 + len(fieldName)
-	endLine, endChar := OffsetToLineChar(w.body, endOffset)
-
-	w.diags = append(w.diags, Diagnostic{
-		StartLine: startLine,
-		StartChar: startChar,
-		EndLine:   endLine,
-		EndChar:   endChar,
-		Message:   fmt.Sprintf("unknown template variable %q", "."+fieldName),
-	})
-}
-
-// checkVariable handles $-prefixed variables. $.FieldName always refers to the
-// root data, so it is checked against exports regardless of depth.
-func (w *walker) checkVariable(n *parse.VariableNode, depth int) {
-	// Only check $.FieldName — bare $ or local $var are not field accesses
-	if len(n.Ident) < 2 || n.Ident[0] != "$" {
-		return
-	}
-
-	fieldName := n.Ident[1]
-	if w.exportedNames[fieldName] {
-		return
-	}
-
-	// Position covers the $.FieldName expression
-	offset := int(n.Pos)
-	startLine, startChar := OffsetToLineChar(w.body, offset)
-	endOffset := offset + 1 + 1 + len(fieldName) // $ + . + fieldName
-	endLine, endChar := OffsetToLineChar(w.body, endOffset)
-
-	w.diags = append(w.diags, Diagnostic{
-		StartLine: startLine,
-		StartChar: startChar,
-		EndLine:   endLine,
-		EndChar:   endChar,
-		Message:   fmt.Sprintf("unknown template variable %q", "."+fieldName),
-	})
 }

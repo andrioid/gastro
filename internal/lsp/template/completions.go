@@ -59,10 +59,10 @@ func ComponentCompletions(uses []parser.UseDeclaration) []CompletionItem {
 }
 
 // FuncMapCompletions returns completion items for template functions
-// available in {{ }} expressions (built-in + pipe targets).
+// available in {{ }} expressions (gastro functions + Go template builtins).
 func FuncMapCompletions() []CompletionItem {
 	funcs := gastro.DefaultFuncs()
-	items := make([]CompletionItem, 0, len(funcs))
+	items := make([]CompletionItem, 0, len(funcs)+len(goTemplateBuiltins))
 	for name := range funcs {
 		items = append(items, CompletionItem{
 			Label:      name,
@@ -70,17 +70,64 @@ func FuncMapCompletions() []CompletionItem {
 			InsertText: name,
 		})
 	}
+	for _, name := range goTemplateBuiltins {
+		items = append(items, CompletionItem{
+			Label:      name,
+			Detail:     "Go template builtin",
+			InsertText: name,
+		})
+	}
 	return items
 }
 
 // FuncSignatures returns a map of template function names to their Go type
-// signatures, derived via reflection on the actual function values.
+// signatures. Gastro functions use reflection; Go builtins use known signatures.
 func FuncSignatures() map[string]string {
 	sigs := make(map[string]string)
 	for name, fn := range gastro.DefaultFuncs() {
 		sigs[name] = reflect.TypeOf(fn).String()
 	}
+	// Go template builtins — signatures from the Go standard library
+	for _, name := range []string{"and", "or"} {
+		sigs[name] = "func(arg0 any, args ...any) any"
+	}
+	sigs["not"] = "func(arg any) bool"
+	for _, name := range []string{"eq", "ne", "lt", "le", "gt", "ge"} {
+		sigs[name] = "func(arg1, arg2 any) bool"
+	}
+	sigs["print"] = "func(args ...any) string"
+	sigs["printf"] = "func(format string, args ...any) string"
+	sigs["println"] = "func(args ...any) string"
+	sigs["len"] = "func(item any) int"
+	sigs["index"] = "func(item any, indices ...any) any"
+	sigs["slice"] = "func(item any, indices ...any) any"
+	sigs["call"] = "func(fn any, args ...any) any"
+	sigs["html"] = "func(args ...any) string"
+	sigs["js"] = "func(args ...any) string"
+	sigs["urlquery"] = "func(args ...any) string"
 	return sigs
+}
+
+// ElementTypeFromContainer extracts the element type from a container type string.
+// "[]db.Post" → "db.Post", "[]*db.Post" → "*db.Post",
+// "map[string]db.Post" → "db.Post". Returns "" for non-container types.
+func ElementTypeFromContainer(typeStr string) string {
+	if strings.HasPrefix(typeStr, "[]") {
+		return typeStr[2:]
+	}
+	if strings.HasPrefix(typeStr, "[") {
+		idx := strings.Index(typeStr, "]")
+		if idx >= 0 && idx+1 < len(typeStr) {
+			return typeStr[idx+1:]
+		}
+	}
+	if strings.HasPrefix(typeStr, "map[") {
+		idx := strings.Index(typeStr, "]")
+		if idx >= 0 && idx+1 < len(typeStr) {
+			return typeStr[idx+1:]
+		}
+	}
+	return ""
 }
 
 // OffsetToLineChar converts a byte offset within text to 0-indexed line and character.
@@ -104,7 +151,7 @@ func OffsetToLineChar(text string, offset int) (int, int) {
 // the dot context). When parsing fails (common during editing), variable
 // checks are skipped to avoid false positives — only double-dot syntax and
 // unknown component checks run in that case.
-func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.UseDeclaration) []Diagnostic {
+func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.UseDeclaration, typeMap map[string]string, resolver FieldResolver) []Diagnostic {
 	var diags []Diagnostic
 
 	exportedNames := make(map[string]bool, len(info.ExportedVars))
@@ -119,11 +166,8 @@ func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.
 	// Attempt AST-based scope-aware variable checking
 	tree, err := ParseTemplateBody(templateBody, uses)
 	if err == nil && tree != nil {
-		diags = append(diags, WalkDiagnostics(tree, templateBody, exportedNames)...)
+		diags = append(diags, WalkDiagnostics(tree, templateBody, exportedNames, typeMap, resolver)...)
 	}
-	// When parsing fails (incomplete template during editing), variable
-	// checks are skipped. The regex approach can't distinguish between
-	// top-level dot and rebound dot inside range/with blocks.
 
 	diags = append(diags, diagnoseUnknownComponents(templateBody, uses)...)
 

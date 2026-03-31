@@ -36,12 +36,13 @@ type server struct {
 	workspace      *shadow.Workspace
 	gopls          *proxy.GoplsProxy
 	projectDir     string
-	goplsOpenFiles map[string]int                    // virtual URI -> version (tracks files opened in gopls)
-	writeMu        sync.Mutex                        // protects stdout writes from concurrent goroutines
-	goplsDiags     map[string][]map[string]any       // URI -> gopls diagnostics (frontmatter)
-	templateDiags  map[string][]map[string]any       // URI -> template diagnostics (body)
-	typeCache      map[string]map[string]string      // URI -> varName -> type string
-	fieldCache     map[string]map[string][]fieldInfo // URI -> varName -> fields
+	goplsOpenFiles map[string]int                                 // virtual URI -> version (tracks files opened in gopls)
+	writeMu        sync.Mutex                                     // protects stdout writes from concurrent goroutines
+	goplsDiags     map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
+	templateDiags  map[string][]map[string]any                    // URI -> template diagnostics (body)
+	typeCache      map[string]map[string]string                   // URI -> varName -> type string
+	fieldCache     map[string]map[string][]fieldInfo              // URI -> varName -> fields
+	typeFieldCache map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
 }
 
 func newServer() *server {
@@ -52,6 +53,7 @@ func newServer() *server {
 		templateDiags:  make(map[string][]map[string]any),
 		typeCache:      make(map[string]map[string]string),
 		fieldCache:     make(map[string]map[string][]fieldInfo),
+		typeFieldCache: make(map[string]map[string][]lsptemplate.FieldEntry),
 	}
 }
 
@@ -303,6 +305,7 @@ func (s *server) handleDidChange(msg *jsonRPCMessage) {
 		s.documents[uri] = content
 		delete(s.typeCache, uri) // invalidate caches on change
 		delete(s.fieldCache, uri)
+		delete(s.typeFieldCache, uri)
 		s.syncToGopls(uri, content)
 		s.runTemplateDiagnostics(uri, content)
 	}
@@ -323,6 +326,7 @@ func (s *server) handleDidClose(msg *jsonRPCMessage) {
 	delete(s.templateDiags, uri)
 	delete(s.typeCache, uri)
 	delete(s.fieldCache, uri)
+	delete(s.typeFieldCache, uri)
 }
 
 // publishMergedDiagnostics combines gopls (frontmatter) and template (body)
@@ -360,7 +364,17 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 		return
 	}
 
-	templateDiags := lsptemplate.Diagnose(parsed.TemplateBody, info, parsed.Uses)
+	// Build type map and field resolver for scope-aware diagnostics.
+	// These may be nil if gopls is not available yet.
+	types := s.queryVariableTypes(uri)
+	var resolver lsptemplate.FieldResolver
+	if s.gopls != nil && s.workspace != nil {
+		resolver = func(typeName string, chainExpr string) []lsptemplate.FieldEntry {
+			return s.resolveFieldsViaChain(uri, typeName, chainExpr)
+		}
+	}
+
+	templateDiags := lsptemplate.Diagnose(parsed.TemplateBody, info, parsed.Uses, types, resolver)
 
 	// Convert to LSP diagnostic format, offsetting positions by the template body start line.
 	// TemplateBodyLine is 1-indexed; LSP positions are 0-indexed.
@@ -491,29 +505,10 @@ func parseTypeFromHover(raw json.RawMessage) string {
 	return ""
 }
 
-// elementTypeFromContainer extracts the element type from a container type string.
-// "[]db.Post" → "db.Post", "[]*db.Post" → "*db.Post",
-// "map[string]db.Post" → "db.Post". Returns "" for non-container types.
+// elementTypeFromContainer is a convenience alias for the template package function.
+// Kept for backward compatibility with existing callers in this file.
 func elementTypeFromContainer(typeStr string) string {
-	// Slice/array: []T or [N]T
-	if strings.HasPrefix(typeStr, "[]") {
-		return typeStr[2:]
-	}
-	// Fixed-size array: [N]T
-	if strings.HasPrefix(typeStr, "[") {
-		idx := strings.Index(typeStr, "]")
-		if idx >= 0 && idx+1 < len(typeStr) {
-			return typeStr[idx+1:]
-		}
-	}
-	// Map: map[K]V
-	if strings.HasPrefix(typeStr, "map[") {
-		idx := strings.Index(typeStr, "]")
-		if idx >= 0 && idx+1 < len(typeStr) {
-			return typeStr[idx+1:]
-		}
-	}
-	return ""
+	return lsptemplate.ElementTypeFromContainer(typeStr)
 }
 
 // syncToGopls updates the virtual .go file in the shadow workspace and
@@ -1031,6 +1026,113 @@ func (s *server) getCachedFields(uri, varName string) []fieldInfo {
 		s.fieldCache[uri] = make(map[string][]fieldInfo)
 	}
 	s.fieldCache[uri][varName] = fields
+	return fields
+}
+
+// resolveFieldsViaChain resolves a type's fields by probing gopls with
+// a chain expression. Results are cached per URI + type name.
+func (s *server) resolveFieldsViaChain(uri, typeName, chainExpr string) []lsptemplate.FieldEntry {
+	// Check type-keyed cache
+	if perURI, ok := s.typeFieldCache[uri]; ok {
+		if entries, ok := perURI[typeName]; ok {
+			return entries
+		}
+	}
+
+	if s.gopls == nil || s.workspace == nil || chainExpr == "" {
+		return nil
+	}
+
+	fields := s.probeFieldsViaChain(uri, chainExpr)
+	if fields == nil {
+		return nil
+	}
+
+	entries := make([]lsptemplate.FieldEntry, len(fields))
+	for i, f := range fields {
+		entries[i] = lsptemplate.FieldEntry{Name: f.Label, Type: f.Detail}
+	}
+
+	if s.typeFieldCache[uri] == nil {
+		s.typeFieldCache[uri] = make(map[string][]lsptemplate.FieldEntry)
+	}
+	s.typeFieldCache[uri][typeName] = entries
+	return entries
+}
+
+// probeFieldsViaChain queries gopls for fields by injecting a probe line
+// with the given chain expression (e.g. "Posts[0]" or "Posts[0].Comments[0]").
+func (s *server) probeFieldsViaChain(uri, chainExpr string) []fieldInfo {
+	gastroPath := uriToPath(uri)
+	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	if err != nil {
+		return nil
+	}
+
+	vf := s.workspace.GetFile(relPath)
+	if vf == nil {
+		return nil
+	}
+
+	virtualPath := s.workspace.VirtualFilePath(relPath)
+	virtualURI := "file://" + virtualPath
+
+	goLines := strings.Split(vf.GoSource, "\n")
+	probeLine := -1
+	probeText := fmt.Sprintf("\t_ = %s.", chainExpr)
+
+	// Find the closing brace of the handler function to insert before it
+	for i, line := range goLines {
+		if strings.TrimSpace(line) == "}" && i > 0 {
+			// Check if previous line is a "_ = VarName" suppression line
+			prev := strings.TrimSpace(goLines[i-1])
+			if strings.HasPrefix(prev, "_ = ") {
+				probeLine = i
+				break
+			}
+		}
+	}
+
+	if probeLine < 0 {
+		return nil
+	}
+
+	newLines := make([]string, 0, len(goLines)+1)
+	newLines = append(newLines, goLines[:probeLine]...)
+	newLines = append(newLines, probeText)
+	newLines = append(newLines, goLines[probeLine:]...)
+	probeSource := strings.Join(newLines, "\n")
+
+	if err := os.WriteFile(virtualPath, []byte(probeSource), 0o644); err != nil {
+		return nil
+	}
+
+	version := s.goplsOpenFiles[virtualURI] + 1
+	s.goplsOpenFiles[virtualURI] = version
+	s.gopls.Notify("textDocument/didChange", map[string]any{
+		"textDocument": map[string]any{
+			"uri":     virtualURI,
+			"version": version,
+		},
+		"contentChanges": []map[string]any{
+			{"text": probeSource},
+		},
+	})
+
+	completionParams := map[string]any{
+		"textDocument": map[string]any{"uri": virtualURI},
+		"position":     map[string]any{"line": probeLine, "character": len(probeText)},
+	}
+
+	result, err := s.gopls.Request("textDocument/completion", completionParams)
+	if err != nil {
+		log.Printf("gopls completion for chain probe error: %v", err)
+		s.restoreVirtualFile(virtualPath, vf, virtualURI)
+		return nil
+	}
+
+	fields := parseFieldCompletions(result)
+	s.restoreVirtualFile(virtualPath, vf, virtualURI)
 	return fields
 }
 
