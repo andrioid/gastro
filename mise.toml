@@ -1,0 +1,6 @@
+[tools]
+go = "1.26"
+"go:golang.org/x/tools/gopls" = "latest"
+
+[task_config]
+includes = ["scripts"]

@@ -1,0 +1,27 @@
+# Compiled binaries
+bin/
+gastro-lsp
+*.exe
+*.dylib
+
+# Generated output
+.gastro/
+examples/blog/.gastro/
+
+# Node.js
+node_modules/
+
+# OpenCode (auto-managed)
+.opencode/node_modules/
+.opencode/bun.lock
+.opencode/package.json
+.opencode/.gitignore
+
+# Tree-sitter generated source
+tree-sitter-gastro/src/
+
+# OS
+.DS_Store
+
+# Environment
+.env*

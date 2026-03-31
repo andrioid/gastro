@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#MISE description="Symlink the VS Code extension for local development"
+#MISE depends=["build:vscode"]
+
+set -euo pipefail
+
+EXTENSION_DIR="$HOME/.vscode/extensions"
+LINK_NAME="andrioid.gastro-vscode-0.1.0"
+TARGET="$PWD/editors/vscode"
+
+if [ -L "$EXTENSION_DIR/$LINK_NAME" ]; then
+  echo "Symlink already exists: $EXTENSION_DIR/$LINK_NAME"
+else
+  ln -sfn "$TARGET" "$EXTENSION_DIR/$LINK_NAME"
+  echo "Linked $TARGET -> $EXTENSION_DIR/$LINK_NAME"
+fi
+
+echo "Restart VS Code to pick up changes."
