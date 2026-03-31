@@ -1,7 +1,7 @@
 package gastro_test
 
 import (
-	"net/http"
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -167,21 +167,39 @@ func TestContext_SSE(t *testing.T) {
 }
 
 func TestSSE_Send_CancelledContext(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sse := gastro.NewSSE(w, r)
-
-		// First send should work
-		if err := sse.Send("ok", "first"); err != nil {
-			t.Errorf("first Send: unexpected error: %v", err)
-		}
-	})
-
-	// Verify the handler runs without error
-	w := httptest.NewRecorder()
+	ctx, cancel := context.WithCancel(context.Background())
 	r := httptest.NewRequest("GET", "/events", nil)
-	handler.ServeHTTP(w, r)
+	r = r.WithContext(ctx)
+	w := httptest.NewRecorder()
 
-	if !strings.Contains(w.Body.String(), "event: ok\n") {
-		t.Errorf("expected event in body: %q", w.Body.String())
+	sse := gastro.NewSSE(w, r)
+
+	// Send should work before cancellation.
+	if err := sse.Send("ok", "first"); err != nil {
+		t.Fatalf("first Send: unexpected error: %v", err)
+	}
+
+	cancel()
+
+	// Send after cancellation should return an error.
+	err := sse.Send("fail", "second")
+	if err == nil {
+		t.Fatal("Send after cancel: expected error, got nil")
+	}
+
+	if !sse.IsClosed() {
+		t.Error("IsClosed: expected true after cancel")
+	}
+}
+
+func TestNewSSE_NoConnectionHeaderForHTTP2(t *testing.T) {
+	r := httptest.NewRequest("GET", "/events", nil)
+	r.ProtoMajor = 2
+	w := httptest.NewRecorder()
+
+	gastro.NewSSE(w, r)
+
+	if got := w.Header().Get("Connection"); got != "" {
+		t.Errorf("Connection header should be empty for HTTP/2, got %q", got)
 	}
 }

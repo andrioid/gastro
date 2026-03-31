@@ -3,6 +3,7 @@ package gastro
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -32,7 +33,9 @@ func NewSSE(w http.ResponseWriter, r *http.Request) *SSE {
 	}
 
 	// Flush headers so the client sees text/event-stream immediately.
-	rc.Flush()
+	// Error is intentionally ignored -- if the initial flush fails,
+	// subsequent Send() calls will return the error.
+	_ = rc.Flush()
 
 	return &SSE{
 		ctx: r.Context(),
@@ -67,7 +70,7 @@ func (s *SSE) Send(eventType string, data ...string) error {
 	// Blank line terminates the event per the SSE spec.
 	b.WriteByte('\n')
 
-	if _, err := fmt.Fprint(s.w, b.String()); err != nil {
+	if _, err := io.WriteString(s.w, b.String()); err != nil {
 		return fmt.Errorf("sse: write failed: %w", err)
 	}
 

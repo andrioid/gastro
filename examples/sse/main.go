@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"sync/atomic"
@@ -36,7 +37,7 @@ func main() {
 	mux.Handle("/", gastro.Routes())
 
 	fmt.Printf("Listening on http://localhost:%s\n", port)
-	http.ListenAndServe(":"+port, mux)
+	log.Fatal(http.ListenAndServe(":"+port, mux))
 }
 
 // handleIncrement sends a single SSE event that patches the counter element.
