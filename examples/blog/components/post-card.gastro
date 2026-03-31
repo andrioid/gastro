@@ -1,4 +1,6 @@
 ---
+use Badge "components/badge.gastro"
+
 type Props struct {
     Slug   string
     Title  string
@@ -14,5 +16,5 @@ Date := props.Date
 ---
 <article class="post-card">
     <h2><a href="/blog/{{ .Slug }}">{{ .Title }}</a></h2>
-    <p class="meta">By {{ .Author }} on {{ .Date }}</p>
+    <p class="meta"><Badge Label={.Author} /> on {{ .Date }}</p>
 </article>

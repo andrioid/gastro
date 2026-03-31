@@ -1,0 +1,16 @@
+---
+use Badge "components/badge.gastro"
+
+type Props struct {
+    Title string
+    Tag   string
+}
+
+props := gastro.Props[Props]()
+Title := props.Title
+Tag := props.Tag
+---
+<div class="card">
+    <h2>{{ .Title }}</h2>
+    <Badge Label={.Tag} />
+</div>

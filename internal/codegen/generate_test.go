@@ -140,6 +140,54 @@ func TestGenerate_PageWithComponents(t *testing.T) {
 	assertContains(t, output, `"bytes"`)
 }
 
+func TestGenerate_ComponentWithUses(t *testing.T) {
+	file := &parser.File{
+		Filename: "components/card.gastro",
+		Frontmatter: `type Props struct {
+    Title string
+    Tag   string
+}
+props := gastro.Props[Props]()
+Title := props.Title
+Tag := props.Tag`,
+		TemplateBody: `<div class="card"><h2>{{ .Title }}</h2>{{ __gastro_Badge (dict "Label" .Tag) }}</div>`,
+		Uses: []parser.UseDeclaration{
+			{Name: "Badge", Path: "components/badge.gastro"},
+		},
+	}
+
+	info := &codegen.FrontmatterInfo{
+		ExportedVars:  []codegen.VarInfo{{Name: "Title"}, {Name: "Tag"}},
+		PrivateVars:   []codegen.VarInfo{{Name: "props"}},
+		IsComponent:   true,
+		PropsTypeName: "Props",
+	}
+
+	output, err := codegen.GenerateHandler(file, info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should use init-based template parsing (not inline)
+	assertContains(t, output, `func init()`)
+	assertContains(t, output, `template.New("componentCard")`)
+
+	// Should register the used component function in the FuncMap
+	assertContains(t, output, `__fm["__gastro_Badge"] = componentBadge`)
+
+	// Should register __gastro_render_children closure
+	assertContains(t, output, `__fm["__gastro_render_children"]`)
+	assertContains(t, output, `ExecuteTemplate`)
+
+	// Should still have component render function signature (not HTTP handler)
+	assertContains(t, output, `func componentCard(propsMap map[string]any) template.HTML`)
+	assertNotContains(t, output, `http.ResponseWriter`)
+
+	// Should still handle props and children
+	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
+	assertContains(t, output, `"Children": __children`)
+}
+
 func TestGenerate_MultipleExportedVars(t *testing.T) {
 	file := &parser.File{
 		Filename:     "pages/index.gastro",

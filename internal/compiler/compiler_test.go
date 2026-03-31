@@ -117,6 +117,49 @@ func TestCompile_OmitsStaticHandlerWhenNoDir(t *testing.T) {
 	}
 }
 
+func TestCompile_ComponentComposition(t *testing.T) {
+	projectDir := filepath.Join("testdata", "composition")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The card component uses the badge component -- its generated code
+	// should contain init() with FuncMap wiring for Badge.
+	content, err := os.ReadFile(filepath.Join(outputDir, "components_card.go"))
+	if err != nil {
+		t.Fatalf("reading components_card.go: %v", err)
+	}
+	s := string(content)
+
+	assertStringContains(t, s, `func init()`)
+	assertStringContains(t, s, `__fm["__gastro_Badge"] = componentBadge`)
+	assertStringContains(t, s, `__gastro_render_children`)
+
+	// The badge component has no uses -- should NOT have init()
+	badgeContent, err := os.ReadFile(filepath.Join(outputDir, "components_badge.go"))
+	if err != nil {
+		t.Fatalf("reading components_badge.go: %v", err)
+	}
+	badgeStr := string(badgeContent)
+
+	if contains(badgeStr, "func init()") {
+		t.Error("badge component should not have init() -- it has no uses")
+	}
+
+	// The page uses the card component -- should have init() with Card wiring
+	pageContent, err := os.ReadFile(filepath.Join(outputDir, "pages_index.go"))
+	if err != nil {
+		t.Fatalf("reading pages_index.go: %v", err)
+	}
+	pageStr := string(pageContent)
+
+	assertStringContains(t, pageStr, `func init()`)
+	assertStringContains(t, pageStr, `__fm["__gastro_Card"] = componentCard`)
+}
+
 func assertStringContains(t *testing.T, s, substr string) {
 	t.Helper()
 	if !contains(s, substr) {

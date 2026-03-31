@@ -1,0 +1,7 @@
+---
+use Card "components/card.gastro"
+
+ctx := gastro.Context()
+Title := "Composition Test"
+---
+<Card Title={.Title} Tag="test" />

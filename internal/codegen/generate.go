@@ -170,7 +170,26 @@ var _ = log.Println
 {{ .HoistedTypes }}
 {{- end }}
 
+{{- if .Uses }}
+
+var {{ .FuncName }}Template = template.New("{{ .FuncName }}")
+
+func init() {
+	__fm := gastroRuntime.DefaultFuncs()
+{{- range .Uses }}
+	__fm["__gastro_{{ .Name }}"] = {{ .FuncName }}
+{{- end }}
+	__fm["__gastro_render_children"] = func(name string, data any) template.HTML {
+		var __buf bytes.Buffer
+		{{ .FuncName }}Template.ExecuteTemplate(&__buf, name, data)
+		return template.HTML(__buf.String())
+	}
+	template.Must({{ .FuncName }}Template.Funcs(__fm).Parse(` + "`" + `{{ .TemplateBody }}` + "`" + `))
+}
+{{- else }}
+
 var {{ .FuncName }}Template = template.Must(template.New("{{ .FuncName }}").Funcs(gastroRuntime.DefaultFuncs()).Parse(` + "`" + `{{ .TemplateBody }}` + "`" + `))
+{{- end }}
 
 func {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	var __children template.HTML
