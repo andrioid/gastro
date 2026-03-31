@@ -2,9 +2,11 @@ package codegen_test
 
 import (
 	"testing"
+	"text/template/parse"
 
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/parser"
+	"github.com/andrioid/gastro/pkg/gastro"
 )
 
 func TestTransformTemplate_PassthroughPlainHTML(t *testing.T) {
@@ -151,5 +153,41 @@ func TestTransformTemplate_ComponentNoProps(t *testing.T) {
 	want := `{{ __gastro_Header (dict) }}`
 	if result != want {
 		t.Errorf("component with no props:\ngot:  %q\nwant: %q", result, want)
+	}
+}
+
+// TestTransformTemplate_OutputParseable verifies that transformed template
+// output can be parsed by Go's text/template/parse package. The AST-based
+// diagnostics depend on this.
+func TestTransformTemplate_OutputParseable(t *testing.T) {
+	body := `<h1>{{ .Title }}</h1>
+{{ range .Items }}
+    <Card Title={.Name} />
+{{ end }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("TransformTemplate error: %v", err)
+	}
+
+	// Build a stub FuncMap with all default functions + component functions
+	stubFuncs := make(map[string]any)
+	for name := range gastro.DefaultFuncs() {
+		stubFuncs[name] = ""
+	}
+	for _, u := range uses {
+		stubFuncs["__gastro_"+u.Name] = ""
+	}
+	stubFuncs["__gastro_render_children"] = ""
+
+	trees, err := parse.Parse("test", result, "{{", "}}", stubFuncs)
+	if err != nil {
+		t.Fatalf("transformed output is not parseable by text/template/parse: %v\noutput:\n%s", err, result)
+	}
+	if trees["test"] == nil {
+		t.Fatal("expected parse tree for 'test', got nil")
 	}
 }

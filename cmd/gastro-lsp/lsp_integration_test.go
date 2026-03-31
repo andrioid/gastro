@@ -284,7 +284,145 @@ func TestLSP_TemplateCompletions(t *testing.T) {
 	client.recv(t, 10*time.Second)
 	client.notify("initialized", map[string]any{})
 
-	// Open a .gastro file
+	// Open a .gastro file — cursor will be after ".T" on line 3
+	// line 3: <h1>{{ .T }}</h1>
+	//                  ^ char 7 is '.', char 9 is after ".T"
+	gastroContent := "---\nTitle := \"Hello\"\n---\n<h1>{{ .T }}</h1>"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Request completions at cursor position after ".T" (line 3, char 9)
+	client.send("textDocument/completion", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 3, "character": 9},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+
+	result := resp["result"]
+	if result == nil {
+		t.Fatal("expected completion result, got nil")
+	}
+
+	items, ok := result.([]any)
+	if !ok {
+		t.Fatalf("expected array of completions, got: %T", result)
+	}
+
+	// Should include the exported variable .Title with a textEdit
+	found := false
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if m["label"] != ".Title" {
+			continue
+		}
+		found = true
+
+		// Should have filterText for editor fuzzy matching
+		if m["filterText"] != ".Title" {
+			t.Errorf("expected filterText='.Title', got %v", m["filterText"])
+		}
+
+		// Should have textEdit (not insertText) to avoid double-dot
+		te, hasTextEdit := m["textEdit"].(map[string]any)
+		if !hasTextEdit {
+			t.Fatal("expected textEdit on variable completion, got insertText")
+		}
+		if te["newText"] != ".Title" {
+			t.Errorf("expected textEdit.newText='.Title', got %v", te["newText"])
+		}
+
+		// The textEdit range should start at the dot (char 7) and end at cursor (char 9)
+		rng, _ := te["range"].(map[string]any)
+		start, _ := rng["start"].(map[string]any)
+		end, _ := rng["end"].(map[string]any)
+		if start["character"] != float64(7) {
+			t.Errorf("expected textEdit start character=7, got %v", start["character"])
+		}
+		if end["character"] != float64(9) {
+			t.Errorf("expected textEdit end character=9, got %v", end["character"])
+		}
+		break
+	}
+	if !found {
+		t.Errorf("expected .Title in completions, got: %v", items)
+	}
+}
+
+func TestLSP_TemplateDiagnostics(t *testing.T) {
+	projectDir := setupTestProject(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// Open a file with an unknown template variable
+	gastroContent := "---\nTitle := \"Hello\"\n---\n<h1>{{ .Unknown }}</h1>"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Should receive a publishDiagnostics notification with the unknown variable error
+	notification := client.recvNotification(t, "textDocument/publishDiagnostics", 5*time.Second)
+	if notification == nil {
+		t.Fatal("expected publishDiagnostics notification, got timeout")
+	}
+
+	params, _ := notification["params"].(map[string]any)
+	diags, _ := params["diagnostics"].([]any)
+
+	found := false
+	for _, d := range diags {
+		dm, _ := d.(map[string]any)
+		msg, _ := dm["message"].(string)
+		if strings.Contains(msg, ".Unknown") {
+			found = true
+			if dm["source"] != "gastro" {
+				t.Errorf("expected source='gastro', got %v", dm["source"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected diagnostic for .Unknown, got: %v", diags)
+	}
+}
+
+func TestLSP_TemplateHover(t *testing.T) {
+	projectDir := setupTestProject(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// line 3: <h1>{{ .Title }}</h1>
+	//                 ^-- char 7 is the dot, char 8 is 'T'
 	gastroContent := "---\nTitle := \"Hello\"\n---\n<h1>{{ .Title }}</h1>"
 	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
 
@@ -297,39 +435,85 @@ func TestLSP_TemplateCompletions(t *testing.T) {
 		},
 	})
 
-	// Request completions in the template body (line 3, after second ---)
-	client.send("textDocument/completion", map[string]any{
+	// Hover on ".Title" — cursor on the 'T' at char 8
+	client.send("textDocument/hover", map[string]any{
 		"textDocument": map[string]any{"uri": fileURI},
-		"position":     map[string]any{"line": 3, "character": 5},
+		"position":     map[string]any{"line": 3, "character": 8},
 	})
 
 	resp := client.recv(t, 10*time.Second)
-
 	result := resp["result"]
 	if result == nil {
-		t.Fatal("expected completion result, got nil")
+		t.Fatal("expected hover result, got nil")
 	}
 
-	// Should return an array of completion items
-	items, ok := result.([]any)
+	rm, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("expected array of completions, got: %T", result)
+		t.Fatalf("expected hover result as map, got %T", result)
 	}
 
-	// Should include the exported variable .Title
-	found := false
-	for _, item := range items {
-		m, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if m["label"] == ".Title" {
-			found = true
-			break
-		}
+	contents, _ := rm["contents"].(map[string]any)
+	if contents == nil {
+		t.Fatal("expected hover contents, got nil")
 	}
-	if !found {
-		t.Errorf("expected .Title in completions, got: %v", items)
+
+	value, _ := contents["value"].(string)
+	if value == "" {
+		t.Fatal("expected non-empty hover value")
+	}
+
+	// Should mention "frontmatter variable"
+	if !strings.Contains(value, "frontmatter variable") {
+		t.Errorf("expected hover to mention 'frontmatter variable', got: %s", value)
+	}
+}
+
+func TestLSP_TemplateHover_Function(t *testing.T) {
+	projectDir := setupTestProject(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// line 3: <h1>{{ .Title | upper }}</h1>
+	//                          ^-- "upper" starts at char 16
+	gastroContent := "---\nTitle := \"Hello\"\n---\n<h1>{{ .Title | upper }}</h1>"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Hover on "upper"
+	client.send("textDocument/hover", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 3, "character": 17},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+	result := resp["result"]
+	if result == nil {
+		t.Fatal("expected hover result for function, got nil")
+	}
+
+	rm, _ := result.(map[string]any)
+	contents, _ := rm["contents"].(map[string]any)
+	value, _ := contents["value"].(string)
+
+	if !strings.Contains(value, "template function") {
+		t.Errorf("expected hover to mention 'template function', got: %s", value)
+	}
+	if !strings.Contains(value, "func(string) string") {
+		t.Errorf("expected hover to show function signature, got: %s", value)
 	}
 }
 

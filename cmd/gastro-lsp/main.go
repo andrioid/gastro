@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/lsp/proxy"
@@ -35,13 +36,22 @@ type server struct {
 	workspace      *shadow.Workspace
 	gopls          *proxy.GoplsProxy
 	projectDir     string
-	goplsOpenFiles map[string]int // virtual URI -> version (tracks files opened in gopls)
+	goplsOpenFiles map[string]int                    // virtual URI -> version (tracks files opened in gopls)
+	writeMu        sync.Mutex                        // protects stdout writes from concurrent goroutines
+	goplsDiags     map[string][]map[string]any       // URI -> gopls diagnostics (frontmatter)
+	templateDiags  map[string][]map[string]any       // URI -> template diagnostics (body)
+	typeCache      map[string]map[string]string      // URI -> varName -> type string
+	fieldCache     map[string]map[string][]fieldInfo // URI -> varName -> fields
 }
 
 func newServer() *server {
 	return &server{
 		documents:      make(map[string]string),
 		goplsOpenFiles: make(map[string]int),
+		goplsDiags:     make(map[string][]map[string]any),
+		templateDiags:  make(map[string][]map[string]any),
+		typeCache:      make(map[string]map[string]string),
+		fieldCache:     make(map[string]map[string][]fieldInfo),
 	}
 }
 
@@ -60,9 +70,17 @@ func (s *server) run() {
 
 		response := s.handleMessage(msg)
 		if response != nil {
-			writeMessage(os.Stdout, response)
+			s.writeToClient(response)
 		}
 	}
+}
+
+// writeToClient serializes a JSON-RPC message to stdout.
+// Safe for concurrent use from the main loop and gopls notification goroutine.
+func (s *server) writeToClient(msg *jsonRPCMessage) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	writeMessage(os.Stdout, msg)
 }
 
 type jsonRPCMessage struct {
@@ -138,8 +156,10 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 		ID:      msg.ID,
 		Result: map[string]any{
 			"capabilities": map[string]any{
-				"textDocumentSync":   1, // Full sync
-				"completionProvider": map[string]any{},
+				"textDocumentSync": 1, // Full sync
+				"completionProvider": map[string]any{
+					"triggerCharacters": []string{"."},
+				},
 				"hoverProvider":      true,
 				"definitionProvider": true,
 			},
@@ -237,17 +257,9 @@ func (s *server) handleGoplsNotification(method string, params json.RawMessage) 
 		})
 	}
 
-	// Publish remapped diagnostics to the editor
-	notification := &jsonRPCMessage{
-		JSONRPC: "2.0",
-		Method:  "textDocument/publishDiagnostics",
-	}
-	diagResult := map[string]any{
-		"uri":         gastroURI,
-		"diagnostics": mappedDiags,
-	}
-	notification.Params, _ = json.Marshal(diagResult)
-	writeMessage(os.Stdout, notification)
+	// Cache gopls diagnostics and publish merged set
+	s.goplsDiags[gastroURI] = mappedDiags
+	s.publishMergedDiagnostics(gastroURI)
 }
 
 type didOpenParams struct {
@@ -268,6 +280,7 @@ func (s *server) handleDidOpen(msg *jsonRPCMessage) {
 	log.Printf("opened: %s", uri)
 
 	s.syncToGopls(uri, params.TextDocument.Text)
+	s.runTemplateDiagnostics(uri, params.TextDocument.Text)
 }
 
 type didChangeParams struct {
@@ -288,7 +301,10 @@ func (s *server) handleDidChange(msg *jsonRPCMessage) {
 		uri := params.TextDocument.URI
 		content := params.ContentChanges[0].Text
 		s.documents[uri] = content
+		delete(s.typeCache, uri) // invalidate caches on change
+		delete(s.fieldCache, uri)
 		s.syncToGopls(uri, content)
+		s.runTemplateDiagnostics(uri, content)
 	}
 }
 
@@ -301,7 +317,203 @@ type didCloseParams struct {
 func (s *server) handleDidClose(msg *jsonRPCMessage) {
 	var params didCloseParams
 	json.Unmarshal(msg.Params, &params)
-	delete(s.documents, params.TextDocument.URI)
+	uri := params.TextDocument.URI
+	delete(s.documents, uri)
+	delete(s.goplsDiags, uri)
+	delete(s.templateDiags, uri)
+	delete(s.typeCache, uri)
+	delete(s.fieldCache, uri)
+}
+
+// publishMergedDiagnostics combines gopls (frontmatter) and template (body)
+// diagnostics for a URI into a single publishDiagnostics notification.
+// Each call replaces all diagnostics for the URI in the editor.
+func (s *server) publishMergedDiagnostics(uri string) {
+	// Must be non-nil so json.Marshal produces [] not null — VS Code crashes on null.
+	merged := make([]map[string]any, 0)
+	merged = append(merged, s.goplsDiags[uri]...)
+	merged = append(merged, s.templateDiags[uri]...)
+
+	notification := &jsonRPCMessage{
+		JSONRPC: "2.0",
+		Method:  "textDocument/publishDiagnostics",
+	}
+	diagResult := map[string]any{
+		"uri":         uri,
+		"diagnostics": merged,
+	}
+	notification.Params, _ = json.Marshal(diagResult)
+	s.writeToClient(notification)
+}
+
+// runTemplateDiagnostics parses the document, runs template-body diagnostics
+// (unknown variables, invalid syntax, unknown components), caches the results,
+// and publishes the merged diagnostic set.
+func (s *server) runTemplateDiagnostics(uri, content string) {
+	parsed, err := parser.Parse("virtual.gastro", content)
+	if err != nil {
+		return
+	}
+
+	info, err := codegen.AnalyzeFrontmatter(parsed.Frontmatter)
+	if err != nil {
+		return
+	}
+
+	templateDiags := lsptemplate.Diagnose(parsed.TemplateBody, info, parsed.Uses)
+
+	// Convert to LSP diagnostic format, offsetting positions by the template body start line.
+	// TemplateBodyLine is 1-indexed; LSP positions are 0-indexed.
+	bodyLineOffset := parsed.TemplateBodyLine - 1
+	lspDiags := make([]map[string]any, 0, len(templateDiags))
+	for _, d := range templateDiags {
+		lspDiags = append(lspDiags, map[string]any{
+			"range": map[string]any{
+				"start": map[string]any{"line": d.StartLine + bodyLineOffset, "character": d.StartChar},
+				"end":   map[string]any{"line": d.EndLine + bodyLineOffset, "character": d.EndChar},
+			},
+			"severity": 1, // Error
+			"message":  d.Message,
+			"source":   "gastro",
+		})
+	}
+
+	s.templateDiags[uri] = lspDiags
+	s.publishMergedDiagnostics(uri)
+}
+
+// queryVariableTypes queries gopls for the types of exported frontmatter
+// variables by sending textDocument/hover requests on the `_ = VarName`
+// suppression lines in the virtual file. Returns a cached map of varName to
+// type string (e.g. "[]db.Post", "string"). Results are cached per URI and
+// invalidated on document changes.
+func (s *server) queryVariableTypes(gastroURI string) map[string]string {
+	if cached, ok := s.typeCache[gastroURI]; ok {
+		return cached
+	}
+
+	if s.gopls == nil || s.workspace == nil {
+		return nil
+	}
+
+	gastroPath := uriToPath(gastroURI)
+	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	if err != nil {
+		return nil
+	}
+
+	vf := s.workspace.GetFile(relPath)
+	if vf == nil {
+		return nil
+	}
+
+	virtualPath := s.workspace.VirtualFilePath(relPath)
+	virtualURI := "file://" + virtualPath
+
+	types := make(map[string]string)
+
+	// Find `_ = VarName` lines in the virtual source and hover on VarName
+	for lineIdx, line := range strings.Split(vf.GoSource, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "_ = ") {
+			continue
+		}
+		varName := strings.TrimPrefix(trimmed, "_ = ")
+		if varName == "" {
+			continue
+		}
+
+		// Position the cursor on the variable name (after "_ = ")
+		charOffset := strings.Index(line, "_ = ") + 4
+		hoverParams := map[string]any{
+			"textDocument": map[string]any{"uri": virtualURI},
+			"position":     map[string]any{"line": lineIdx, "character": charOffset},
+		}
+
+		result, err := s.gopls.Request("textDocument/hover", hoverParams)
+		if err != nil {
+			log.Printf("gopls hover error for %s: %v", varName, err)
+			continue
+		}
+
+		typeStr := parseTypeFromHover(result)
+		if typeStr != "" {
+			types[varName] = typeStr
+			log.Printf("type for %s: %s", varName, typeStr)
+		}
+	}
+
+	s.typeCache[gastroURI] = types
+	return types
+}
+
+// parseTypeFromHover extracts the type string from a gopls hover response.
+// gopls returns hover contents as markdown with the type on the first code line,
+// typically formatted like: ```go\nvar VarName TypeName\n```
+// or just the type expression in a code block.
+func parseTypeFromHover(raw json.RawMessage) string {
+	var hover struct {
+		Contents struct {
+			Kind  string `json:"kind"`
+			Value string `json:"value"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(raw, &hover); err != nil {
+		return ""
+	}
+
+	value := hover.Contents.Value
+	if value == "" {
+		return ""
+	}
+
+	// gopls hover format: ```go\nvar name type\n``` or ```go\nname type\n```
+	// Extract lines from the code block
+	for _, line := range strings.Split(value, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line == "```go" || line == "```" {
+			continue
+		}
+		// "var Posts []db.Post" → extract type after the name
+		if strings.HasPrefix(line, "var ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				return strings.Join(parts[2:], " ")
+			}
+		}
+		// "Posts []db.Post" → extract type after the name
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			return strings.Join(parts[1:], " ")
+		}
+	}
+
+	return ""
+}
+
+// elementTypeFromContainer extracts the element type from a container type string.
+// "[]db.Post" → "db.Post", "[]*db.Post" → "*db.Post",
+// "map[string]db.Post" → "db.Post". Returns "" for non-container types.
+func elementTypeFromContainer(typeStr string) string {
+	// Slice/array: []T or [N]T
+	if strings.HasPrefix(typeStr, "[]") {
+		return typeStr[2:]
+	}
+	// Fixed-size array: [N]T
+	if strings.HasPrefix(typeStr, "[") {
+		idx := strings.Index(typeStr, "]")
+		if idx >= 0 && idx+1 < len(typeStr) {
+			return typeStr[idx+1:]
+		}
+	}
+	// Map: map[K]V
+	if strings.HasPrefix(typeStr, "map[") {
+		idx := strings.Index(typeStr, "]")
+		if idx >= 0 && idx+1 < len(typeStr) {
+			return typeStr[idx+1:]
+		}
+	}
+	return ""
 }
 
 // syncToGopls updates the virtual .go file in the shadow workspace and
@@ -403,7 +615,7 @@ func (s *server) handleCompletion(msg *jsonRPCMessage) *jsonRPCMessage {
 	}
 
 	// Template body region: our own completions
-	items := s.templateCompletions(content)
+	items := s.templateCompletions(params.TextDocument.URI, content, params.Position, parsed.TemplateBodyLine)
 	if items == nil {
 		items = []map[string]any{}
 	}
@@ -439,7 +651,106 @@ func (s *server) handleHover(msg *jsonRPCMessage) *jsonRPCMessage {
 		}
 	}
 
-	return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: nil}
+	// Template body region: provide hover for variables and functions
+	hoverResult := s.templateHover(params.TextDocument.URI, content, params.Position, parsed)
+	return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: hoverResult}
+}
+
+// templateHover returns hover information for template body elements:
+// frontmatter variables, range/with element fields, and template functions.
+func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *parser.File) any {
+	tree, err := lsptemplate.ParseTemplateBody(parsed.TemplateBody, parsed.Uses)
+	if err != nil {
+		return nil
+	}
+
+	cursorOffset := cursorPosToBodyOffset(content, pos, parsed.TemplateBodyLine)
+	if cursorOffset < 0 {
+		return nil
+	}
+
+	target := lsptemplate.NodeAtCursor(tree, cursorOffset)
+	if target == nil {
+		return nil
+	}
+
+	scope := lsptemplate.CursorScope(tree, cursorOffset)
+
+	var typeStr, description string
+
+	switch target.Kind {
+	case "field":
+		if scope.Depth == 0 {
+			// Top-level: look up type from frontmatter exports
+			types := s.queryVariableTypes(uri)
+			if t, ok := types[target.Name]; ok {
+				typeStr = t
+			}
+			description = "frontmatter variable"
+		} else if scope.RangeVar != "" {
+			// Inside range/with: look up field type from element type
+			fields := s.getCachedFields(uri, scope.RangeVar)
+			for _, f := range fields {
+				if f.Label == target.Name {
+					typeStr = f.Detail
+					break
+				}
+			}
+			types := s.queryVariableTypes(uri)
+			if containerType, ok := types[scope.RangeVar]; ok {
+				elemType := elementTypeFromContainer(containerType)
+				if elemType == "" {
+					elemType = containerType
+				}
+				description = fmt.Sprintf("field on `%s`", elemType)
+			} else {
+				description = "range element field"
+			}
+		}
+
+	case "variable":
+		// $.FieldName — always refers to root context
+		types := s.queryVariableTypes(uri)
+		if t, ok := types[target.Name]; ok {
+			typeStr = t
+		}
+		description = "frontmatter variable (root context)"
+
+	case "function":
+		sigs := lsptemplate.FuncSignatures()
+		if sig, ok := sigs[target.Name]; ok {
+			typeStr = sig
+		}
+		description = "template function"
+	}
+
+	if typeStr == "" && description == "" {
+		return nil
+	}
+
+	// Build the hover markdown
+	var value string
+	if typeStr != "" {
+		value = "```go\n" + typeStr + "\n```\n\n" + description
+	} else {
+		value = description
+	}
+
+	// Convert target positions from template body offsets to absolute .gastro positions
+	bodyLineOffset := parsed.TemplateBodyLine - 1
+	startLine, startChar := lsptemplate.OffsetToLineChar(parsed.TemplateBody, target.Pos)
+	endLine, endChar := lsptemplate.OffsetToLineChar(parsed.TemplateBody, target.EndPos)
+
+	return map[string]any{
+		"contents": map[string]any{
+			"kind":  "markdown",
+			"value": value,
+		},
+		"range": map[string]any{
+			"start": map[string]any{"line": startLine + bodyLineOffset, "character": startChar},
+			"end":   map[string]any{"line": endLine + bodyLineOffset, "character": endChar},
+		},
+	}
 }
 
 func (s *server) handleDefinition(msg *jsonRPCMessage) *jsonRPCMessage {
@@ -511,7 +822,30 @@ func (s *server) forwardToGopls(gastroURI, method string, pos proxy.Position) an
 	return json.RawMessage(result)
 }
 
-func (s *server) templateCompletions(content string) []map[string]any {
+// findDotStart scans backward from the cursor on the current line to find
+// the position of the '.' that starts a variable reference (e.g. in "{{ .T").
+// Returns the character offset of the dot, or -1 if no dot is found.
+func findDotStart(content string, line, character int) int {
+	lines := strings.Split(content, "\n")
+	if line < 0 || line >= len(lines) {
+		return -1
+	}
+	lineText := lines[line]
+	// Scan backward from cursor position to find a '.'
+	for i := character - 1; i >= 0; i-- {
+		ch := lineText[i]
+		if ch == '.' {
+			return i
+		}
+		// Stop if we hit a character that can't be part of a variable reference
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+			return -1
+		}
+	}
+	return -1
+}
+
+func (s *server) templateCompletions(uri, content string, pos proxy.Position, templateBodyLine int) []map[string]any {
 	parsed, err := parser.Parse("virtual.gastro", content)
 	if err != nil {
 		return nil
@@ -522,15 +856,52 @@ func (s *server) templateCompletions(content string) []map[string]any {
 		return nil
 	}
 
+	// Find the dot position so variable completions can use textEdit
+	// to replace from the dot through the cursor, avoiding double-dot insertion.
+	dotChar := findDotStart(content, pos.Line, pos.Character)
+
+	// Determine cursor scope by parsing the template body into an AST
+	// and checking if the cursor is inside a range/with block.
+	cursorScope := lsptemplate.ScopeInfo{}
+	tree, parseErr := lsptemplate.ParseTemplateBody(parsed.TemplateBody, parsed.Uses)
+	if parseErr == nil && tree != nil {
+		// Convert cursor position to byte offset within the template body
+		cursorOffset := cursorPosToBodyOffset(content, pos, templateBodyLine)
+		if cursorOffset >= 0 {
+			cursorScope = lsptemplate.CursorScope(tree, cursorOffset)
+		}
+	}
+
 	var items []map[string]any
 
-	for _, c := range lsptemplate.VariableCompletions(info) {
-		items = append(items, map[string]any{
-			"label":      c.Label,
-			"kind":       6,
-			"detail":     c.Detail,
-			"insertText": c.InsertText,
-		})
+	if cursorScope.Depth > 0 && cursorScope.RangeVar != "" {
+		// Inside a range/with block — offer field completions for the element type
+		fieldItems := s.scopedFieldCompletions(uri, cursorScope.RangeVar, pos, dotChar)
+		items = append(items, fieldItems...)
+	} else {
+		// Top-level — offer frontmatter variable completions
+		for _, c := range lsptemplate.VariableCompletions(info) {
+			item := map[string]any{
+				"label":  c.Label,
+				"kind":   6,
+				"detail": c.Detail,
+			}
+			if c.FilterText != "" {
+				item["filterText"] = c.FilterText
+			}
+			if dotChar >= 0 {
+				item["textEdit"] = map[string]any{
+					"range": map[string]any{
+						"start": map[string]any{"line": pos.Line, "character": dotChar},
+						"end":   map[string]any{"line": pos.Line, "character": pos.Character},
+					},
+					"newText": c.InsertText,
+				}
+			} else {
+				item["insertText"] = c.InsertText
+			}
+			items = append(items, item)
+		}
 	}
 
 	for _, c := range lsptemplate.ComponentCompletions(parsed.Uses) {
@@ -552,6 +923,262 @@ func (s *server) templateCompletions(content string) []map[string]any {
 	}
 
 	return items
+}
+
+// cursorPosToBodyOffset converts a cursor position (line/character in the .gastro file)
+// to a byte offset within the template body string.
+func cursorPosToBodyOffset(content string, pos proxy.Position, templateBodyLine int) int {
+	// templateBodyLine is 1-indexed; pos.Line is 0-indexed
+	bodyStartLine := templateBodyLine - 1
+	if pos.Line < bodyStartLine {
+		return -1
+	}
+
+	lines := strings.Split(content, "\n")
+	offset := 0
+	for i := bodyStartLine; i < pos.Line && i < len(lines); i++ {
+		offset += len(lines[i]) + 1 // +1 for newline
+	}
+	offset += pos.Character
+	return offset
+}
+
+// scopedFieldCompletions queries gopls for the fields of a variable's element
+// type and returns them as completion items. Used when the cursor is inside a
+// range/with block.
+func (s *server) scopedFieldCompletions(uri, rangeVar string, pos proxy.Position, dotChar int) []map[string]any {
+	types := s.queryVariableTypes(uri)
+	if types == nil {
+		return nil
+	}
+
+	typeStr, ok := types[rangeVar]
+	if !ok {
+		return nil
+	}
+
+	// For range, we need the element type (e.g. []db.Post → db.Post)
+	elemType := elementTypeFromContainer(typeStr)
+	if elemType == "" {
+		// Not a container — for `with`, the type itself is the scope type
+		elemType = typeStr
+	}
+
+	// Strip pointer prefix for field query
+	queryType := strings.TrimPrefix(elemType, "*")
+
+	// Query gopls for field completions on this type
+	fieldItems := s.queryFieldsFromGopls(uri, rangeVar, queryType)
+	if fieldItems == nil {
+		return nil
+	}
+
+	var items []map[string]any
+	for _, fi := range fieldItems {
+		item := map[string]any{
+			"label":      "." + fi.Label,
+			"kind":       5, // Field
+			"detail":     fi.Detail,
+			"filterText": "." + fi.Label,
+		}
+		if dotChar >= 0 {
+			item["textEdit"] = map[string]any{
+				"range": map[string]any{
+					"start": map[string]any{"line": pos.Line, "character": dotChar},
+					"end":   map[string]any{"line": pos.Line, "character": pos.Character},
+				},
+				"newText": "." + fi.Label,
+			}
+		} else {
+			item["insertText"] = "." + fi.Label
+		}
+		items = append(items, item)
+	}
+
+	return items
+}
+
+// getCachedFields returns the field list for a variable, using the cache or
+// querying gopls on a cache miss.
+func (s *server) getCachedFields(uri, varName string) []fieldInfo {
+	if perURI, ok := s.fieldCache[uri]; ok {
+		if fields, ok := perURI[varName]; ok {
+			return fields
+		}
+	}
+
+	types := s.queryVariableTypes(uri)
+	if types == nil {
+		return nil
+	}
+	typeStr, ok := types[varName]
+	if !ok {
+		return nil
+	}
+
+	elemType := elementTypeFromContainer(typeStr)
+	if elemType == "" {
+		elemType = typeStr
+	}
+	queryType := strings.TrimPrefix(elemType, "*")
+
+	fields := s.queryFieldsFromGopls(uri, varName, queryType)
+	if fields == nil {
+		return nil
+	}
+
+	if s.fieldCache[uri] == nil {
+		s.fieldCache[uri] = make(map[string][]fieldInfo)
+	}
+	s.fieldCache[uri][varName] = fields
+	return fields
+}
+
+// fieldInfo represents a field discovered from gopls completions.
+type fieldInfo struct {
+	Label  string
+	Detail string
+}
+
+// queryFieldsFromGopls queries gopls for fields of the given type by
+// temporarily injecting a probe line into the virtual file.
+func (s *server) queryFieldsFromGopls(gastroURI, varName, typeName string) []fieldInfo {
+	if s.gopls == nil || s.workspace == nil {
+		return nil
+	}
+
+	gastroPath := uriToPath(gastroURI)
+	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	if err != nil {
+		return nil
+	}
+
+	vf := s.workspace.GetFile(relPath)
+	if vf == nil {
+		return nil
+	}
+
+	virtualPath := s.workspace.VirtualFilePath(relPath)
+	virtualURI := "file://" + virtualPath
+
+	// Find the `_ = VarName` line and inject a probe line after it.
+	// The probe accesses an element and triggers completion on its fields.
+	goLines := strings.Split(vf.GoSource, "\n")
+	probeLine := -1
+	probeText := fmt.Sprintf("\t_ = %s[0].", varName)
+
+	for i, line := range goLines {
+		if strings.TrimSpace(line) == "_ = "+varName {
+			probeLine = i + 1
+			break
+		}
+	}
+
+	if probeLine < 0 {
+		return nil
+	}
+
+	// Inject probe line
+	newLines := make([]string, 0, len(goLines)+1)
+	newLines = append(newLines, goLines[:probeLine]...)
+	newLines = append(newLines, probeText)
+	newLines = append(newLines, goLines[probeLine:]...)
+	probeSource := strings.Join(newLines, "\n")
+
+	// Write the modified virtual file
+	if err := os.WriteFile(virtualPath, []byte(probeSource), 0o644); err != nil {
+		return nil
+	}
+
+	// Sync the change to gopls
+	version := s.goplsOpenFiles[virtualURI] + 1
+	s.goplsOpenFiles[virtualURI] = version
+	s.gopls.Notify("textDocument/didChange", map[string]any{
+		"textDocument": map[string]any{
+			"uri":     virtualURI,
+			"version": version,
+		},
+		"contentChanges": []map[string]any{
+			{"text": probeSource},
+		},
+	})
+
+	// Request completions at the dot position on the probe line
+	completionParams := map[string]any{
+		"textDocument": map[string]any{"uri": virtualURI},
+		"position":     map[string]any{"line": probeLine, "character": len(probeText)},
+	}
+
+	result, err := s.gopls.Request("textDocument/completion", completionParams)
+	if err != nil {
+		log.Printf("gopls completion for fields error: %v", err)
+		s.restoreVirtualFile(virtualPath, vf, virtualURI)
+		return nil
+	}
+
+	// Parse the completion response
+	fields := parseFieldCompletions(result)
+
+	// Restore the original virtual file
+	s.restoreVirtualFile(virtualPath, vf, virtualURI)
+
+	return fields
+}
+
+// restoreVirtualFile writes back the original virtual file content and syncs to gopls.
+func (s *server) restoreVirtualFile(virtualPath string, vf *shadow.VirtualFile, virtualURI string) {
+	os.WriteFile(virtualPath, []byte(vf.GoSource), 0o644)
+	version := s.goplsOpenFiles[virtualURI] + 1
+	s.goplsOpenFiles[virtualURI] = version
+	s.gopls.Notify("textDocument/didChange", map[string]any{
+		"textDocument": map[string]any{
+			"uri":     virtualURI,
+			"version": version,
+		},
+		"contentChanges": []map[string]any{
+			{"text": vf.GoSource},
+		},
+	})
+}
+
+// parseFieldCompletions extracts field names and types from a gopls
+// completion response.
+func parseFieldCompletions(raw json.RawMessage) []fieldInfo {
+	// gopls returns either {items: [...]} or [...] directly
+	var response struct {
+		Items []struct {
+			Label  string `json:"label"`
+			Detail string `json:"detail"`
+			Kind   int    `json:"kind"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &response); err != nil {
+		// Try as plain array
+		var items []struct {
+			Label  string `json:"label"`
+			Detail string `json:"detail"`
+			Kind   int    `json:"kind"`
+		}
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return nil
+		}
+		for _, item := range items {
+			response.Items = append(response.Items, item)
+		}
+	}
+
+	var fields []fieldInfo
+	for _, item := range response.Items {
+		// Kind 5 = Field, Kind 2 = Method — include both
+		if item.Kind == 5 || item.Kind == 2 {
+			fields = append(fields, fieldInfo{
+				Label:  item.Label,
+				Detail: item.Detail,
+			})
+		}
+	}
+
+	return fields
 }
 
 func (s *server) shutdown() {
