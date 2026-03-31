@@ -8,6 +8,9 @@ bin/
 .gastro/
 examples/blog/.gastro/
 
+# Example binaries
+examples/sse/sse-example
+
 # Node.js
 node_modules/
 
