@@ -1,6 +1,6 @@
 # Compiled binaries
 bin/
-gastro-lsp
+/gastro-lsp
 *.exe
 *.dylib
 
