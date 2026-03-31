@@ -1,20 +1,25 @@
 ---
-import "fmt"
+import (
+    "fmt"
+    "dashboard/mock"
+)
 
 type Props struct {
-    Name        string
-    Status      string
-    CallDur     string
-    Y           int
-    StatusColor string
+    Agent mock.Agent
+    Y int
 }
 
 props := gastro.Props[Props]()
-Name := props.Name
-Status := props.Status
-CallDur := props.CallDur
+Agent := props.Agent
 Transform := fmt.Sprintf("translate(0, %d)", props.Y)
-StatusColor := props.StatusColor
+StatusText := "Ready"
+switch Agent.Status {
+    case mock.StatusOnCall:
+        StatusText = Agent.CallDur
+    case mock.StatusAway:
+        StatusText = "Away"
+}
+
 ---
 <g class="agent-row" transform="{{ .Transform }}">
     <defs>
@@ -27,10 +32,10 @@ StatusColor := props.StatusColor
         </mask>
     </defs>
     <g mask="url(#rowMask)">
-        <rect x="30" width="1140" height="44" rx="6" fill="white" />
-        <text x="50" y="28" fill="#1e293b" font-size="14" font-weight="500">{{ .Name }}</text>
-        <rect class="status-badge" x="490" width="80" height="44" fill="{{ .StatusColor }}" />
-        <text x="530" y="27" fill="white" font-size="11" font-weight="600" text-anchor="middle">{{ .Status }}</text>
-        <text x="1140" y="28" fill="#64748b" font-size="13" font-weight="500" text-anchor="end">{{ .CallDur }}</text>
+        <rect x="30" width="1140" height="44" rx="6" fill="white" stroke="var(--color-border)" />
+        <text x="50" y="28" fill="#1e293b" font-size="14" font-weight="500">{{ .Agent.Name }}</text>
+        <rect class="status-badge" x="490" width="80" height="44" fill="var(--color-{{ .Agent.Status }})" />
+        <text x="530" y="27" fill="white" font-size="11" font-weight="600" text-anchor="middle">{{ .StatusText }}</text>
+        <text x="1140" y="28" fill="#64748b" font-size="13" font-weight="500" text-anchor="end">{{ .Agent.CallDur }}</text>
     </g>
 </g>

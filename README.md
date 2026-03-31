@@ -9,6 +9,23 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 **Status:** Early development. The core pipeline works end-to-end (parse, codegen,
 route, build, serve). Editor support is in progress.
 
+
+## Scope
+
+### Goals
+
+- Make Go web development fun again
+- Type-safety for pages, components and templates
+- Opinionated project structure
+
+### Non-Goals
+
+- Astro's Island Architecture is cool, but outside of the scope of this project. We're focusing on server rendering.
+- CSS/Style parsing/bundling from .gastro files
+- JS parsing/bundling from .gastro files
+
+
+
 ## Quick Start
 
 ### Prerequisites

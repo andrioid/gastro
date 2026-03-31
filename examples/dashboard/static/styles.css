@@ -1,10 +1,19 @@
+:root {
+    --color-oncall: #bb0000;
+    --color-available: #00bb00;
+    --color-away: #f18500;
+    --color-subtle: #b3b3b3;
+    --color-border: #e2e8f0;
+}
+
 * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
 }
 
-html, body {
+html,
+body {
     height: 100%;
     background: #f8fafc;
 }
@@ -31,7 +40,10 @@ html, body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
+
+    *,
+    *::before,
+    *::after {
         animation-duration: 0.01ms !important;
         transition-duration: 0.01ms !important;
     }
@@ -40,12 +52,14 @@ html, body {
 /* Agent row -- smooth repositioning if rows reorder */
 .agent-row {
     transition: transform 400ms ease;
+
+    .status-badge {
+        transition: fill 500ms ease;
+    }
+
 }
 
 /* Status badge background -- slow color change so transitions are noticeable */
-.status-badge {
-    transition: fill 1.5s ease;
-}
 
 /* Initial fade-in for the whole dashboard */
 #dashboard svg {
@@ -53,6 +67,11 @@ html, body {
 }
 
 @keyframes fade-in {
-    0%   { opacity: 0; }
-    100% { opacity: 1; }
+    0% {
+        opacity: 0;
+    }
+
+    100% {
+        opacity: 1;
+    }
 }
