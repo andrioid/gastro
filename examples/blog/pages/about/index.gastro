@@ -1,0 +1,23 @@
+---
+Title := "About"
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ .Title }} - My Blog</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/about" class="active">About</a>
+        <a href="/blog">Blog</a>
+    </nav>
+    <main>
+        <h1>About Me</h1>
+        <p>I'm a developer who builds things with Go.</p>
+    </main>
+    <footer><p>Built with Gastro</p></footer>
+</body>
+</html>

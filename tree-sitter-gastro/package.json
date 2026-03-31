@@ -1,0 +1,25 @@
+{
+  "name": "tree-sitter-gastro",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for Gastro (.gastro) files",
+  "main": "bindings/node",
+  "keywords": ["tree-sitter", "parser", "gastro"],
+  "dependencies": {
+    "nan": "^2.18.0"
+  },
+  "devDependencies": {
+    "tree-sitter-cli": "^0.22.0"
+  },
+  "scripts": {
+    "generate": "tree-sitter generate",
+    "test": "tree-sitter test"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.gastro",
+      "file-types": ["gastro"],
+      "highlights": "queries/highlights.scm",
+      "injections": "queries/injections.scm"
+    }
+  ]
+}

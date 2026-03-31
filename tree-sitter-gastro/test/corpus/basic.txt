@@ -1,0 +1,60 @@
+================================================================================
+Simple page with frontmatter and template
+================================================================================
+
+---
+Title := "Hello"
+---
+<h1>{{ .Title }}</h1>
+
+--------------------------------------------------------------------------------
+
+(document
+  (frontmatter_section
+    (frontmatter_delimiter)
+    (frontmatter)
+    (frontmatter_delimiter))
+  (template_body
+    (html_content)
+    (template_expression)
+    (html_content)))
+
+================================================================================
+Self-closing component
+================================================================================
+
+---
+---
+<Card Title={.Name} />
+
+--------------------------------------------------------------------------------
+
+(document
+  (frontmatter_section
+    (frontmatter_delimiter)
+    (frontmatter_delimiter))
+  (template_body
+    (component_self_closing
+      (component_name)
+      (component_prop
+        (prop_name)
+        (prop_expression)))))
+
+================================================================================
+Slot tag
+================================================================================
+
+---
+---
+<div><slot /></div>
+
+--------------------------------------------------------------------------------
+
+(document
+  (frontmatter_section
+    (frontmatter_delimiter)
+    (frontmatter_delimiter))
+  (template_body
+    (html_content)
+    (slot_tag)
+    (html_content)))

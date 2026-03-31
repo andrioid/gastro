@@ -1,0 +1,57 @@
+{
+  "scopeName": "source.gastro",
+  "name": "Gastro",
+  "fileTypes": ["gastro"],
+  "patterns": [
+    { "include": "#frontmatter" },
+    { "include": "#template-body" }
+  ],
+  "repository": {
+    "frontmatter": {
+      "begin": "^---$",
+      "end": "^---$",
+      "beginCaptures": { "0": { "name": "punctuation.definition.frontmatter.gastro" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.frontmatter.gastro" } },
+      "contentName": "meta.embedded.block.go",
+      "patterns": [
+        { "include": "source.go" }
+      ]
+    },
+    "template-body": {
+      "patterns": [
+        { "include": "#template-expression" },
+        { "include": "#component-self-closing" },
+        { "include": "#component-open" },
+        { "include": "#component-close" },
+        { "include": "#slot" },
+        { "include": "text.html.basic" }
+      ]
+    },
+    "template-expression": {
+      "match": "\\{\\{.*?\\}\\}",
+      "name": "meta.embedded.expression.go-template.gastro"
+    },
+    "component-self-closing": {
+      "match": "<([A-Z][a-zA-Z0-9]*)\\s*([^>]*?)/>",
+      "captures": {
+        "1": { "name": "entity.name.tag.component.gastro" }
+      }
+    },
+    "component-open": {
+      "match": "<([A-Z][a-zA-Z0-9]*)\\s*([^>]*)>",
+      "captures": {
+        "1": { "name": "entity.name.tag.component.gastro" }
+      }
+    },
+    "component-close": {
+      "match": "</([A-Z][a-zA-Z0-9]*)>",
+      "captures": {
+        "1": { "name": "entity.name.tag.component.gastro" }
+      }
+    },
+    "slot": {
+      "match": "<slot\\s*/>",
+      "name": "entity.name.tag.slot.gastro"
+    }
+  }
+}

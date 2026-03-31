@@ -1,0 +1,39 @@
+{
+  "name": "gastro-vscode",
+  "displayName": "Gastro",
+  "description": "Language support for Gastro (.gastro) files",
+  "version": "0.1.0",
+  "publisher": "andrioid",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "activationEvents": [
+    "onLanguage:gastro"
+  ],
+  "categories": ["Programming Languages"],
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "gastro",
+        "aliases": ["Gastro"],
+        "extensions": [".gastro"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "gastro",
+        "scopeName": "source.gastro",
+        "path": "./syntaxes/gastro.tmLanguage.json",
+        "embeddedLanguages": {
+          "source.go": "go",
+          "text.html.basic": "html"
+        }
+      }
+    ]
+  },
+  "main": "./extension.js"
+}
