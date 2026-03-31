@@ -1,0 +1,9 @@
+---
+type Props struct {
+    Count int
+}
+
+props := gastro.Props[Props]()
+Count := props.Count
+---
+<div id="count">{{ .Count }}</div>

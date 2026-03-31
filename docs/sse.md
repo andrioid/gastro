@@ -184,11 +184,83 @@ func handleIncrement(w http.ResponseWriter, r *http.Request) {
 
 See the full working example in `examples/sse/`.
 
+## Rendering components for SSE (`gastro.Render`)
+
+The compiler generates a `Render` API that lets you render gastro components
+from SSE handlers with full type safety. Instead of hand-writing HTML strings,
+reuse the same component templates used in your pages.
+
+### Type-safe rendering
+
+Each component with a `Props` struct gets a typed `Render` method:
+
+```go
+html, err := gastro.Render.Counter(gastro.CounterProps{Count: 42})
+```
+
+Components without Props (that fetch their own data) get a zero-argument method:
+
+```go
+html, err := gastro.Render.OrdersTable()
+```
+
+Components with slots accept optional children:
+
+```go
+inner, _ := gastro.Render.Counter(gastro.CounterProps{Count: 42})
+full, _ := gastro.Render.Layout(
+    gastro.LayoutProps{Title: "Dashboard"},
+    template.HTML(inner),
+)
+```
+
+### How it works
+
+The compiler generates `render.go` in `.gastro/` with:
+
+- `var Render = &renderAPI{}` -- a struct with one method per component
+- `type CounterProps = componentCounterProps` -- exported type aliases
+
+Each `Render` method converts the typed props to a map and calls the internal
+component function, which runs the full frontmatter logic (data fetching,
+derived values, etc.) and renders the template.
+
+### Example: SSE handler with Render
+
+```go
+func handleIncrement(w http.ResponseWriter, r *http.Request) {
+    n := count.Add(1)
+
+    html, err := gastro.Render.Counter(gastro.CounterProps{Count: int(n)})
+    if err != nil {
+        http.Error(w, err.Error(), 500)
+        return
+    }
+
+    sse := datastar.NewSSE(w, r)
+    sse.PatchElements(html)
+}
+```
+
+### Compile-time safety
+
+| What             | Safety       |
+|------------------|-------------|
+| Method name      | Compile-time -- method exists or doesn't |
+| Props fields     | Compile-time -- struct fields checked by Go |
+| Props types      | Compile-time -- Go type system |
+
+Typos in component names, field names, or field types are all caught at compile
+time.
+
 ## Design notes
 
 - **No external dependencies.** The SSE protocol is ~90 lines of Go. We
   intentionally avoid the Datastar Go SDK to keep gastro dependency-free.
-- **No compiler changes.** SSE endpoints are plain Go handlers. The gastro
-  compiler only generates page routes; API routes are registered manually.
+- **SSE endpoints are plain Go handlers.** The gastro compiler generates page
+  routes; API routes are registered manually in `main.go`.
 - **Two layers.** The generic `pkg/gastro` SSE works with any SSE client.
   The `pkg/gastro/datastar` subpackage adds Datastar-specific formatting.
+- **Render wraps internal functions.** Each `Render` method calls the internal
+  component function, preserving all frontmatter logic (data fetching, derived
+  values, etc.).

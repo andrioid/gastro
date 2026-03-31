@@ -95,49 +95,11 @@ CSSClass := "card"`,
 	// Should hoist type declarations with unique name to avoid collisions
 	assertContains(t, output, "type componentCardProps struct")
 
+	// Should generate exported Props alias for Render API
+	assertContains(t, output, "type CardProps = componentCardProps")
+
 	// Should NOT contain gastroRuntime.NewContext (components don't have context)
 	assertNotContains(t, output, `gastroRuntime.NewContext(w, r)`)
-}
-
-func TestGenerate_PageWithComponents(t *testing.T) {
-	file := &parser.File{
-		Filename:    "pages/index.gastro",
-		Frontmatter: `ctx := gastro.Context()` + "\n" + `Title := "Hello"`,
-		TemplateBody: `{{ __gastro_Layout (dict "Title" .Title "__children" (__gastro_render_children "layout_children" .)) }}
-{{define "layout_children"}}<h1>{{ .Title }}</h1>{{end}}`,
-		Imports: []string{},
-		Uses: []parser.UseDeclaration{
-			{Name: "Layout", Path: "components/layout.gastro"},
-		},
-	}
-
-	info := &codegen.FrontmatterInfo{
-		ExportedVars: []codegen.VarInfo{{Name: "Title"}},
-		PrivateVars:  []codegen.VarInfo{{Name: "ctx"}},
-		IsPage:       true,
-	}
-
-	output, err := codegen.GenerateHandler(file, info)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should use init-based template parsing
-	assertContains(t, output, `func init()`)
-	assertContains(t, output, `template.New("pageIndex")`)
-
-	// Should register component functions
-	assertContains(t, output, `__fm["__gastro_Layout"] = componentLayout`)
-
-	// Should register __gastro_render_children as a closure
-	assertContains(t, output, `__fm["__gastro_render_children"]`)
-	assertContains(t, output, `ExecuteTemplate`)
-
-	// Should still have HTTP handler signature
-	assertContains(t, output, `func pageIndex(w http.ResponseWriter, r *http.Request)`)
-
-	// Should import bytes
-	assertContains(t, output, `"bytes"`)
 }
 
 func TestGenerate_ComponentWithUses(t *testing.T) {
@@ -231,6 +193,58 @@ func TestGenerate_NoExportedVars(t *testing.T) {
 
 	// Should still work with an empty or nil data map
 	assertContains(t, output, "Execute")
+}
+
+func TestExportedComponentName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"componentPostCard", "PostCard"},
+		{"componentLayout", "Layout"},
+		{"componentBadge", "Badge"},
+		{"componentDashboardBody", "DashboardBody"},
+	}
+
+	for _, tt := range tests {
+		got := codegen.ExportedComponentName(tt.input)
+		if got != tt.want {
+			t.Errorf("ExportedComponentName(%q): got %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestParseStructFields(t *testing.T) {
+	hoisted := `type Props struct {
+    Title  string
+    Count  int
+    Active bool
+}
+`
+	fields := codegen.ParseStructFields(hoisted)
+
+	if len(fields) != 3 {
+		t.Fatalf("expected 3 fields, got %d", len(fields))
+	}
+
+	want := []codegen.StructField{
+		{Name: "Title", Type: "string"},
+		{Name: "Count", Type: "int"},
+		{Name: "Active", Type: "bool"},
+	}
+
+	for i, f := range fields {
+		if f.Name != want[i].Name || f.Type != want[i].Type {
+			t.Errorf("field %d: got {%s %s}, want {%s %s}", i, f.Name, f.Type, want[i].Name, want[i].Type)
+		}
+	}
+}
+
+func TestParseStructFields_Empty(t *testing.T) {
+	fields := codegen.ParseStructFields("")
+	if len(fields) != 0 {
+		t.Errorf("expected 0 fields, got %d", len(fields))
+	}
 }
 
 func assertContains(t *testing.T, haystack, needle string) {

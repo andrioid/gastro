@@ -17,7 +17,7 @@ type UseInfo struct {
 // GenerateHandler produces Go source code for a page handler or component
 // render function from a parsed .gastro file and its frontmatter analysis.
 func GenerateHandler(file *parser.File, info *FrontmatterInfo) (string, error) {
-	funcName := handlerFuncName(file.Filename)
+	funcName := HandlerFuncName(file.Filename)
 	frontmatter := rewriteFrontmatter(file.Frontmatter, info)
 
 	// Extract hoisted type declarations for components.
@@ -37,13 +37,14 @@ func GenerateHandler(file *parser.File, info *FrontmatterInfo) (string, error) {
 	for _, u := range file.Uses {
 		uses = append(uses, UseInfo{
 			Name:     u.Name,
-			FuncName: handlerFuncName(u.Path),
+			FuncName: HandlerFuncName(u.Path),
 		})
 	}
 
 	data := generateData{
 		PackageName:   "gastro",
 		FuncName:      funcName,
+		ExportedName:  ExportedComponentName(funcName),
 		Imports:       file.Imports,
 		Frontmatter:   frontmatter,
 		ExportedVars:  info.ExportedVars,
@@ -71,6 +72,7 @@ func GenerateHandler(file *parser.File, info *FrontmatterInfo) (string, error) {
 type generateData struct {
 	PackageName   string
 	FuncName      string
+	ExportedName  string // e.g. "PostCard" — exported name for Render API
 	Imports       []string
 	Frontmatter   string
 	ExportedVars  []VarInfo
@@ -168,6 +170,12 @@ var _ = log.Println
 {{- if .HoistedTypes }}
 
 {{ .HoistedTypes }}
+{{- end }}
+
+{{- if .PropsTypeName }}
+
+// {{ .ExportedName }}Props is the exported type alias for use with Render.
+type {{ .ExportedName }}Props = {{ .PropsTypeName }}
 {{- end }}
 
 {{- if .Uses }}
@@ -272,10 +280,55 @@ func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo) string {
 	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
-// handlerFuncName derives a Go function name from a .gastro file path.
+// ExportedComponentName derives an exported name from a component function name.
+// For example: "componentPostCard" -> "PostCard"
+func ExportedComponentName(funcName string) string {
+	return strings.TrimPrefix(funcName, "component")
+}
+
+// StructField represents a field in a parsed Props struct.
+type StructField struct {
+	Name string
+	Type string
+}
+
+// ParseStructFields extracts field names and types from a hoisted type
+// declaration string like "type FooProps struct {\n    Title string\n    Count int\n}".
+func ParseStructFields(hoistedTypes string) []StructField {
+	lines := strings.Split(hoistedTypes, "\n")
+	var fields []StructField
+	inStruct := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, "struct {") {
+			inStruct = true
+			continue
+		}
+		if inStruct && trimmed == "}" {
+			break
+		}
+		if !inStruct {
+			continue
+		}
+
+		// Parse "FieldName FieldType" lines
+		parts := strings.Fields(trimmed)
+		if len(parts) >= 2 {
+			fields = append(fields, StructField{
+				Name: parts[0],
+				Type: parts[1],
+			})
+		}
+	}
+
+	return fields
+}
+
+// HandlerFuncName derives a Go function name from a .gastro file path.
 // For pages: "pages/index.gastro" -> "pageIndex"
 // For components: "components/card.gastro" -> "componentCard"
-func handlerFuncName(filename string) string {
+func HandlerFuncName(filename string) string {
 	name := filename
 	name = strings.TrimSuffix(name, ".gastro")
 	name = strings.ReplaceAll(name, "[", "")

@@ -41,12 +41,18 @@ func main() {
 }
 
 // handleIncrement sends a single SSE event that patches the counter element.
-// Uses the Datastar subpackage for convenience.
+// Uses gastro.Render for type-safe component rendering + Datastar for SSE.
 func handleIncrement(w http.ResponseWriter, r *http.Request) {
 	n := count.Add(1)
 
+	html, err := gastro.Render.Counter(gastro.CounterProps{Count: int(n)})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	sse := datastar.NewSSE(w, r)
-	sse.PatchElements(fmt.Sprintf(`<div id="count">%d</div>`, n))
+	sse.PatchElements(html)
 }
 
 // handleClock streams the current time every second.

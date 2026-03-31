@@ -2,6 +2,8 @@
 - Go versions should match across `go.mod`, `mise.toml` and examples in `examples/`
 - If you encounter any pre-existing issues. Add them to the plan and handle them last.
 - Agents are not allowed to write into `AGENTS.md`
+- If you encounter a changed file, that you didn't edit. Ask if you should revert it or commit it.
+- Before presenting a plan, identify any ambigious parts of it. Ask questions until none remain.
 
 ### References
 

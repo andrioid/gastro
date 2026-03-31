@@ -117,6 +117,58 @@ func TestCompile_OmitsStaticHandlerWhenNoDir(t *testing.T) {
 	}
 }
 
+func TestCompile_GeneratesRenderFile(t *testing.T) {
+	projectDir := filepath.Join("testdata", "basic")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outputDir, "render.go"))
+	if err != nil {
+		t.Fatalf("render.go was not generated: %v", err)
+	}
+	s := string(content)
+
+	// Should have the renderAPI struct and Render var
+	assertStringContains(t, s, "var Render = &renderAPI{}")
+	assertStringContains(t, s, "type renderAPI struct{}")
+
+	// Should have a Render method for the Layout component (which has Props)
+	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps")
+
+	// Layout uses <slot />, so it should have children parameter
+	assertStringContains(t, s, "children ...template.HTML")
+}
+
+func TestCompile_RenderFileWithComposition(t *testing.T) {
+	projectDir := filepath.Join("testdata", "composition")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(outputDir, "render.go"))
+	if err != nil {
+		t.Fatalf("render.go was not generated: %v", err)
+	}
+	s := string(content)
+
+	// Should have Render methods for both Badge and Card
+	assertStringContains(t, s, "func (r *renderAPI) Badge(props BadgeProps)")
+	assertStringContains(t, s, "func (r *renderAPI) Card(props CardProps)")
+
+	// Card calls componentCard internally
+	assertStringContains(t, s, "componentCard(propsMap)")
+
+	// Badge's props should be mapped
+	assertStringContains(t, s, `"Label": props.Label`)
+}
+
 func TestCompile_ComponentComposition(t *testing.T) {
 	projectDir := filepath.Join("testdata", "composition")
 	outputDir := t.TempDir()
