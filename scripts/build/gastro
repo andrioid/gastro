@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#MISE description="Build the gastro CLI binary"
+#MISE sources=["cmd/gastro/**/*.go", "internal/**/*.go", "pkg/**/*.go"]
+#MISE outputs=["bin/gastro"]
+
+set -euo pipefail
+
+mkdir -p bin
+go build -o bin/gastro ./cmd/gastro/

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Install gastro and gastro-lsp to GOBIN via go install"
+
+set -euo pipefail
+
+go install ./cmd/gastro/
+go install ./cmd/gastro-lsp/
+
+GOBIN="${GOBIN:-$(go env GOPATH)/bin}"
+echo "Installed gastro and gastro-lsp to ${GOBIN}"
