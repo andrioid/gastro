@@ -3,6 +3,7 @@ package watcher_test
 import (
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -80,9 +81,9 @@ func TestDetectChangedSection_BothChanged(t *testing.T) {
 }
 
 func TestDebounce(t *testing.T) {
-	count := 0
+	var count atomic.Int32
 	fn := watcher.Debounce(50*time.Millisecond, func() {
-		count++
+		count.Add(1)
 	})
 
 	// Fire rapidly
@@ -93,7 +94,7 @@ func TestDebounce(t *testing.T) {
 	// Wait for debounce to settle
 	time.Sleep(100 * time.Millisecond)
 
-	if count != 1 {
-		t.Errorf("expected debounced function to fire once, got %d", count)
+	if got := count.Load(); got != 1 {
+		t.Errorf("expected debounced function to fire once, got %d", got)
 	}
 }

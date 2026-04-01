@@ -40,6 +40,7 @@ type server struct {
 	projectDir          string
 	goplsOpenFiles      map[string]int                                 // virtual URI -> version (tracks files opened in gopls)
 	writeMu             sync.Mutex                                     // protects stdout writes from concurrent goroutines
+	dataMu              sync.RWMutex                                   // protects diagnostic and document maps from concurrent access
 	goplsDiags          map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
 	templateDiags       map[string][]map[string]any                    // URI -> template diagnostics (body)
 	typeCache           map[string]map[string]string                   // URI -> varName -> type string
@@ -221,6 +222,12 @@ func (s *server) handleGoplsNotification(method string, params json.RawMessage) 
 		return
 	}
 
+	// Lock for the duration: we read documents, write goplsDiags, read
+	// templateDiags (via publishMergedDiagnostics). This runs on the
+	// gopls reader goroutine so it races with the main message loop.
+	s.dataMu.Lock()
+	defer s.dataMu.Unlock()
+
 	// Find which .gastro file this virtual file corresponds to
 	log.Printf("gopls diagnostic: uri=%s diags=%d", diagParams.URI, len(diagParams.Diagnostics))
 	gastroURI := s.findGastroURIForVirtualURI(diagParams.URI)
@@ -282,11 +289,18 @@ func (s *server) handleDidOpen(msg *jsonRPCMessage) {
 	json.Unmarshal(msg.Params, &params)
 
 	uri := params.TextDocument.URI
+
+	s.dataMu.Lock()
 	s.documents[uri] = params.TextDocument.Text
+	s.dataMu.Unlock()
+
 	log.Printf("opened: %s", uri)
 
-	s.syncToGopls(uri, params.TextDocument.Text)
+	// Run template diagnostics before syncing to gopls so that
+	// templateDiags is populated before gopls can respond and trigger
+	// publishMergedDiagnostics from the gopls reader goroutine.
 	s.runTemplateDiagnostics(uri, params.TextDocument.Text)
+	s.syncToGopls(uri, params.TextDocument.Text)
 }
 
 type didChangeParams struct {
@@ -306,13 +320,17 @@ func (s *server) handleDidChange(msg *jsonRPCMessage) {
 	if len(params.ContentChanges) > 0 {
 		uri := params.TextDocument.URI
 		content := params.ContentChanges[0].Text
+
+		s.dataMu.Lock()
 		s.documents[uri] = content
 		delete(s.typeCache, uri) // invalidate caches on change
 		delete(s.fieldCache, uri)
 		delete(s.typeFieldCache, uri)
 		s.invalidateComponentPropsCache(uri)
-		s.syncToGopls(uri, content)
+		s.dataMu.Unlock()
+
 		s.runTemplateDiagnostics(uri, content)
+		s.syncToGopls(uri, content)
 	}
 }
 
@@ -326,6 +344,8 @@ func (s *server) handleDidClose(msg *jsonRPCMessage) {
 	var params didCloseParams
 	json.Unmarshal(msg.Params, &params)
 	uri := params.TextDocument.URI
+
+	s.dataMu.Lock()
 	delete(s.documents, uri)
 	delete(s.goplsDiags, uri)
 	delete(s.templateDiags, uri)
@@ -333,6 +353,7 @@ func (s *server) handleDidClose(msg *jsonRPCMessage) {
 	delete(s.fieldCache, uri)
 	delete(s.typeFieldCache, uri)
 	s.invalidateComponentPropsCache(uri)
+	s.dataMu.Unlock()
 }
 
 // publishMergedDiagnostics combines gopls (frontmatter) and template (body)
@@ -405,8 +426,10 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 		})
 	}
 
+	s.dataMu.Lock()
 	s.templateDiags[uri] = lspDiags
 	s.publishMergedDiagnostics(uri)
+	s.dataMu.Unlock()
 }
 
 // resolveAllComponentProps builds a map from component name to its Props

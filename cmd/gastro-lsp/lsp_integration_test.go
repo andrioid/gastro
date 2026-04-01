@@ -384,29 +384,48 @@ func TestLSP_TemplateDiagnostics(t *testing.T) {
 		},
 	})
 
-	// Should receive a publishDiagnostics notification with the unknown variable error
-	notification := client.recvNotification(t, "textDocument/publishDiagnostics", 5*time.Second)
-	if notification == nil {
-		t.Fatal("expected publishDiagnostics notification, got timeout")
+	// Wait for a publishDiagnostics notification containing the .Unknown
+	// diagnostic. Multiple notifications may arrive (e.g. an empty one from
+	// gopls before template diagnostics are published), so we loop until we
+	// find the one we're looking for.
+	var diags []any
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		notification := client.recvNotification(t, "textDocument/publishDiagnostics", 2*time.Second)
+		if notification == nil {
+			continue
+		}
+
+		params, _ := notification["params"].(map[string]any)
+		d, _ := params["diagnostics"].([]any)
+		t.Logf("publishDiagnostics: count=%d", len(d))
+
+		for _, diag := range d {
+			dm, _ := diag.(map[string]any)
+			msg, _ := dm["message"].(string)
+			if strings.Contains(msg, ".Unknown") {
+				diags = d
+				break
+			}
+		}
+		if diags != nil {
+			break
+		}
 	}
 
-	params, _ := notification["params"].(map[string]any)
-	diags, _ := params["diagnostics"].([]any)
+	if diags == nil {
+		t.Fatal("expected diagnostic for .Unknown, got none within deadline")
+	}
 
-	found := false
 	for _, d := range diags {
 		dm, _ := d.(map[string]any)
 		msg, _ := dm["message"].(string)
 		if strings.Contains(msg, ".Unknown") {
-			found = true
 			if dm["source"] != "gastro" {
 				t.Errorf("expected source='gastro', got %v", dm["source"])
 			}
 			break
 		}
-	}
-	if !found {
-		t.Errorf("expected diagnostic for .Unknown, got: %v", diags)
 	}
 }
 

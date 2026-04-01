@@ -1,6 +1,7 @@
 package gastro_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -152,7 +153,8 @@ func TestDevMiddleware_MultipleWrites(t *testing.T) {
 func TestDevReloader_HandleSSE_SendsReloadEvent(t *testing.T) {
 	d := gastro.NewDevReloader()
 
-	r := httptest.NewRequest("GET", "/__gastro/reload", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	r := httptest.NewRequest("GET", "/__gastro/reload", nil).WithContext(ctx)
 	w := httptest.NewRecorder()
 
 	done := make(chan struct{})
@@ -165,8 +167,12 @@ func TestDevReloader_HandleSSE_SendsReloadEvent(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	d.Broadcast()
 
-	// Wait for the event to be written.
+	// Wait for the event to be written, then cancel the context to stop
+	// the handler goroutine before reading the body (avoids data race on
+	// the httptest.ResponseRecorder).
 	time.Sleep(20 * time.Millisecond)
+	cancel()
+	<-done
 
 	body := w.Body.String()
 	if !strings.Contains(body, "event: reload") {
