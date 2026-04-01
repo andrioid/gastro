@@ -172,7 +172,7 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 			"capabilities": map[string]any{
 				"textDocumentSync": 1, // Full sync
 				"completionProvider": map[string]any{
-					"triggerCharacters": []string{".", "<"},
+					"triggerCharacters": []string{".", "<", "|"},
 				},
 				"hoverProvider":      true,
 				"definitionProvider": true,
@@ -1148,6 +1148,25 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	}
 
 	var items []map[string]any
+
+	// Check if cursor is inside a prop value expression ({...}) — if after |,
+	// offer only pipe function completions. If after {., let the regular
+	// variable completions handle it (they already work via fall-through).
+	if propValCtx := lsptemplate.DetectPropValueContext(parsed.TemplateBody, cursorOffset); propValCtx != nil {
+		if propValCtx.AfterPipe {
+			for _, c := range lsptemplate.FuncMapCompletions() {
+				items = append(items, map[string]any{
+					"label":      c.Label,
+					"kind":       3, // LSP Function
+					"detail":     c.Detail,
+					"insertText": c.InsertText,
+				})
+			}
+			return items
+		}
+		// AfterPipe == false: cursor is after {. — fall through to regular
+		// variable completions which already handle this correctly.
+	}
 
 	// Check if cursor is inside a component tag — if so, offer prop completions
 	tagCtx := lsptemplate.DetectComponentTagContext(parsed.TemplateBody, cursorOffset, parsed.Uses)

@@ -563,3 +563,112 @@ func TestDiagnoseComponentProps_WithChildren(t *testing.T) {
 		}
 	}
 }
+
+func TestDetectPropValueContext(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string // | marks cursor position
+		wantNil   bool
+		afterPipe bool
+	}{
+		{
+			name:    "simple variable in prop value",
+			input:   `<Card Title={.|`,
+			wantNil: false,
+		},
+		{
+			name:    "partial variable in prop value",
+			input:   `<Card Title={.Tit|`,
+			wantNil: false,
+		},
+		{
+			name:      "after pipe in prop value",
+			input:     `<Card Date={.CreatedAt | t|`,
+			afterPipe: true,
+		},
+		{
+			name:      "after pipe with space",
+			input:     `<Card Date={.X | |`,
+			afterPipe: true,
+		},
+		{
+			name:    "pipe inside quotes is not a real pipe",
+			input:   `<Card Title={.X | printf "a|b"|`,
+			wantNil: false,
+			// cursor is after closing ", which is after the quoted |
+			// the real pipe is before printf, so AfterPipe is true
+			afterPipe: true,
+		},
+		{
+			name:    "cursor in prop name position",
+			input:   `<Card Title={.Title} S|`,
+			wantNil: true,
+		},
+		{
+			name:    "cursor in string literal prop",
+			input:   `<Card Title="hello|"`,
+			wantNil: true,
+		},
+		{
+			name:    "cursor outside any tag",
+			input:   `<p>hello|</p>`,
+			wantNil: true,
+		},
+		{
+			name:    "cursor after closed tag",
+			input:   `<Card Title={.Title} />|`,
+			wantNil: true,
+		},
+		{
+			name:    "multi-line tag",
+			input:   "<Card\n  Title={.|",
+			wantNil: false,
+		},
+		{
+			name:    "multiple complete props then incomplete",
+			input:   `<Card Title={.Title} Slug={.S|`,
+			wantNil: false,
+		},
+		{
+			name:    "inside range block",
+			input:   "{{ range .Posts }}<Card Title={.|{{ end }}",
+			wantNil: false,
+		},
+		{
+			name:    "not a component tag (lowercase)",
+			input:   `<div class={.|`,
+			wantNil: true,
+		},
+		{
+			name:    "empty input",
+			input:   `|`,
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Split input at | to get template body and cursor offset
+			idx := strings.LastIndex(tt.input, "|")
+			templateBody := tt.input[:idx] + tt.input[idx+1:]
+			cursorOffset := idx
+
+			got := lsptemplate.DetectPropValueContext(templateBody, cursorOffset)
+
+			if tt.wantNil {
+				if got != nil {
+					t.Errorf("expected nil, got %+v", got)
+				}
+				return
+			}
+
+			if got == nil {
+				t.Fatal("expected non-nil PropValueContext, got nil")
+			}
+
+			if got.AfterPipe != tt.afterPipe {
+				t.Errorf("AfterPipe: got %v, want %v", got.AfterPipe, tt.afterPipe)
+			}
+		})
+	}
+}

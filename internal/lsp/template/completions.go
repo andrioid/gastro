@@ -422,6 +422,93 @@ func DetectComponentTagContext(templateBody string, cursorOffset int, uses []par
 	}
 }
 
+// PropValueContext is the result of detecting whether the cursor is inside a
+// prop value expression ({...}) within a component tag.
+type PropValueContext struct {
+	AfterPipe bool // true if cursor is after a | — suggest functions, not variables
+}
+
+// DetectPropValueContext determines if the cursor is inside an incomplete
+// prop value expression within a component tag. Returns nil if the cursor
+// is not in a prop value context.
+func DetectPropValueContext(templateBody string, cursorOffset int) *PropValueContext {
+	if cursorOffset <= 0 || cursorOffset > len(templateBody) {
+		return nil
+	}
+
+	text := templateBody[:cursorOffset]
+
+	if !isInsideComponentTag(text) {
+		return nil
+	}
+	if !isInsideUnclosedBrace(text) {
+		return nil
+	}
+
+	return &PropValueContext{
+		AfterPipe: isAfterPipeOutsideQuotes(text),
+	}
+}
+
+// isInsideComponentTag returns true if the text ends inside an unclosed
+// component tag (a <PascalCase tag with no closing > or />).
+func isInsideComponentTag(text string) bool {
+	lastOpen := strings.LastIndex(text, "<")
+	if lastOpen < 0 {
+		return false
+	}
+
+	afterOpen := text[lastOpen:]
+
+	// If there's a > or /> after the <, the tag is closed
+	if strings.Contains(afterOpen, "/>") || strings.ContainsRune(afterOpen, '>') {
+		return false
+	}
+
+	// Check that the tag starts with a PascalCase name (component tag)
+	if len(afterOpen) < 2 {
+		return false
+	}
+	return afterOpen[1] >= 'A' && afterOpen[1] <= 'Z'
+}
+
+// isInsideUnclosedBrace returns true if the text has an unclosed { — meaning
+// the last { appears after the last }.
+func isInsideUnclosedBrace(text string) bool {
+	lastOpen := strings.LastIndex(text, "{")
+	lastClose := strings.LastIndex(text, "}")
+	return lastOpen > lastClose
+}
+
+// isAfterPipeOutsideQuotes returns true if the cursor (end of text) is after
+// a | character that is not inside a quoted string. Scans from the last
+// unclosed { to the end of text.
+func isAfterPipeOutsideQuotes(text string) bool {
+	braceStart := strings.LastIndex(text, "{")
+	if braceStart < 0 {
+		return false
+	}
+
+	expr := text[braceStart+1:]
+	inQuote := false
+	lastPipe := -1
+
+	for i, ch := range expr {
+		switch ch {
+		case '"':
+			inQuote = !inQuote
+		case '|':
+			if !inQuote {
+				lastPipe = i
+			}
+		}
+	}
+
+	// Cursor is after a pipe if the last unquoted | exists and there's
+	// only whitespace and identifier chars between it and the cursor
+	return lastPipe >= 0
+}
+
 // ComponentPropCompletions returns completion items for a component's props.
 // It filters out props that are already specified on the tag.
 func ComponentPropCompletions(fields []codegen.StructField, existingProps []string) []CompletionItem {
