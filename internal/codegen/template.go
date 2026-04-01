@@ -95,7 +95,7 @@ func replaceSelfClosing(body string, known map[string]bool) (string, bool, error
 		propsStr := strings.TrimSpace(groups[2])
 
 		if !known[name] {
-			replaceErr = fmt.Errorf("unknown component <%s />: not imported via 'use'", name)
+			replaceErr = fmt.Errorf("unknown component <%s />: not imported", name)
 			return match
 		}
 
@@ -123,7 +123,7 @@ func replaceWithChildren(body string, known map[string]bool) (string, bool, erro
 
 	if !known[name] {
 		if isPascalCase(name) {
-			return "", false, fmt.Errorf("unknown component <%s>: not imported via 'use'", name)
+			return "", false, fmt.Errorf("unknown component <%s>: not imported", name)
 		}
 		return body, false, nil
 	}

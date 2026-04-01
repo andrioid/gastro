@@ -42,10 +42,10 @@ Title := "Hello"
 	}
 }
 
-func TestGenerateVirtualFile_UseLinesBecomeComments(t *testing.T) {
+func TestGenerateVirtualFile_ImportLinesBecomeComments(t *testing.T) {
 	gastroContent := `---
-use Card "components/card.gastro"
-use Layout "components/layout.gastro"
+import Card "components/card.gastro"
+import Layout "components/layout.gastro"
 
 Title := "Hello"
 ---
@@ -56,14 +56,14 @@ Title := "Hello"
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// use lines should be commented out, not present as code
-	if strings.Contains(vf.GoSource, "\nuse ") {
-		t.Error("use declarations should be commented out in virtual file")
+	// Component import lines should be commented out, not present as raw import code
+	if strings.Contains(vf.GoSource, "\nimport Card") {
+		t.Error("component imports should be commented out in virtual file")
 	}
 
 	// Should be converted to comments to preserve line numbers
-	if !strings.Contains(vf.GoSource, "// use Card") {
-		t.Error("use declarations should appear as comments")
+	if !strings.Contains(vf.GoSource, "// import Card") {
+		t.Errorf("import declarations should appear as comments, got:\n%s", vf.GoSource)
 	}
 }
 

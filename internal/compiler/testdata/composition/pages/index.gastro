@@ -1,5 +1,5 @@
 ---
-use Card "components/card.gastro"
+import Card "components/card.gastro"
 
 ctx := gastro.Context()
 Title := "Composition Test"

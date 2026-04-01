@@ -1,9 +1,11 @@
 ---
-use KpiCard "components/kpi-card.gastro"
-use AgentRow "components/agent-row.gastro"
+import (
+    "fmt"
+    "dashboard/mock"
 
-import "dashboard/mock"
-import "fmt"
+    KpiCard "components/kpi-card.gastro"
+    AgentRow "components/agent-row.gastro"
+)
 
 type Props struct {
     ActiveCalls int
@@ -18,18 +20,18 @@ type RowData struct {
     Agent mock.Agent
 }
 
-props := gastro.Props[Props]()
+p := gastro.Props()
 
-ActiveCalls := fmt.Sprintf("%d", props.ActiveCalls)
-AvgWait := fmt.Sprintf("%ds", props.AvgWaitSecs)
-CallsToday := fmt.Sprintf("%d", props.CallsToday)
-QueueDepth := fmt.Sprintf("%d", props.QueueDepth)
+ActiveCalls := fmt.Sprintf("%d", p.ActiveCalls)
+AvgWait := fmt.Sprintf("%ds", p.AvgWaitSecs)
+CallsToday := fmt.Sprintf("%d", p.CallsToday)
+QueueDepth := fmt.Sprintf("%d", p.QueueDepth)
 
 rowHeight := 48
 rosterTop := 210
 
-rows := make([]RowData, len(props.Agents))
-for i, a := range props.Agents {
+rows := make([]RowData, len(p.Agents))
+for i, a := range p.Agents {
     rows[i] = RowData{
         Agent: a,
         Y: rosterTop + i*rowHeight,

@@ -147,6 +147,100 @@ Tag := props.Tag`,
 	assertContains(t, output, `"Children": __children`)
 }
 
+func TestGenerate_NewPropsDirectAccess(t *testing.T) {
+	file := &parser.File{
+		Filename: "components/card.gastro",
+		Frontmatter: `type Props struct {
+    Title string
+}
+Title := gastro.Props().Title
+CSSClass := "card"`,
+		TemplateBody: `<div class="{{ .CSSClass }}">{{ .Title }}</div>`,
+	}
+
+	info := &codegen.FrontmatterInfo{
+		ExportedVars:  []codegen.VarInfo{{Name: "Title"}, {Name: "CSSClass"}},
+		IsComponent:   true,
+		PropsTypeName: "Props",
+	}
+
+	output, err := codegen.GenerateHandler(file, info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// gastro.Props() should be rewritten to __props
+	assertContains(t, output, `Title := __props.Title`)
+	assertNotContains(t, output, `gastro.Props`)
+
+	// Should still have component function signature
+	assertContains(t, output, `func componentCard(propsMap map[string]any) template.HTML`)
+	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
+}
+
+func TestGenerate_NewPropsWholeStruct(t *testing.T) {
+	file := &parser.File{
+		Filename: "components/kpi.gastro",
+		Frontmatter: `type Props struct {
+    X     int
+    Value string
+}
+p := gastro.Props()
+Value := p.Value
+CX := fmt.Sprintf("%d", p.X+135)`,
+		TemplateBody: `<text x="{{ .CX }}">{{ .Value }}</text>`,
+		Imports:      []string{"fmt"},
+	}
+
+	info := &codegen.FrontmatterInfo{
+		ExportedVars:  []codegen.VarInfo{{Name: "Value"}, {Name: "CX"}},
+		PrivateVars:   []codegen.VarInfo{{Name: "p"}},
+		IsComponent:   true,
+		PropsTypeName: "Props",
+	}
+
+	output, err := codegen.GenerateHandler(file, info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// gastro.Props() should be rewritten to __props
+	assertContains(t, output, `p := __props`)
+	assertContains(t, output, `Value := p.Value`)
+	assertContains(t, output, `CX := fmt.Sprintf("%d", p.X+135)`)
+	assertNotContains(t, output, `gastro.Props`)
+}
+
+func TestGenerate_NewPropsInExpression(t *testing.T) {
+	file := &parser.File{
+		Filename: "components/badge.gastro",
+		Frontmatter: `type Props struct {
+    Label string
+    Count int
+}
+Label := gastro.Props().Label
+Summary := fmt.Sprintf("%s (%d)", gastro.Props().Label, gastro.Props().Count)`,
+		TemplateBody: `<span>{{ .Summary }}</span>`,
+		Imports:      []string{"fmt"},
+	}
+
+	info := &codegen.FrontmatterInfo{
+		ExportedVars:  []codegen.VarInfo{{Name: "Label"}, {Name: "Summary"}},
+		IsComponent:   true,
+		PropsTypeName: "Props",
+	}
+
+	output, err := codegen.GenerateHandler(file, info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// All gastro.Props() calls should be rewritten
+	assertContains(t, output, `Label := __props.Label`)
+	assertContains(t, output, `Summary := fmt.Sprintf("%s (%d)", __props.Label, __props.Count)`)
+	assertNotContains(t, output, `gastro.Props`)
+}
+
 func TestGenerate_MultipleExportedVars(t *testing.T) {
 	file := &parser.File{
 		Filename:     "pages/index.gastro",

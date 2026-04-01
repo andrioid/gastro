@@ -6,7 +6,7 @@ or other templates using HTML-like syntax.
 
 ## Defining a component
 
-A component file uses `gastro.Props[T]()` to declare its props type:
+A component file uses `gastro.Props()` to declare its props type:
 
 ```gastro
 ---
@@ -15,9 +15,8 @@ type Props struct {
     Author string
 }
 
-props := gastro.Props[Props]()
-Title := props.Title
-Author := props.Author
+Title := gastro.Props().Title
+Author := gastro.Props().Author
 ---
 <article>
     <h2>{{ .Title }}</h2>
@@ -25,10 +24,10 @@ Author := props.Author
 </article>
 ```
 
-`gastro.Props[T]()` is a compile-time marker (like `gastro.Context()` for
+`gastro.Props()` is a compile-time marker (like `gastro.Context()` for
 pages). It tells the code generator that this file is a component and what
-props it accepts. The generic parameter `T` must be a struct type defined in
-the same frontmatter.
+props it accepts. The `Props` struct type must be defined in the same
+frontmatter.
 
 ## Props
 
@@ -48,8 +47,9 @@ type Props struct {
 
 ### Accessing props
 
-`gastro.Props[T]()` returns a value of type `T`. Assign fields to uppercase
-variables to make them available in the template:
+`gastro.Props()` returns a value of the `Props` struct type. Access fields
+directly and assign to uppercase variables to make them available in the
+template:
 
 ```gastro
 ---
@@ -58,11 +58,26 @@ type Props struct {
     Slug  string
 }
 
-props := gastro.Props[Props]()
-Title := props.Title
-Slug := props.Slug
+Title := gastro.Props().Title
+Slug := gastro.Props().Slug
 ---
 <a href="/blog/{{ .Slug }}">{{ .Title }}</a>
+```
+
+If you need computed values from multiple props, assign the whole struct
+first:
+
+```gastro
+---
+type Props struct {
+    Label string
+    X     int
+}
+
+p := gastro.Props()
+Label := p.Label
+CX := fmt.Sprintf("%d", p.X + 135)
+---
 ```
 
 ### Type coercion
@@ -83,15 +98,28 @@ If the types match directly, no coercion is needed.
 
 ### Importing
 
-Use the `use` declaration in the frontmatter to import a component:
+Use the `import` declaration in the frontmatter to import a component:
 
 ```
-use Layout "components/layout.gastro"
-use PostCard "components/post-card.gastro"
+import Layout "components/layout.gastro"
+import PostCard "components/post-card.gastro"
 ```
 
-The first word after `use` is the local name you'll use in the template. The
-string is the path to the component file, relative to the project root.
+Or grouped together with Go imports:
+
+```
+import (
+    "myblog/db"
+
+    Layout "components/layout.gastro"
+    PostCard "components/post-card.gastro"
+)
+```
+
+Component imports are distinguished from Go imports by the `.gastro` file
+extension. The identifier before the path is the local name you'll use in
+the template. The string is the path to the component file, relative to the
+project root.
 
 ### Invoking in templates
 
@@ -135,8 +163,7 @@ type Props struct {
     Title string
 }
 
-props := gastro.Props[Props]()
-Title := props.Title
+Title := gastro.Props().Title
 ---
 <html>
 <head><title>{{ .Title }}</title></head>
@@ -175,8 +202,7 @@ type Props struct {
     Title string
 }
 
-props := gastro.Props[Props]()
-Title := props.Title
+Title := gastro.Props().Title
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -209,11 +235,12 @@ type Props struct {
     Author string
     Date   string
 }
-props := gastro.Props[Props]()
-Slug := props.Slug
-Title := props.Title
-Author := props.Author
-Date := props.Date
+
+p := gastro.Props()
+Slug := p.Slug
+Title := p.Title
+Author := p.Author
+Date := p.Date
 ---
 <article class="post-card">
     <h2><a href="/blog/{{ .Slug }}">{{ .Title }}</a></h2>
@@ -225,10 +252,12 @@ Date := props.Date
 
 ```gastro
 ---
-import "myblog/db"
+import (
+    "myblog/db"
 
-use Layout "components/layout.gastro"
-use PostCard "components/post-card.gastro"
+    Layout "components/layout.gastro"
+    PostCard "components/post-card.gastro"
+)
 
 ctx := gastro.Context()
 posts, err := db.ListPublished()

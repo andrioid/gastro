@@ -39,7 +39,7 @@ static pages that only use component imports and exported variables:
 
 ```gastro
 ---
-use Layout "components/layout.gastro"
+import Layout "components/layout.gastro"
 
 Title := "About"
 ---
@@ -81,14 +81,17 @@ Title := "Blog"
 
 ## Imports and component usage
 
-Use standard Go `import` for packages and `use` for components:
+Use Go `import` for both packages and components. Component imports are
+distinguished by the `.gastro` file extension:
 
 ```gastro
 ---
-import "myblog/db"
+import (
+    "myblog/db"
 
-use Layout "components/layout.gastro"
-use PostCard "components/post-card.gastro"
+    Layout "components/layout.gastro"
+    PostCard "components/post-card.gastro"
+)
 
 ctx := gastro.Context()
 posts, _ := db.ListPublished()

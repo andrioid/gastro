@@ -7,11 +7,11 @@ type Props struct {
     Label string
 }
 
-props := gastro.Props[Props]()
-X := props.X
-CX := fmt.Sprintf("%d", props.X+135)
-Value := props.Value
-Label := props.Label
+p := gastro.Props()
+X := p.X
+CX := fmt.Sprintf("%d", p.X+135)
+Value := p.Value
+Label := p.Label
 ---
 <g>
     <rect x="{{ .X }}" y="60" width="270" height="110" rx="12" fill="url(#cardGrad)" stroke="var(--color-border)" stroke-width="1" />

@@ -13,7 +13,7 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 
 | Phase | Status | Notes |
 |-------|--------|-------|
-| 1. Parser | Done | 14 tests. Splits frontmatter/body, extracts imports and `use` declarations. |
+| 1. Parser | Done | 14 tests. Splits frontmatter/body, extracts imports and component imports. |
 | 2. Frontmatter codegen | Done | 9 tests. Go AST analysis, variable extraction, gastro marker detection. |
 | 3. Template codegen | Done | 12 tests. `<Component />` to template calls, `<slot />`, prop parsing, pipe expressions in props, child content extraction into `{{define}}` blocks. |
 | 4. Component system | Done | 8 tests. `MapToStruct[T]` with type coercion, component render functions (`func(map[string]any) template.HTML`), per-page init with component FuncMap, `__gastro_render_children` closure for slot content. |
@@ -61,8 +61,8 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 
 | Phase | What to Test | Approach |
 |-------|-------------|----------|
-| 1. Parser | Frontmatter extraction, `---` delimiter handling, `use` declarations, edge cases (empty frontmatter, missing delimiters, `---` inside strings) | Table-driven: input `.gastro` string -> expected frontmatter + template body |
-| 2. Frontmatter codegen | Import extraction, uppercase/lowercase variable separation, struct pointer detection, generated Go code output | Table-driven: frontmatter string -> expected AST results. Golden files: frontmatter -> generated `.go` code |
+| 1. Parser | Frontmatter extraction, `---` delimiter handling, component import declarations, edge cases (empty frontmatter, missing delimiters, `---` inside strings) | Table-driven: input `.gastro` string -> expected frontmatter + template body |
+| 2. Frontmatter codegen | Import extraction (Go and component), uppercase/lowercase variable separation, struct pointer detection, generated Go code output | Table-driven: frontmatter string -> expected AST results. Golden files: frontmatter -> generated `.go` code |
 | 3. Template codegen | `<Component />` transformation, `<slot />` handling, prop parsing (`{.expr}` and `"literal"`), passthrough of `{{ }}` | Table-driven: template body input -> expected transformed template output |
 | 4. Component system | Props struct detection, `mapToStruct[T]()` coercion (string->bool, string->int, type mismatches), render function generation | Unit tests for `mapToStruct` with all coercion paths. Golden files for generated component code |
 | 5. File router | Directory walking, route table generation, `[param]` pattern mapping, `index.gastro` handling, route ordering | Table-driven: directory tree structure -> expected route table |
@@ -121,16 +121,17 @@ A `.gastro` file has two sections separated by `---` delimiters:
 - No `package` declaration -- the code generator handles this.
 - Imports use standard Go `import` syntax.
 - The `gastro` package is implicitly available (never needs importing).
-- Component imports use `use ComponentName "path/to/component.gastro"`.
+- Component imports use `import ComponentName "path/to/component.gastro"`
+  (distinguished from Go imports by the `.gastro` file extension).
 - **Uppercase** local variables are exported to the template.
 - **Lowercase** local variables are private to the frontmatter logic.
-- `gastro.Context()` and `gastro.Props[T]()` are code-gen markers, not real
+- `gastro.Context()` and `gastro.Props()` are code-gen markers, not real
   function calls. The compiler rewrites them into the generated handler code.
 
 **Template body rules:**
 
 - Uses standard Go `html/template` syntax (`{{ }}`).
-- `<PascalCase />` tags invoke components (imported via `use`).
+- `<PascalCase />` tags invoke components (imported via `import`).
 - `<slot />` renders child content passed by a parent component.
 - No custom expression shorthand -- `{{ }}` only.
 - `{{define}}` / `{{template}}` are supported but scoped to the file.
@@ -190,9 +191,11 @@ Pages handle HTTP requests. They have access to `gastro.Context()`.
 ```gastro
 // pages/blog/[slug].gastro
 ---
-import "myapp/db"
+import (
+    "myapp/db"
 
-use Layout "components/layout.gastro"
+    Layout "components/layout.gastro"
+)
 
 ctx := gastro.Context()
 slug := ctx.Param("slug")
@@ -218,7 +221,7 @@ Author := post.Author
 
 ### Components (live in `components/` or anywhere)
 
-Components receive typed props via `gastro.Props[T]()`. They do not have access
+Components receive typed props via `gastro.Props()`. They do not have access
 to `gastro.Context()`.
 
 ```gastro
@@ -230,14 +233,14 @@ type Props struct {
     Urgent bool
 }
 
-props := gastro.Props[Props]()
+p := gastro.Props()
 
 CSSClass := "card"
-if props.Urgent {
+if p.Urgent {
     CSSClass += " card--urgent"
 }
-Title := props.Title
-Body  := props.Body
+Title := p.Title
+Body  := p.Body
 ---
 <div class="{{ .CSSClass }}">
     <h2>{{ .Title }}</h2>
@@ -283,21 +286,24 @@ map to ensure pointer-receiver methods are accessible in the template.
 
 ### Importing Components
 
-Components must be explicitly imported in the frontmatter using the `use`
-keyword:
+Components must be explicitly imported in the frontmatter using `import`
+with a `.gastro` path:
 
 ```gastro
 ---
-use Card "components/card.gastro"
-use Layout "components/layout.gastro"
-use PostCard "components/blog/post-card.gastro"
+import (
+    Card "components/card.gastro"
+    Layout "components/layout.gastro"
+    PostCard "components/blog/post-card.gastro"
+)
 ---
 ```
 
 - Explicit imports avoid ambiguity from name collisions.
-- The `use` keyword is gastro-specific syntax (not valid Go).
-- The LSP converts `use` lines to comments in the virtual .go file sent to
-  gopls, preserving line numbers.
+- Component imports are distinguished from Go imports by the `.gastro` file
+  extension.
+- The LSP converts component import lines to comments in the virtual .go
+  file sent to gopls, preserving line numbers.
 
 ### Invoking Components
 
@@ -352,8 +358,7 @@ as a special `__children` prop.
 type Props struct {
     Title string
 }
-props := gastro.Props[Props]()
-Title := props.Title
+Title := gastro.Props().Title
 ---
 <html>
 <head><title>{{ .Title }}</title></head>
@@ -456,8 +461,8 @@ Items := []string{"one", "two", "three"}
 </ul>
 ```
 
-For shared reusable fragments across files, use components (with explicit `use`
-imports).
+For shared reusable fragments across files, use components (with explicit
+`import` declarations).
 
 ---
 
@@ -478,10 +483,10 @@ func (c *Context) Error(code int, msg string)
 func (c *Context) Header(key, val string)
 
 // Components only -- receive typed props
-func Props[T any]() T
+func Props() Props
 ```
 
-**Important:** `gastro.Context()` and `gastro.Props[T]()` are **code-gen
+**Important:** `gastro.Context()` and `gastro.Props()` are **code-gen
 markers**. They look like function calls but are rewritten by the compiler into
 the generated handler code. They are not callable from normal `.go` files.
 
@@ -589,17 +594,17 @@ func main() {
     |
     +- 2. Analyze frontmatter (Go AST):
     |      - Collect import declarations
-    |      - Collect use declarations (component imports)
-    |      - Identify all local variable declarations
-    |      - Separate uppercase (exported) from lowercase (private)
-    |      - Detect Props struct (components) or Context() call (pages)
+     |      - Collect component imports (`.gastro` paths)
+     |      - Identify all local variable declarations
+     |      - Separate uppercase (exported) from lowercase (private)
+     |      - Detect Props struct (components) or Context() call (pages)
     |
     +- 3. Analyze template body:
-    |      - Find <PascalCase /> component tags
-    |      - Parse component prop attributes ({expr} and "literal")
-    |      - Transform to __gastro_ComponentName template function calls
-    |      - Find <slot /> tags, transform to {{ .Children }} output
-    |      - Pass through {{ }} expressions unchanged
+     |      - Find `<PascalCase />` component tags
+     |      - Parse component prop attributes ({expr} and "literal")
+     |      - Transform to __gastro_ComponentName template function calls
+     |      - Find `<slot />` tags, transform to {{ .Children }} output
+     |      - Pass through {{ }} expressions unchanged
     |
     +- 4. Generate Go source:
     |      - Wrap frontmatter in handler func (pages) or render func (components)
@@ -751,13 +756,13 @@ gastro-lsp
   +-- Proxies Go requests to gopls
   |     (completions, diagnostics, hover, go-to-def)
   +-- Position mapping: .gastro line <-> virtual .go line
-  +-- use lines: commented out in virtual file, preserving line numbers
+  +-- Component imports: commented out in virtual file, preserving line numbers
   +-- Template intelligence (own logic):
   |     - {{ .Var }} completions (from uppercase frontmatter vars)
   |     - {{ .Var.Field }} completions (via gopls type analysis)
   |     - {{ func }} / {{ | func }} completions (from FuncMap registry)
   |     - Type-aware hover on {{ }} expressions
-  |     - Component name completions (from use imports)
+  |     - Component name completions (from component imports)
   |     - Component prop completions (from Props struct)
   |     - Component go-to-definition
   |     - Diagnostics: unknown vars, unknown components, wrong props
@@ -771,7 +776,7 @@ When a `.gastro` file is opened, the LSP:
 
 1. Parses `---` delimiters.
 2. Extracts frontmatter.
-3. Converts `use` lines to comments (preserving line numbers).
+3. Converts component import lines to comments (preserving line numbers).
 4. Wraps the frontmatter in a valid Go function with package, imports, and
    function signature.
 5. Writes to shadow directory (e.g. `/tmp/gastro-lsp-shadow/`).
@@ -799,7 +804,7 @@ virtual `.go` line numbers.
 | Unknown variable diagnostic      | Template exprs    | gastro-lsp           |
 | Unknown component diagnostic     | `<Component />`   | gastro-lsp           |
 | Missing/wrong prop diagnostic    | `<Component />`   | gastro-lsp           |
-| `use` import completions         | Frontmatter       | gastro-lsp           |
+| Component import completions     | Frontmatter       | gastro-lsp           |
 
 ---
 
@@ -814,7 +819,7 @@ virtual `.go` line numbers.
 | 5  | HTTP framework            | `net/http` (Go 1.22+)                                                    |
 | 6  | Expression syntax         | `{{ }}` only, no shorthand sugar                                         |
 | 7  | Prop expression type      | Go template expressions: `{.Name}` compiles to `{{ .Name }}`            |
-| 8  | Component resolution      | Explicit `use` imports in frontmatter                                    |
+| 8  | Component resolution      | Explicit `import` with `.gastro` paths in frontmatter                    |
 | 9  | Slots                     | `<slot />` unnamed only (v1). Pre-rendered to `template.HTML`            |
 | 10 | Package declaration       | None. Code generator handles it                                          |
 | 11 | Frontmatter validity      | Code-gen markers (not independently compilable Go)                       |
@@ -832,7 +837,7 @@ virtual `.go` line numbers.
 | 23 | Syntax highlighting       | Tree-sitter first, with Go/HTML language injection                       |
 | 24 | Static assets             | `static/` directory, embedded via `//go:embed`                           |
 | 25 | Build output              | `gastro build` = generate + `go build` -> single binary                  |
-| 26 | Component import + LSP    | `use` lines commented out in gopls virtual file, handled by gastro-lsp   |
+| 26 | Component import + LSP    | Component imports commented out in gopls virtual file, handled by gastro-lsp |
 
 ---
 
@@ -840,19 +845,19 @@ virtual `.go` line numbers.
 
 | Phase | Deliverable                    | Description                                                                                                                                         |
 |-------|--------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1     | **Parser**                     | `.gastro` file parser: split frontmatter from template body. Handle `---` delimiters, `use` declarations, edge cases.                               |
-| 2     | **Frontmatter codegen**        | Go AST analysis: extract imports, `use` declarations, uppercase variable capture. Generate handler functions with data maps. Store struct pointers.  |
+| 1     | **Parser**                     | `.gastro` file parser: split frontmatter from template body. Handle `---` delimiters, component import declarations, edge cases.                     |
+| 2     | **Frontmatter codegen**        | Go AST analysis: extract imports (Go and component), uppercase variable capture. Generate handler functions with data maps. Store struct pointers.   |
 | 3     | **Template codegen**           | Parse template body: transform `<Component />` tags into template function calls, handle `<slot />`, generate `html/template` code. Child content extracted into `{{define}}` blocks. Pipe expressions in props wrapped in parens. |
-| 4     | **Component system**           | Props struct detection, `gastro.Props[T]()` codegen, `MapToStruct[T]` runtime helper, component render functions, per-page init with component FuncMap registration, `__gastro_render_children` closure for slot content. End-to-end working. |
+| 4     | **Component system**           | Props struct detection, `gastro.Props()` codegen, `MapToStruct[T]` runtime helper, component render functions, per-page init with component FuncMap registration, `__gastro_render_children` closure for slot content. End-to-end working. |
 | 5     | **File router**                | Walk `pages/`, generate route table, handle `[param]` patterns, generate `Routes()` function with options.                                          |
-| 6     | **Runtime library**            | `gastro` package: `Context`, `Props[T]`, `Recover`, `DefaultFuncs()`, `WithFuncs()` option, dev/prod FS abstraction.                                |
+| 6     | **Runtime library**            | `gastro` package: `Context`, `Props`, `Recover`, `DefaultFuncs()`, `WithFuncs()` option, dev/prod FS abstraction.                                   |
 | 7     | **Embedding & static assets**  | `//go:embed` for templates and `static/`, `fs.FS` abstraction, static file serving, dev vs prod mode.                                               |
 | 8     | **CLI: `gastro generate`**     | One-shot code generation to `.gastro/`.                                                                                                             |
 | 9     | **CLI: `gastro build`**        | Generate + `go build` -> single deployable binary. Configurable output.                                                                             |
 | 10    | **CLI: `gastro dev`**          | File watcher, hybrid restart (template reload vs process restart), `GASTRO_DEV=1`.                                                                  |
 | 11    | **Tree-sitter grammar**        | `tree-sitter-gastro` with Go and HTML language injection. Highlights and injection queries.                                                          |
 | 12    | **LSP: foundation**            | `gastro-lsp` binary. Document sync, `.gastro` file parsing, shadow workspace with virtual `.go` files, position mapping (source maps).               |
-| 13    | **LSP: gopls proxy**           | Spawn and manage gopls subprocess. Proxy completions, diagnostics, hover, go-to-def for frontmatter. Translate positions. Handle `use` commenting.   |
+| 13    | **LSP: gopls proxy**           | Spawn and manage gopls subprocess. Proxy completions, diagnostics, hover, go-to-def for frontmatter. Translate positions. Handle component import commenting. |
 | 14    | **LSP: template intelligence** | Variable/field/function completions, pipe completions, type-aware hover, component name/prop completions, component go-to-def, diagnostics.         |
 | 15    | **Editor extensions**          | Neovim plugin (tree-sitter + LSP config), VS Code extension (tree-sitter via WASM + LSP client).                                                    |
 | 16    | **Example: blog**              | `examples/blog/` -- a complete working blog project demonstrating pages, dynamic routes, template helpers, and static assets.                        |

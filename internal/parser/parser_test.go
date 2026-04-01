@@ -31,10 +31,10 @@ Title := "Hello"
 	}
 }
 
-func TestParse_ExtractsUseDeclarations(t *testing.T) {
+func TestParse_ExtractsComponentImports(t *testing.T) {
 	input := `---
-use Card "components/card.gastro"
-use Layout "components/layout.gastro"
+import Card "components/card.gastro"
+import Layout "components/layout.gastro"
 
 Title := "Hello"
 ---
@@ -46,7 +46,7 @@ Title := "Hello"
 	}
 
 	if len(result.Uses) != 2 {
-		t.Fatalf("expected 2 use declarations, got %d", len(result.Uses))
+		t.Fatalf("expected 2 component imports, got %d", len(result.Uses))
 	}
 
 	if result.Uses[0].Name != "Card" || result.Uses[0].Path != "components/card.gastro" {
@@ -58,9 +58,9 @@ Title := "Hello"
 	}
 }
 
-func TestParse_UseDeclarationsStrippedFromFrontmatter(t *testing.T) {
+func TestParse_ComponentImportsStrippedFromFrontmatter(t *testing.T) {
 	input := `---
-use Card "components/card.gastro"
+import Card "components/card.gastro"
 
 Title := "Hello"
 ---
@@ -73,7 +73,7 @@ Title := "Hello"
 
 	wantFrontmatter := `Title := "Hello"`
 	if result.Frontmatter != wantFrontmatter {
-		t.Errorf("frontmatter should not contain use declarations:\ngot:  %q\nwant: %q", result.Frontmatter, wantFrontmatter)
+		t.Errorf("frontmatter should not contain component imports:\ngot:  %q\nwant: %q", result.Frontmatter, wantFrontmatter)
 	}
 }
 
@@ -171,6 +171,107 @@ Title := "Hello"
 	wantFrontmatter := `Title := "Hello"`
 	if result.Frontmatter != wantFrontmatter {
 		t.Errorf("frontmatter should not contain import declarations:\ngot:  %q\nwant: %q", result.Frontmatter, wantFrontmatter)
+	}
+}
+
+func TestParse_MixedImportBlock(t *testing.T) {
+	input := `---
+import (
+	"fmt"
+	"myapp/db"
+
+	Layout "components/layout.gastro"
+	PostCard "components/post-card.gastro"
+)
+
+Title := "Hello"
+---
+<h1>{{ .Title }}</h1>`
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Imports) != 2 {
+		t.Fatalf("expected 2 Go imports, got %d: %v", len(result.Imports), result.Imports)
+	}
+	if result.Imports[0] != "fmt" {
+		t.Errorf("import[0]: got %q, want %q", result.Imports[0], "fmt")
+	}
+	if result.Imports[1] != "myapp/db" {
+		t.Errorf("import[1]: got %q, want %q", result.Imports[1], "myapp/db")
+	}
+
+	if len(result.Uses) != 2 {
+		t.Fatalf("expected 2 component imports, got %d: %v", len(result.Uses), result.Uses)
+	}
+	if result.Uses[0].Name != "Layout" || result.Uses[0].Path != "components/layout.gastro" {
+		t.Errorf("use[0]: got {%q, %q}, want {\"Layout\", \"components/layout.gastro\"}", result.Uses[0].Name, result.Uses[0].Path)
+	}
+	if result.Uses[1].Name != "PostCard" || result.Uses[1].Path != "components/post-card.gastro" {
+		t.Errorf("use[1]: got {%q, %q}, want {\"PostCard\", \"components/post-card.gastro\"}", result.Uses[1].Name, result.Uses[1].Path)
+	}
+
+	wantFrontmatter := `Title := "Hello"`
+	if result.Frontmatter != wantFrontmatter {
+		t.Errorf("frontmatter should not contain imports:\ngot:  %q\nwant: %q", result.Frontmatter, wantFrontmatter)
+	}
+}
+
+func TestParse_ComponentImportRequiresAlias(t *testing.T) {
+	input := `---
+import "components/layout.gastro"
+
+Title := "Hello"
+---
+<h1>{{ .Title }}</h1>`
+
+	_, err := parser.Parse("test.gastro", input)
+	if err == nil {
+		t.Fatal("expected error for .gastro import without alias")
+	}
+}
+
+func TestParse_ComponentImportRejectsDotImport(t *testing.T) {
+	input := `---
+import . "components/layout.gastro"
+
+Title := "Hello"
+---
+<h1>{{ .Title }}</h1>`
+
+	_, err := parser.Parse("test.gastro", input)
+	if err == nil {
+		t.Fatal("expected error for dot import of .gastro file")
+	}
+}
+
+func TestParse_ComponentImportRejectsBlankImport(t *testing.T) {
+	input := `---
+import _ "components/layout.gastro"
+
+Title := "Hello"
+---
+<h1>{{ .Title }}</h1>`
+
+	_, err := parser.Parse("test.gastro", input)
+	if err == nil {
+		t.Fatal("expected error for blank import of .gastro file")
+	}
+}
+
+func TestParse_ComponentImportRequiresUppercase(t *testing.T) {
+	input := `---
+import layout "components/layout.gastro"
+
+Title := "Hello"
+---
+<h1>{{ .Title }}</h1>`
+
+	_, err := parser.Parse("test.gastro", input)
+	if err == nil {
+		t.Fatal("expected error for lowercase component import alias")
 	}
 }
 

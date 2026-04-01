@@ -38,16 +38,16 @@ Gastro has three main subsystems:
 
 **Purpose:** Parse `.gastro` files into their constituent parts.
 
-**Key type:** `parser.File` -- contains frontmatter, template body, imports,
-use declarations, and line numbers.
+**Key type:** `parser.File` -- contains frontmatter, template body, imports
+(Go and component), and line numbers.
 
 **Key function:** `parser.Parse(filename, content) (*File, error)`
 
 The parser:
 - Splits content at `---` delimiters
 - Extracts `import` declarations (single and grouped)
-- Extracts `use` declarations (component imports)
-- Strips imports and uses from the frontmatter body
+- Extracts component imports (`.gastro` paths)
+- Strips imports from the frontmatter body
 - Records line numbers for source mapping
 
 The parser does NOT validate Go syntax. It operates on string splitting and
@@ -67,7 +67,7 @@ Wraps the frontmatter in a valid Go file and parses it with `go/ast`. Extracts:
 - All variable declarations (`:=` and `var`)
 - Classification: uppercase (exported to template) vs lowercase (private)
 - Detection of `gastro.Context()` calls (marks file as a page)
-- Detection of `gastro.Props[T]()` calls (marks file as a component)
+- Detection of `gastro.Props()` calls (marks file as a component)
 
 The frontmatter is wrapped in `package __gastro / func __handler() { ... }`
 so `go/parser` can handle it. Type declarations (`type Props struct{}`) are
@@ -86,7 +86,7 @@ Produces Go source code for a page handler or component render function. Uses
 - Panic recovery wrapper
 
 The `gastro.Context()` marker is rewritten to `gastroRuntime.NewContext(w, r)`.
-The `gastro.Props[T]()` marker is stripped (component generation is TODO).
+The `gastro.Props()` marker is stripped (component generation is TODO).
 
 #### `template.go`
 
@@ -193,8 +193,8 @@ workspace:
 - Symlinks `go.mod`, `go.sum`, and source directories from the user's project
 - Writes virtual files with `package main`, gastro runtime stubs, and the
   frontmatter code in a uniquely-named function
-- Comments out `import` and `use` lines in the function body (they're placed
-  as top-level declarations to avoid Go syntax errors)
+- Comments out `import` lines (including component imports) in the function
+  body (they're placed as top-level declarations to avoid Go syntax errors)
 - Provides source maps for position translation
 
 #### `proxy/`
@@ -263,7 +263,7 @@ parser.File {
     Frontmatter: "ctx := gastro.Context()\nTitle := \"Hello\""
     TemplateBody: "<h1>{{ .Title }}</h1>"
     Imports: ["myapp/db"]
-    Uses: [{Name: "Card", Path: "components/card.gastro"}]
+    ComponentImports: [{Name: "Card", Path: "components/card.gastro"}]
 }
      |
      +---> codegen.AnalyzeFrontmatter()

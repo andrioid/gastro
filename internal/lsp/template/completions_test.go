@@ -349,7 +349,7 @@ func TestDiagnostics_UnknownComponent(t *testing.T) {
 
 	found := false
 	for _, d := range diags {
-		if d.Message == `unknown component "Unknown": not imported via 'use'` {
+		if d.Message == `unknown component "Unknown": not imported` {
 			found = true
 			if d.StartLine != 1 {
 				t.Errorf("expected StartLine=1, got %d", d.StartLine)
@@ -372,8 +372,7 @@ type Props struct {
 	Count int
 }
 
-props := gastro.Props[Props]()
-Title := props.Title
+Title := gastro.Props().Title
 ---
 <div>{{ .Title }}</div>`
 
@@ -428,7 +427,7 @@ func TestResolveComponentProps_OpenDocument(t *testing.T) {
 type Props struct {
 	Old string
 }
-props := gastro.Props[Props]()
+Old := gastro.Props().Old
 ---
 <div></div>`
 
@@ -442,7 +441,7 @@ type Props struct {
 	Title string
 	Body  string
 }
-props := gastro.Props[Props]()
+Title := gastro.Props().Title
 ---
 <div></div>`
 

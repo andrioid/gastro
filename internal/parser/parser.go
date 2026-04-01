@@ -3,9 +3,10 @@ package parser
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
-// UseDeclaration represents a `use ComponentName "path/to/component.gastro"` line.
+// UseDeclaration represents a component import: `import ComponentName "path/to/component.gastro"`.
 type UseDeclaration struct {
 	Name string // e.g. "Card"
 	Path string // e.g. "components/card.gastro"
@@ -14,10 +15,10 @@ type UseDeclaration struct {
 // File is the result of parsing a .gastro file.
 type File struct {
 	Filename         string
-	Frontmatter      string           // Go code between --- delimiters, with imports and use declarations stripped
+	Frontmatter      string           // Go code between --- delimiters, with imports stripped
 	TemplateBody     string           // HTML template after the second ---
-	Imports          []string         // extracted import paths
-	Uses             []UseDeclaration // extracted use declarations
+	Imports          []string         // extracted Go package import paths
+	Uses             []UseDeclaration // extracted component imports (aliased .gastro imports)
 	FrontmatterLine  int              // 1-indexed line number where frontmatter content starts
 	TemplateBodyLine int              // 1-indexed line number where template body starts
 }
@@ -31,17 +32,12 @@ func Parse(filename, content string) (*File, error) {
 		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 
-	imports, err := extractImports(frontmatter)
+	imports, uses, err := extractImports(frontmatter)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 
-	uses, err := extractUses(frontmatter)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", filename, err)
-	}
-
-	cleanedFrontmatter := stripImportsAndUses(frontmatter)
+	cleanedFrontmatter := stripImports(frontmatter)
 
 	return &File{
 		Filename:         filename,
@@ -122,8 +118,22 @@ func hasUnclosedBacktick(line string) bool {
 
 // extractImports parses import declarations from frontmatter.
 // Supports both single imports and grouped imports.
-func extractImports(frontmatter string) ([]string, error) {
+//
+// Aliased imports with a .gastro path suffix are treated as component imports
+// and returned as UseDeclarations. All other imports are returned as Go
+// package import paths.
+//
+// Examples:
+//
+//	import "fmt"                                  → Go import
+//	import Layout "components/layout.gastro"      → component import
+//	import (
+//	    "fmt"
+//	    Layout "components/layout.gastro"
+//	)                                             → mixed
+func extractImports(frontmatter string) ([]string, []UseDeclaration, error) {
 	var imports []string
+	var uses []UseDeclaration
 	lines := strings.Split(frontmatter, "\n")
 
 	for i := 0; i < len(lines); i++ {
@@ -137,60 +147,100 @@ func extractImports(frontmatter string) ([]string, error) {
 				if trimmed == ")" {
 					break
 				}
-				path := unquote(trimmed)
-				if path != "" {
-					imports = append(imports, path)
+				if trimmed == "" {
+					i++
+					continue
+				}
+
+				imp, use, err := parseImportSpec(trimmed)
+				if err != nil {
+					return nil, nil, err
+				}
+				if use != nil {
+					uses = append(uses, *use)
+				} else if imp != "" {
+					imports = append(imports, imp)
 				}
 				i++
 			}
 			continue
 		}
 
-		// Single import: import "path"
+		// Single import: import "path" or import Alias "path"
 		if strings.HasPrefix(trimmed, "import ") && !strings.HasPrefix(trimmed, "import (") {
 			rest := strings.TrimPrefix(trimmed, "import ")
-			path := unquote(strings.TrimSpace(rest))
-			if path != "" {
-				imports = append(imports, path)
+			imp, use, err := parseImportSpec(strings.TrimSpace(rest))
+			if err != nil {
+				return nil, nil, fmt.Errorf("in %q: %w", trimmed, err)
+			}
+			if use != nil {
+				uses = append(uses, *use)
+			} else if imp != "" {
+				imports = append(imports, imp)
 			}
 		}
 	}
 
-	return imports, nil
+	return imports, uses, nil
 }
 
-// extractUses parses `use Name "path"` declarations from frontmatter.
-func extractUses(frontmatter string) ([]UseDeclaration, error) {
-	var uses []UseDeclaration
-	lines := strings.Split(frontmatter, "\n")
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "use ") {
-			continue
+// parseImportSpec parses a single import spec like:
+//
+//	"fmt"                              → Go import "fmt"
+//	Layout "components/layout.gastro"  → component UseDeclaration
+//	. "components/foo.gastro"          → error (dot import not allowed for .gastro)
+//	_ "components/foo.gastro"          → error (blank import not allowed for .gastro)
+func parseImportSpec(spec string) (goImport string, use *UseDeclaration, err error) {
+	// Simple quoted path: "fmt"
+	if path := unquote(spec); path != "" {
+		if strings.HasSuffix(path, ".gastro") {
+			return "", nil, fmt.Errorf("component import %q requires an alias (e.g. import MyComponent %q)", path, path)
 		}
-
-		rest := strings.TrimPrefix(trimmed, "use ")
-		parts := strings.SplitN(rest, " ", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid use declaration: %s", trimmed)
-		}
-
-		name := parts[0]
-		path := unquote(strings.TrimSpace(parts[1]))
-		if path == "" {
-			return nil, fmt.Errorf("invalid use declaration (missing path): %s", trimmed)
-		}
-
-		uses = append(uses, UseDeclaration{Name: name, Path: path})
+		return path, nil, nil
 	}
 
-	return uses, nil
+	// Aliased import: Alias "path"
+	parts := strings.SplitN(spec, " ", 2)
+	if len(parts) != 2 {
+		return "", nil, nil
+	}
+
+	alias := parts[0]
+	path := unquote(strings.TrimSpace(parts[1]))
+	if path == "" {
+		return "", nil, nil
+	}
+
+	if strings.HasSuffix(path, ".gastro") {
+		if alias == "." {
+			return "", nil, fmt.Errorf("dot imports are not allowed for component imports (%s)", path)
+		}
+		if alias == "_" {
+			return "", nil, fmt.Errorf("blank imports are not allowed for component imports (%s)", path)
+		}
+		if !isExportedName(alias) {
+			return "", nil, fmt.Errorf("component import alias %q must start with an uppercase letter", alias)
+		}
+		return "", &UseDeclaration{Name: alias, Path: path}, nil
+	}
+
+	// Aliased Go import — not currently used in gastro frontmatter but
+	// we preserve the path for the generated import block. The alias is
+	// not tracked because the codegen emits the raw import path.
+	return path, nil, nil
 }
 
-// stripImportsAndUses removes import and use declarations from frontmatter,
-// returning only the remaining Go code. Trims leading/trailing blank lines.
-func stripImportsAndUses(frontmatter string) string {
+// isExportedName returns true if the name starts with an uppercase letter.
+func isExportedName(name string) bool {
+	if name == "" {
+		return false
+	}
+	return unicode.IsUpper(rune(name[0]))
+}
+
+// stripImports removes all import declarations from frontmatter, returning
+// only the remaining Go code. Trims leading/trailing blank lines.
+func stripImports(frontmatter string) string {
 	lines := strings.Split(frontmatter, "\n")
 	var kept []string
 	inGroupedImport := false
@@ -212,11 +262,6 @@ func stripImportsAndUses(frontmatter string) string {
 
 		// Skip single imports
 		if strings.HasPrefix(trimmed, "import ") {
-			continue
-		}
-
-		// Skip use declarations
-		if strings.HasPrefix(trimmed, "use ") {
 			continue
 		}
 

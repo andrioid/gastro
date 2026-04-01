@@ -143,7 +143,7 @@ A gastro page with Datastar attributes:
 
 ```gastro
 ---
-use Layout "components/layout.gastro"
+import Layout "components/layout.gastro"
 Title := "Counter"
 ---
 <Layout Title={.Title}>
@@ -157,8 +157,7 @@ The layout includes the Datastar script:
 ```gastro
 ---
 type Props struct { Title string }
-props := gastro.Props[Props]()
-Title := props.Title
+Title := gastro.Props().Title
 ---
 <!DOCTYPE html>
 <html>

@@ -881,9 +881,8 @@ type Props struct {
 	Body  string
 }
 
-props := gastro.Props[Props]()
-Title := props.Title
-Body := props.Body
+Title := gastro.Props().Title
+Body := gastro.Props().Body
 ---
 <div class="card">
 	<h2>{{ .Title }}</h2>
@@ -908,7 +907,7 @@ func TestLSP_ComponentPropDiagnostics(t *testing.T) {
 
 	// Open a page that uses Card with an unknown prop
 	gastroContent := `---
-use Card "components/card.gastro"
+import Card "components/card.gastro"
 Title := "Hello"
 ---
 <Card Title={.Title} Bogus="bad" />`
@@ -982,7 +981,7 @@ func TestLSP_ComponentHover(t *testing.T) {
 
 	// line 3: <Card Title={.Title} />
 	//          ^--- 'C' is at char 1 (0-indexed), 'Card' is chars 1-4
-	gastroContent := "---\nuse Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<Card Title={.Title} />"
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<Card Title={.Title} />"
 	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
 
 	client.notify("textDocument/didOpen", map[string]any{
@@ -1043,7 +1042,7 @@ func TestLSP_ComponentDefinition(t *testing.T) {
 	client.notify("initialized", map[string]any{})
 
 	// line 4: <Card Title={.Title} />
-	gastroContent := "---\nuse Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<Card Title={.Title} />"
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<Card Title={.Title} />"
 	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
 
 	client.notify("textDocument/didOpen", map[string]any{

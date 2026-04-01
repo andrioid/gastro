@@ -161,6 +161,126 @@ func TestAnalyze_EmptyFrontmatter(t *testing.T) {
 	}
 }
 
+func TestAnalyze_DetectsNewPropsCall(t *testing.T) {
+	frontmatter := `type Props struct {
+	Title string
+}
+
+Title := gastro.Props().Title`
+
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !info.IsComponent {
+		t.Error("expected IsComponent to be true when gastro.Props() is called")
+	}
+
+	if info.PropsTypeName != "Props" {
+		t.Errorf("PropsTypeName: got %q, want %q", info.PropsTypeName, "Props")
+	}
+}
+
+func TestAnalyze_DetectsNewPropsCallWholeStruct(t *testing.T) {
+	frontmatter := `type Props struct {
+	Title string
+}
+
+p := gastro.Props()
+Title := p.Title`
+
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !info.IsComponent {
+		t.Error("expected IsComponent to be true when gastro.Props() is called")
+	}
+}
+
+func TestAnalyze_RejectsContextAndPropsTogether(t *testing.T) {
+	frontmatter := `type Props struct {
+	Title string
+}
+ctx := gastro.Context()
+props := gastro.Props[Props]()`
+
+	_, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err == nil {
+		t.Fatal("expected error when both gastro.Context() and gastro.Props() are used")
+	}
+}
+
+func TestAnalyze_RejectsMissingPropsStruct(t *testing.T) {
+	frontmatter := `props := gastro.Props[Props]()`
+
+	_, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err == nil {
+		t.Fatal("expected error when gastro.Props() is used without type Props struct")
+	}
+}
+
+func TestAnalyze_RejectsMultiplePropsStructs(t *testing.T) {
+	frontmatter := `type Props struct {
+	Title string
+}
+
+type Props struct {
+	Name string
+}`
+
+	_, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err == nil {
+		t.Fatal("expected error when multiple type Props struct declarations exist")
+	}
+}
+
+func TestAnalyze_PropsInCommentNotDetected(t *testing.T) {
+	// gastro.Props inside a comment should NOT trigger IsComponent
+	frontmatter := `// TODO: gastro.Props[Props]() should be called here
+Title := "Hello"`
+
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.IsComponent {
+		t.Error("expected IsComponent to be false when gastro.Props is only in a comment")
+	}
+}
+
+func TestAnalyze_PropsInStringNotDetected(t *testing.T) {
+	// gastro.Props inside a string literal should NOT trigger IsComponent
+	frontmatter := `msg := "Call gastro.Props[Props]() to get props"
+Title := "Hello"`
+
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.IsComponent {
+		t.Error("expected IsComponent to be false when gastro.Props is only in a string")
+	}
+}
+
+func TestAnalyze_ContextInCommentNotDetected(t *testing.T) {
+	frontmatter := `// gastro.Context() is important
+Title := "Hello"`
+
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if info.IsPage {
+		t.Error("expected IsPage to be false when gastro.Context() is only in a comment")
+	}
+}
+
 func assertVarExists(t *testing.T, vars []codegen.VarInfo, name string) {
 	t.Helper()
 	for _, v := range vars {

@@ -2,10 +2,13 @@ package codegen
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"strings"
 	"text/template"
 
-	"github.com/andrioid/gastro/internal/parser"
+	gastroParser "github.com/andrioid/gastro/internal/parser"
 )
 
 // UseInfo holds the template-friendly data for a component use declaration.
@@ -16,7 +19,7 @@ type UseInfo struct {
 
 // GenerateHandler produces Go source code for a page handler or component
 // render function from a parsed .gastro file and its frontmatter analysis.
-func GenerateHandler(file *parser.File, info *FrontmatterInfo) (string, error) {
+func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo) (string, error) {
 	funcName := HandlerFuncName(file.Filename)
 	frontmatter := rewriteFrontmatter(file.Frontmatter, info)
 
@@ -183,26 +186,199 @@ func {{ .FuncName }}(propsMap map[string]any) template.HTML {
 }
 `))
 
+// markerKind distinguishes between different gastro compile-time markers.
+type markerKind int
+
+const (
+	markerContext   markerKind = iota // gastro.Context() — strip the line
+	markerPropsCall                   // gastro.Props[T]() or gastro.Props() — rewrite to __props
+)
+
+// markerLine records an AST-detected gastro marker with its frontmatter line
+// number and the kind of rewrite to apply.
+type markerLine struct {
+	line int // 1-indexed line within the frontmatter
+	kind markerKind
+}
+
+// detectMarkerLines parses the frontmatter with go/ast and returns precise
+// line numbers for gastro.Context() calls. gastro.Props() rewrites are handled
+// separately via string replacement after AST detection confirms their presence.
+func detectMarkerLines(frontmatter string) []markerLine {
+	// Wrap the raw frontmatter in a function body without hoisting types.
+	// Type declarations inside functions are valid Go and the parser handles
+	// them correctly. This preserves original line numbers for marker rewrites.
+	prefix := "package __gastro\nfunc __handler() {\n"
+	prefixLineCount := strings.Count(prefix, "\n")
+	src := prefix + frontmatter + "\n}"
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "frontmatter.go", src, parser.AllErrors)
+	if err != nil {
+		return nil
+	}
+
+	var markers []markerLine
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+
+		ident, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+
+		if ident.Name == "gastro" && sel.Sel.Name == "Context" {
+			line := fset.Position(call.Pos()).Line - prefixLineCount
+			markers = append(markers, markerLine{line: line, kind: markerContext})
+		}
+
+		return true
+	})
+
+	return markers
+}
+
+// hasGastroPropsCall returns true if the frontmatter contains a gastro.Props()
+// or gastro.Props[T]() call, as detected by the AST. Used to confirm that
+// string-based replacement is safe.
+func hasGastroPropsCall(frontmatter string) bool {
+	prefix := "package __gastro\nfunc __handler() {\n"
+	src := prefix + frontmatter + "\n}"
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "frontmatter.go", src, parser.AllErrors)
+	if err != nil {
+		return false
+	}
+
+	found := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if isGastroPropsCall(call) {
+			found = true
+			return false
+		}
+		return true
+	})
+	_ = fset
+	return found
+}
+
+// rewriteGastroProps replaces gastro.Props() and gastro.Props[T]() calls
+// with __props in the frontmatter string. The AST is used first to confirm
+// that a real call exists (not just the text in a comment/string), then
+// string replacement handles the actual rewrite to preserve formatting.
+//
+// Handles:
+//   - p := gastro.Props()          → p := __props
+//   - p := gastro.Props[Props]()   → p := __props
+//   - Title := gastro.Props().Title → Title := __props.Title
+//   - fmt.Sprintf("%d", gastro.Props().X + 1) → fmt.Sprintf("%d", __props.X + 1)
+func rewriteGastroProps(frontmatter string) string {
+	if !hasGastroPropsCall(frontmatter) {
+		return frontmatter
+	}
+
+	// Parse to find exact call text patterns to replace. We use AST to find
+	// the calls, then compute what source text to replace based on call type.
+	prefix := "package __gastro\nfunc __handler() {\n"
+	prefixLen := len(prefix)
+	src := prefix + frontmatter + "\n}"
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "frontmatter.go", src, parser.AllErrors)
+	if err != nil {
+		return frontmatter
+	}
+
+	// Collect replacements as (start, end) byte offsets in the frontmatter
+	type replacement struct {
+		start int // byte offset in frontmatter
+		end   int // byte offset in frontmatter (exclusive)
+	}
+	var replacements []replacement
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if !isGastroPropsCall(call) {
+			return true
+		}
+
+		// Convert from source (with prefix) positions to frontmatter positions
+		callStart := int(call.Pos()) - 1 - prefixLen // token.Pos is 1-indexed
+		callEnd := int(call.End()) - 1 - prefixLen
+		if callStart >= 0 && callEnd <= len(frontmatter) {
+			replacements = append(replacements, replacement{start: callStart, end: callEnd})
+		}
+
+		return true
+	})
+
+	if len(replacements) == 0 {
+		return frontmatter
+	}
+
+	// Apply replacements in reverse order to preserve byte offsets
+	result := frontmatter
+	for i := len(replacements) - 1; i >= 0; i-- {
+		r := replacements[i]
+		result = result[:r.start] + "__props" + result[r.end:]
+	}
+
+	return result
+}
+
 // rewriteFrontmatter transforms code-gen markers in the frontmatter:
 // - gastro.Context() lines are stripped (the handler template generates ctx)
-// - gastro.Props[T]() lines are rewritten to alias the generated __props variable
-// - Type declarations are stripped for components (they're hoisted to package level)
+// - gastro.Props() / gastro.Props[T]() calls are replaced with __props
+// - Type declarations are stripped for components (hoisted to package level)
+//
+// Marker detection uses go/ast for precision (no false positives on strings,
+// comments, or similar identifiers). Type stripping uses line-based brace
+// tracking which is correct for Go type declarations.
 func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo) string {
+	contextMarkers := detectMarkerLines(frontmatter)
+
+	// Build a set of context marker lines for O(1) lookup
+	contextLines := make(map[int]bool, len(contextMarkers))
+	for _, m := range contextMarkers {
+		if m.kind == markerContext {
+			contextLines[m.line] = true
+		}
+	}
+
+	// Rewrite gastro.Props() / gastro.Props[T]() calls to __props
+	frontmatter = rewriteGastroProps(frontmatter)
+
 	lines := strings.Split(frontmatter, "\n")
 	var kept []string
 	inType := false
 	braceDepth := 0
 
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Skip gastro.Context() — it's generated in the handler template
-		if strings.Contains(trimmed, "gastro.Context()") {
-			continue
-		}
+	for i, line := range lines {
+		lineNum := i + 1 // 1-indexed
 
 		// For components, skip type declarations (hoisted to package level)
 		if info.IsComponent {
+			trimmed := strings.TrimSpace(line)
 			if !inType && strings.HasPrefix(trimmed, "type ") {
 				inType = true
 				braceDepth = 0
@@ -216,13 +392,8 @@ func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo) string {
 			}
 		}
 
-		// Rewrite gastro.Props[T]() — replace with alias to generated __props
-		if strings.Contains(trimmed, "gastro.Props[") {
-			// Extract the variable name from "varname := gastro.Props[T]()"
-			if idx := strings.Index(trimmed, ":="); idx > 0 {
-				varName := strings.TrimSpace(trimmed[:idx])
-				kept = append(kept, varName+" := __props")
-			}
+		// Strip gastro.Context() lines
+		if contextLines[lineNum] {
 			continue
 		}
 

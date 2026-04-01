@@ -1,5 +1,5 @@
 ---
-use Badge "components/badge.gastro"
+import Badge "components/badge.gastro"
 
 type Props struct {
     Slug   string
@@ -8,11 +8,10 @@ type Props struct {
     Date   string
 }
 
-props := gastro.Props[Props]()
-Slug := props.Slug
-Title := props.Title
-Author := props.Author
-Date := props.Date
+Slug := gastro.Props().Slug
+Title := gastro.Props().Title
+Author := gastro.Props().Author
+Date := gastro.Props().Date
 ---
 <article class="post-card">
     <h2><a href="/blog/{{ .Slug }}">{{ .Title }}</a></h2>

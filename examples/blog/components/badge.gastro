@@ -3,7 +3,6 @@ type Props struct {
     Label string
 }
 
-props := gastro.Props[Props]()
-Label := props.Label
+Label := gastro.Props().Label
 ---
 <span class="badge">{{ .Label }}</span>

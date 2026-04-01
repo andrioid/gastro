@@ -12,6 +12,12 @@ import (
 	"github.com/andrioid/gastro/internal/parser"
 )
 
+// propsCallRegex matches legacy "varname := gastro.Props[TypeName]()" syntax.
+var propsCallRegex = regexp.MustCompile(`^(\w+)\s*:=\s*gastro\.Props\[(\w+)\]\(\)$`)
+
+// newPropsCallRegex matches "varname := gastro.Props()" syntax (no generics).
+var newPropsCallRegex = regexp.MustCompile(`^(\w+)\s*:=\s*gastro\.Props\(\)$`)
+
 // Workspace manages a temporary directory containing virtual .go files
 // generated from .gastro frontmatter. gopls analyzes these files to provide
 // Go intelligence. The workspace symlinks the user's project so that imports
@@ -81,6 +87,9 @@ func (ws *Workspace) UpdateFile(gastroFile, content string) (*VirtualFile, error
 	rawFrontmatter := extractRawFrontmatter(content)
 	processedFM := commentOutImportsAndUses(rawFrontmatter)
 
+	// Analyze frontmatter early so we can configure the gastro stubs correctly
+	info, _ := codegen.AnalyzeFrontmatter(parsed.Frontmatter)
+
 	var sb strings.Builder
 
 	// Each virtual file lives in its own subdirectory and uses package main.
@@ -96,11 +105,15 @@ func (ws *Workspace) UpdateFile(gastroFile, content string) (*VirtualFile, error
 		sb.WriteString(")\n")
 	}
 
-	// Gastro runtime stubs so gopls doesn't error on gastro.Context() etc.
-	// Uses only built-in types (no imports) to avoid interfering with gopls
-	// diagnostic analysis. The stubs provide just enough type info for gopls
-	// to resolve method calls on the gastro variable.
-	sb.WriteString(`
+	// Build Props() return type stub based on whether the file has a Props struct.
+	// For components, Props() returns a pointer to the Props struct so gopls can
+	// resolve field accesses on gastro.Props().FieldName.
+	propsReturnType := "interface{}"
+	if info != nil && info.IsComponent {
+		propsReturnType = "*Props"
+	}
+
+	sb.WriteString(fmt.Sprintf(`
 type __gastroCtx struct{}
 func (__gastroCtx) Request() interface{} { return nil }
 func (__gastroCtx) Param(string) string { return "" }
@@ -111,9 +124,10 @@ func (__gastroCtx) Header(string, string) {}
 
 type __gastroLib struct{}
 func (__gastroLib) Context() *__gastroCtx { return nil }
+func (__gastroLib) Props() %s { return nil }
 
 var gastro = __gastroLib{}
-`)
+`, propsReturnType))
 
 	// Function wrapper — unique name per file to avoid conflicts when
 	// multiple .gastro files are open simultaneously
@@ -126,8 +140,7 @@ var gastro = __gastroLib{}
 	// Suppress "unused variable" diagnostics for template-exported variables.
 	// In gastro, uppercase variables are passed to the template as {{ .VarName }}
 	// but gopls can't see that usage since the template body is outside Go code.
-	info, analyzeErr := codegen.AnalyzeFrontmatter(parsed.Frontmatter)
-	if analyzeErr == nil {
+	if info != nil {
 		for _, v := range info.ExportedVars {
 			sb.WriteString(fmt.Sprintf("\n_ = %s", v.Name))
 		}
@@ -206,17 +219,20 @@ func (ws *Workspace) symlinkProject() error {
 	return nil
 }
 
-// propsCallRegex matches "varname := gastro.Props[TypeName]()" and captures
-// the variable name and type name.
-var propsCallRegex = regexp.MustCompile(`^(\w+)\s*:=\s*gastro\.Props\[(\w+)\]\(\)$`)
-
-// commentOutImportsAndUses replaces `use` and `import` lines with comments,
-// and rewrites `gastro.Props[T]()` calls into typed variable declarations.
+// commentOutImportsAndUses replaces `import` lines with comments,
+// and rewrites `gastro.Props()` / `gastro.Props[T]()` calls for gopls.
 // These transformations ensure the virtual file is valid Go while preserving
 // line numbers for source map accuracy.
 func commentOutImportsAndUses(frontmatter string) string {
 	var lines []string
 	inGroupedImport := false
+
+	// Track whether we've injected the __props declaration
+	propsInjected := false
+
+	// First pass: check if Props struct is defined to get the type name
+	propsTypeName := "Props" // default — the struct must be named "Props"
+	hasPropsStruct := strings.Contains(frontmatter, "type Props struct")
 
 	for _, line := range strings.Split(frontmatter, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -236,23 +252,42 @@ func commentOutImportsAndUses(frontmatter string) string {
 			continue
 		}
 
-		// Single-line import: import "path"
+		// Single-line import: import "path" or import Alias "path"
 		if strings.HasPrefix(trimmed, "import ") {
 			lines = append(lines, "// "+trimmed)
 			continue
 		}
 
-		// Use declarations: use Name "path"
+		// Legacy: use declarations — still comment out for backward compat
 		if strings.HasPrefix(trimmed, "use ") {
 			lines = append(lines, "// "+trimmed)
 			continue
 		}
 
-		// gastro.Props[T]() -> var varname T (gives gopls the correct type)
+		// Legacy: gastro.Props[T]() -> var varname T
 		if m := propsCallRegex.FindStringSubmatch(trimmed); m != nil {
 			varName := m[1]
 			typeName := m[2]
 			lines = append(lines, fmt.Sprintf("var %s %s", varName, typeName))
+			continue
+		}
+
+		// New: varname := gastro.Props() -> var varname Props
+		if m := newPropsCallRegex.FindStringSubmatch(trimmed); m != nil {
+			varName := m[1]
+			lines = append(lines, fmt.Sprintf("var %s %s", varName, propsTypeName))
+			continue
+		}
+
+		// New: gastro.Props().Field in expressions -> __props.Field
+		// We need to inject `var __props Props` before the first usage
+		if strings.Contains(trimmed, "gastro.Props()") {
+			if !propsInjected && hasPropsStruct {
+				lines = append(lines, fmt.Sprintf("var __props %s", propsTypeName))
+				propsInjected = true
+			}
+			rewritten := strings.ReplaceAll(line, "gastro.Props()", "__props")
+			lines = append(lines, rewritten)
 			continue
 		}
 

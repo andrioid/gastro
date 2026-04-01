@@ -1,7 +1,9 @@
 ---
-import "myblog/db"
+import (
+    "myblog/db"
 
-use Layout "components/layout.gastro"
+    Layout "components/layout.gastro"
+)
 
 ctx := gastro.Context()
 slug := ctx.Param("slug")

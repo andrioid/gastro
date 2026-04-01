@@ -200,7 +200,7 @@ func diagnoseDoubleDot(templateBody string) []Diagnostic {
 	return diags
 }
 
-// diagnoseUnknownComponents detects <PascalCase> tags not imported via 'use'.
+// diagnoseUnknownComponents detects <PascalCase> tags that are not imported.
 func diagnoseUnknownComponents(templateBody string, uses []parser.UseDeclaration) []Diagnostic {
 	knownComponents := make(map[string]bool, len(uses))
 	for _, u := range uses {
@@ -219,7 +219,7 @@ func diagnoseUnknownComponents(templateBody string, uses []parser.UseDeclaration
 				StartChar: startChar,
 				EndLine:   endLine,
 				EndChar:   endChar,
-				Message:   fmt.Sprintf("unknown component %q: not imported via 'use'", compName),
+				Message:   fmt.Sprintf("unknown component %q: not imported", compName),
 			})
 		}
 	}
@@ -354,4 +354,92 @@ func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, p
 	}
 
 	return diags
+}
+
+// ComponentTagContext is the result of detecting whether the cursor is inside
+// a component tag in the template body.
+type ComponentTagContext struct {
+	ComponentName string   // the PascalCase component name
+	ExistingProps []string // prop names already specified on the tag
+}
+
+// unclosedTagRegex matches an opening component tag up to where the cursor
+// might be positioned (no closing > or />).
+var unclosedTagRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)((?:\s+\w+=(?:\{[^}]*\}|"[^"]*"))*)\s*$`)
+
+// DetectComponentTagContext determines if the cursor (given as a byte offset
+// in the template body) is inside a component tag. Returns nil if the cursor
+// is not inside a component tag.
+func DetectComponentTagContext(templateBody string, cursorOffset int, uses []parser.UseDeclaration) *ComponentTagContext {
+	if cursorOffset < 0 || cursorOffset > len(templateBody) {
+		return nil
+	}
+
+	// Build set of known component names
+	known := make(map[string]bool, len(uses))
+	for _, u := range uses {
+		known[u.Name] = true
+	}
+
+	// Take the text before the cursor and look for an unclosed component tag
+	before := templateBody[:cursorOffset]
+
+	// Find the last `<` that starts a PascalCase tag
+	lastOpen := strings.LastIndex(before, "<")
+	if lastOpen < 0 {
+		return nil
+	}
+
+	// Check for a closing `>` or `/>` between the tag open and cursor —
+	// if found, the tag is already closed and cursor is not inside it
+	afterOpen := before[lastOpen:]
+	if strings.Contains(afterOpen, "/>") || strings.ContainsRune(afterOpen, '>') {
+		return nil
+	}
+
+	// Match the tag pattern
+	m := unclosedTagRegex.FindStringSubmatch(afterOpen)
+	if m == nil {
+		return nil
+	}
+
+	name := m[1]
+	if !known[name] {
+		return nil
+	}
+
+	// Extract already-specified props from the attributes string
+	attrsStr := m[2]
+	var existing []string
+	propRe := regexp.MustCompile(`(\w+)=`)
+	for _, pm := range propRe.FindAllStringSubmatch(attrsStr, -1) {
+		existing = append(existing, pm[1])
+	}
+
+	return &ComponentTagContext{
+		ComponentName: name,
+		ExistingProps: existing,
+	}
+}
+
+// ComponentPropCompletions returns completion items for a component's props.
+// It filters out props that are already specified on the tag.
+func ComponentPropCompletions(fields []codegen.StructField, existingProps []string) []CompletionItem {
+	existing := make(map[string]bool, len(existingProps))
+	for _, p := range existingProps {
+		existing[p] = true
+	}
+
+	var items []CompletionItem
+	for _, f := range fields {
+		if existing[f.Name] {
+			continue
+		}
+		items = append(items, CompletionItem{
+			Label:      f.Name,
+			Detail:     f.Type,
+			InsertText: f.Name + `={.}`,
+		})
+	}
+	return items
 }

@@ -1,5 +1,5 @@
 ---
-use Layout "components/layout.gastro"
+import Layout "components/layout.gastro"
 
 Title := "SSE + Datastar Example"
 ---

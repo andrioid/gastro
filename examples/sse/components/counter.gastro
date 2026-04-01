@@ -3,7 +3,6 @@ type Props struct {
     Count int
 }
 
-props := gastro.Props[Props]()
-Count := props.Count
+Count := gastro.Props().Count
 ---
 <div id="count">{{ .Count }}</div>

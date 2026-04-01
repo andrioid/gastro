@@ -30,17 +30,8 @@ func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 	// statements to preserve line numbers.
 	rawFrontmatter := extractRawFrontmatter(gastroContent)
 
-	// Convert use lines to comments, keep everything else
-	var fmLines []string
-	for _, line := range strings.Split(rawFrontmatter, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "use ") {
-			fmLines = append(fmLines, "// "+trimmed)
-		} else {
-			fmLines = append(fmLines, line)
-		}
-	}
-	processedFrontmatter := strings.Join(fmLines, "\n")
+	// Comment out import and use lines to preserve line numbers
+	processedFrontmatter := commentOutImportsAndUses(rawFrontmatter)
 
 	// Build the virtual .go file
 	var sb strings.Builder

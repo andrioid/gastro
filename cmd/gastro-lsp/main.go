@@ -33,6 +33,12 @@ func main() {
 	server.run()
 }
 
+// componentInfo represents a discovered component in the components/ directory.
+type componentInfo struct {
+	Name string // PascalCase name derived from filename (e.g., "PostCard")
+	Path string // relative path (e.g., "components/post-card.gastro")
+}
+
 type server struct {
 	documents           map[string]string // URI -> content
 	workspace           *shadow.Workspace
@@ -47,6 +53,7 @@ type server struct {
 	fieldCache          map[string]map[string][]fieldInfo              // URI -> varName -> fields
 	typeFieldCache      map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
 	componentPropsCache map[string][]codegen.StructField               // componentPath -> Props struct fields (nil = no props)
+	componentIndex      []componentInfo                                // all discovered components in the project
 }
 
 func newServer() *server {
@@ -165,7 +172,7 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 			"capabilities": map[string]any{
 				"textDocumentSync": 1, // Full sync
 				"completionProvider": map[string]any{
-					"triggerCharacters": []string{"."},
+					"triggerCharacters": []string{".", "<"},
 				},
 				"hoverProvider":      true,
 				"definitionProvider": true,
@@ -197,6 +204,47 @@ func (s *server) initGopls() {
 	}
 
 	log.Println("gopls proxy initialized")
+
+	// Discover available components for auto-import completions
+	s.discoverComponents()
+}
+
+// discoverComponents scans the components/ directory for .gastro files and
+// builds an index of available components. This enables auto-import completions
+// when the user types `<ComponentName` for a component that isn't yet imported.
+func (s *server) discoverComponents() {
+	componentsDir := filepath.Join(s.projectDir, "components")
+	entries, err := os.ReadDir(componentsDir)
+	if err != nil {
+		return
+	}
+
+	var components []componentInfo
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gastro") {
+			continue
+		}
+
+		name := strings.TrimSuffix(entry.Name(), ".gastro")
+
+		// Convert kebab-case filename to PascalCase component name
+		parts := strings.Split(name, "-")
+		var pascal strings.Builder
+		for _, part := range parts {
+			if part == "" {
+				continue
+			}
+			pascal.WriteString(strings.ToUpper(part[:1]) + part[1:])
+		}
+
+		components = append(components, componentInfo{
+			Name: pascal.String(),
+			Path: "components/" + entry.Name(),
+		})
+	}
+
+	s.componentIndex = components
+	log.Printf("discovered %d components", len(components))
 }
 
 // handleGoplsNotification processes async notifications from gopls
@@ -1086,19 +1134,47 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	// to replace from the dot through the cursor, avoiding double-dot insertion.
 	dotChar := findDotStart(content, pos.Line, pos.Character)
 
+	// Convert cursor position to byte offset within the template body
+	cursorOffset := cursorPosToBodyOffset(content, pos, templateBodyLine)
+
 	// Determine cursor scope by parsing the template body into an AST
 	// and checking if the cursor is inside a range/with block.
 	cursorScope := lsptemplate.ScopeInfo{}
 	tree, parseErr := lsptemplate.ParseTemplateBody(parsed.TemplateBody, parsed.Uses)
 	if parseErr == nil && tree != nil {
-		// Convert cursor position to byte offset within the template body
-		cursorOffset := cursorPosToBodyOffset(content, pos, templateBodyLine)
 		if cursorOffset >= 0 {
 			cursorScope = lsptemplate.CursorScope(tree, cursorOffset)
 		}
 	}
 
 	var items []map[string]any
+
+	// Check if cursor is inside a component tag — if so, offer prop completions
+	tagCtx := lsptemplate.DetectComponentTagContext(parsed.TemplateBody, cursorOffset, parsed.Uses)
+	if tagCtx != nil {
+		// Resolve the component's Props fields
+		compPath := ""
+		for _, u := range parsed.Uses {
+			if u.Name == tagCtx.ComponentName {
+				compPath = u.Path
+				break
+			}
+		}
+		if compPath != "" {
+			fields, err := lsptemplate.ResolveComponentProps(s.projectDir, compPath, s.documents)
+			if err == nil && len(fields) > 0 {
+				for _, c := range lsptemplate.ComponentPropCompletions(fields, tagCtx.ExistingProps) {
+					items = append(items, map[string]any{
+						"label":      c.Label,
+						"kind":       5, // LSP Field
+						"detail":     c.Detail,
+						"insertText": c.InsertText,
+					})
+				}
+				return items
+			}
+		}
+	}
 
 	if cursorScope.Depth > 0 && cursorScope.RangeVar != "" {
 		// Inside a range/with block — offer field completions for the element type
@@ -1130,13 +1206,37 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 		}
 	}
 
+	// Imported component completions
+	importedNames := make(map[string]bool, len(parsed.Uses))
 	for _, c := range lsptemplate.ComponentCompletions(parsed.Uses) {
+		importedNames[c.Label] = true
 		items = append(items, map[string]any{
 			"label":      c.Label,
 			"kind":       7,
 			"detail":     c.Detail,
 			"insertText": c.InsertText,
 		})
+	}
+
+	// Un-imported component completions (with auto-import edit)
+	for _, comp := range s.componentIndex {
+		if importedNames[comp.Name] {
+			continue
+		}
+		item := map[string]any{
+			"label":      comp.Name,
+			"kind":       7,
+			"detail":     comp.Path + " (auto-import)",
+			"insertText": comp.Name,
+		}
+
+		// Compute additional text edit to insert the import declaration
+		importEdit := s.computeAutoImportEdit(content, comp)
+		if importEdit != nil {
+			item["additionalTextEdits"] = []map[string]any{importEdit}
+		}
+
+		items = append(items, item)
 	}
 
 	for _, c := range lsptemplate.FuncMapCompletions() {
@@ -1149,6 +1249,53 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	}
 
 	return items
+}
+
+// computeAutoImportEdit calculates an LSP TextEdit that inserts a component
+// import into the frontmatter. Returns nil if the insertion point can't be found.
+func (s *server) computeAutoImportEdit(content string, comp componentInfo) map[string]any {
+	lines := strings.Split(content, "\n")
+	importLine := fmt.Sprintf("\timport %s %q", comp.Name, comp.Path)
+
+	// Look for an existing grouped import block: import ( ... )
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == ")" {
+			// Check if this closes a grouped import block by scanning backwards
+			for j := i - 1; j >= 0; j-- {
+				prevTrimmed := strings.TrimSpace(lines[j])
+				if prevTrimmed == "import (" || strings.HasPrefix(prevTrimmed, "import (") {
+					// Insert before the closing )
+					return map[string]any{
+						"range": map[string]any{
+							"start": map[string]any{"line": i, "character": 0},
+							"end":   map[string]any{"line": i, "character": 0},
+						},
+						"newText": importLine + "\n",
+					}
+				}
+				// Stop scanning if we hit a non-import line that's not empty/comment
+				if prevTrimmed != "" && !strings.HasPrefix(prevTrimmed, "//") && !strings.HasPrefix(prevTrimmed, "\"") && !strings.Contains(prevTrimmed, ".gastro\"") {
+					break
+				}
+			}
+		}
+	}
+
+	// No grouped import block found — insert a standalone import after the opening ---
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			return map[string]any{
+				"range": map[string]any{
+					"start": map[string]any{"line": i + 1, "character": 0},
+					"end":   map[string]any{"line": i + 1, "character": 0},
+				},
+				"newText": fmt.Sprintf("import %s %q\n", comp.Name, comp.Path),
+			}
+		}
+	}
+
+	return nil
 }
 
 // cursorPosToBodyOffset converts a cursor position (line/character in the .gastro file)

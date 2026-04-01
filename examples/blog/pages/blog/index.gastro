@@ -1,8 +1,10 @@
 ---
-import "myblog/db"
+import (
+    "myblog/db"
 
-use Layout "components/layout.gastro"
-use PostCard "components/post-card.gastro"
+    Layout "components/layout.gastro"
+    PostCard "components/post-card.gastro"
+)
 
 ctx := gastro.Context()
 posts, err := db.ListPublished()

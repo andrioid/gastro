@@ -382,8 +382,7 @@ type Props struct {
     Title string
 }
 
-props := gastro.Props[Props]()
-Title := props.Title
+Title := gastro.Props().Title
 ---
 <h1>{{ .Title }}</h1>`
 
@@ -394,17 +393,14 @@ Title := props.Title
 
 	src := vf.GoSource
 
-	// gastro.Props[Props]() should be rewritten to a typed var declaration
+	// gastro.Props() should be rewritten — no raw gastro.Props calls in output
 	if strings.Contains(src, "gastro.Props") {
-		t.Error("virtual file should not contain gastro.Props call")
-	}
-	if !strings.Contains(src, "var props Props") {
-		t.Error("expected 'var props Props' in virtual file")
+		t.Errorf("virtual file should not contain gastro.Props call, got:\n%s", src)
 	}
 
-	// props.Title should still be accessible
-	if !strings.Contains(src, "props.Title") {
-		t.Error("expected props.Title to be preserved in virtual file")
+	// The rewrite should produce __props references
+	if !strings.Contains(src, "__props") {
+		t.Errorf("expected __props in virtual file, got:\n%s", src)
 	}
 }
 

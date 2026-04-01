@@ -9,9 +9,9 @@ type Props struct {
     Y int
 }
 
-props := gastro.Props[Props]()
-Agent := props.Agent
-Transform := fmt.Sprintf("translate(0, %d)", props.Y)
+p := gastro.Props()
+Agent := p.Agent
+Transform := fmt.Sprintf("translate(0, %d)", p.Y)
 StatusText := "Ready"
 switch Agent.Status {
     case mock.StatusOnCall:
