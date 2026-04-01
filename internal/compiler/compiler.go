@@ -435,6 +435,12 @@ func Routes(opts ...Option) http.Handler {
 {{- range .Routes}}
 	mux.HandleFunc("{{ .Pattern }}", {{ .FuncName }})
 {{- end}}
+
+	if __gastro_isDev {
+		gastroRuntime.DevReloader.Start()
+		mux.HandleFunc("GET /__gastro/reload", gastroRuntime.DevReloader.HandleSSE)
+		return gastroRuntime.DevReloader.Middleware(mux)
+	}
 	return mux
 }
 `))

@@ -7,11 +7,17 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/andrioid/gastro/internal/compiler"
 	"github.com/andrioid/gastro/internal/watcher"
+)
+
+const (
+	fileWatchInterval = 500 * time.Millisecond
+	debounceDelay     = 200 * time.Millisecond
 )
 
 func main() {
@@ -129,30 +135,97 @@ func runDev() error {
 		appCmd.Stderr = os.Stderr
 		if err := appCmd.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro: start failed: %v\n", err)
+			appCmd = nil
 		}
 	}
 
 	startApp()
 
-	// Watch for changes using polling (no external dependency)
-	debounced := watcher.Debounce(200*time.Millisecond, func() {
+	// Track the pending change type across the debounce window.
+	// ChangeRestart wins over ChangeReload.
+	var (
+		pendingMu     sync.Mutex
+		pendingChange = watcher.ChangeReload
+	)
+
+	escalate := func(ct watcher.ChangeType) {
+		pendingMu.Lock()
+		defer pendingMu.Unlock()
+		if ct > pendingChange {
+			pendingChange = ct
+		}
+	}
+
+	consumePending := func() watcher.ChangeType {
+		pendingMu.Lock()
+		defer pendingMu.Unlock()
+		ct := pendingChange
+		pendingChange = watcher.ChangeReload
+		return ct
+	}
+
+	debounced := watcher.Debounce(debounceDelay, func() {
 		fmt.Println("gastro: changes detected, regenerating...")
 		if err := runGenerate(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro: generate failed: %v\n", err)
 			return
 		}
-		startApp()
+
+		ct := consumePending()
+		if ct == watcher.ChangeRestart {
+			startApp()
+		} else {
+			writeReloadSignal()
+		}
 	})
 
-	// Simple polling watcher — checks file mod times
+	// Polling watcher — checks file mod times, classifies changes
 	go func() {
 		modTimes := make(map[string]time.Time)
+		fileContents := make(map[string]string)
+
+		// Seed the initial state so we don't trigger on first scan.
+		seedFiles := func(dir string, gastroOnly bool) {
+			var files []string
+			var err error
+			if gastroOnly {
+				files, err = watcher.CollectGastroFiles(dir)
+			} else {
+				files, err = watcher.CollectAllFiles(dir)
+			}
+			if err != nil {
+				return
+			}
+			for _, f := range files {
+				info, err := os.Stat(f)
+				if err != nil {
+					continue
+				}
+				modTimes[f] = info.ModTime()
+				if gastroOnly {
+					if content, err := os.ReadFile(f); err == nil {
+						fileContents[f] = string(content)
+					}
+				}
+			}
+		}
+
+		for _, dir := range []string{"pages", "components"} {
+			seedFiles(dir, true)
+		}
+		seedFiles("static", false)
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(500 * time.Millisecond):
+			case <-time.After(fileWatchInterval):
 			}
+
+			changed := false
+
+			// Track current files to detect deletions.
+			currentFiles := make(map[string]bool)
 
 			for _, dir := range []string{"pages", "components"} {
 				files, err := watcher.CollectGastroFiles(dir)
@@ -160,29 +233,89 @@ func runDev() error {
 					continue
 				}
 				for _, f := range files {
+					currentFiles[f] = true
 					info, err := os.Stat(f)
 					if err != nil {
 						continue
 					}
-					if prev, ok := modTimes[f]; ok && info.ModTime().After(prev) {
-						debounced()
+
+					prev, known := modTimes[f]
+					if !known {
+						// New file added — needs full restart (new routes).
+						fmt.Printf("gastro: new file %s\n", f)
+						content, _ := os.ReadFile(f)
+						fileContents[f] = string(content)
+						modTimes[f] = info.ModTime()
+						escalate(watcher.ChangeRestart)
+						changed = true
+						continue
 					}
-					modTimes[f] = info.ModTime()
+
+					if info.ModTime().After(prev) {
+						content, err := os.ReadFile(f)
+						if err != nil {
+							continue
+						}
+						newContent := string(content)
+						oldContent := fileContents[f]
+
+						section := watcher.DetectChangedSection(oldContent, newContent)
+						ct := watcher.ClassifyChange(f, section)
+
+						label := "template"
+						if ct == watcher.ChangeRestart {
+							label = "frontmatter"
+						}
+						fmt.Printf("gastro: %s changed (%s)\n", f, label)
+
+						fileContents[f] = newContent
+						modTimes[f] = info.ModTime()
+						escalate(ct)
+						changed = true
+					}
 				}
 			}
 
-			// Watch all files in static/ (not just .gastro)
+			// Watch static/ files
 			if files, err := watcher.CollectAllFiles("static"); err == nil {
 				for _, f := range files {
+					currentFiles[f] = true
 					info, err := os.Stat(f)
 					if err != nil {
 						continue
 					}
-					if prev, ok := modTimes[f]; ok && info.ModTime().After(prev) {
-						debounced()
+
+					prev, known := modTimes[f]
+					if !known {
+						fmt.Printf("gastro: new file %s\n", f)
+						modTimes[f] = info.ModTime()
+						escalate(watcher.ChangeReload)
+						changed = true
+						continue
 					}
-					modTimes[f] = info.ModTime()
+
+					if info.ModTime().After(prev) {
+						fmt.Printf("gastro: %s changed (static)\n", f)
+						modTimes[f] = info.ModTime()
+						escalate(watcher.ClassifyChange(f, watcher.SectionUnknown))
+						changed = true
+					}
 				}
+			}
+
+			// Detect deleted files.
+			for f := range modTimes {
+				if !currentFiles[f] {
+					fmt.Printf("gastro: %s deleted\n", f)
+					delete(modTimes, f)
+					delete(fileContents, f)
+					escalate(watcher.ChangeRestart)
+					changed = true
+				}
+			}
+
+			if changed {
+				debounced()
 			}
 		}
 	}()
@@ -197,4 +330,16 @@ func runDev() error {
 	}
 
 	return nil
+}
+
+// writeReloadSignal writes the .gastro/.reload file that signals the running
+// dev server to notify connected browsers via SSE.
+func writeReloadSignal() {
+	if err := os.MkdirAll(".gastro", 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "gastro: failed to create .gastro dir: %v\n", err)
+		return
+	}
+	if err := os.WriteFile(".gastro/.reload", []byte(time.Now().String()), 0o644); err != nil {
+		fmt.Fprintf(os.Stderr, "gastro: failed to write reload signal: %v\n", err)
+	}
 }
