@@ -494,7 +494,8 @@ the generated handler code. They are not callable from normal `.go` files.
 - Generated handlers are wrapped in panic recovery:
   `defer gastro.Recover(w, r)` catches panics, logs them, and returns 500.
 - Custom error pages and recovery middleware can be provided by wrapping
-  `gastro.Routes()`.
+  `gastro.Routes()`. See [compression.md](compression.md) for response
+  compression middleware examples.
 
 ### Route Configuration
 

@@ -2,8 +2,10 @@ package gastro_test
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/andrioid/gastro/pkg/gastro"
@@ -201,5 +203,36 @@ func TestNewSSE_NoConnectionHeaderForHTTP2(t *testing.T) {
 
 	if got := w.Header().Get("Connection"); got != "" {
 		t.Errorf("Connection header should be empty for HTTP/2, got %q", got)
+	}
+}
+
+func TestSSE_ConcurrentSend(t *testing.T) {
+	r := httptest.NewRequest("GET", "/events", nil)
+	w := httptest.NewRecorder()
+
+	sse := gastro.NewSSE(w, r)
+
+	const goroutines = 20
+	const eventsPerGoroutine = 10
+	var wg sync.WaitGroup
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < eventsPerGoroutine; j++ {
+				event := fmt.Sprintf("ev-%d-%d", id, j)
+				sse.Send(event, "data")
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	body := w.Body.String()
+	total := goroutines * eventsPerGoroutine
+	count := strings.Count(body, "event: ev-")
+	if count != total {
+		t.Errorf("expected %d events, got %d", total, count)
 	}
 }

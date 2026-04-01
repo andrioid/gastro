@@ -272,6 +272,7 @@ type GoplsProxy struct {
 	mu      sync.Mutex
 	nextID  atomic.Int64
 	pending map[int64]chan json.RawMessage
+	closed  bool
 	backoff *Backoff
 
 	// Callback for async notifications from gopls (e.g., publishDiagnostics)
@@ -420,8 +421,13 @@ func (p *GoplsProxy) Notify(method string, params any) error {
 	return p.writeMessage(&msg)
 }
 
-// Close shuts down the gopls subprocess.
+// Close shuts down the gopls subprocess. Safe to call while requests are
+// in flight — subsequent writeMessage calls will return an error.
 func (p *GoplsProxy) Close() {
+	p.mu.Lock()
+	p.closed = true
+	p.mu.Unlock()
+
 	if p.stdin != nil {
 		p.stdin.Close()
 	}
@@ -485,6 +491,10 @@ func (p *GoplsProxy) writeMessage(msg *jsonRPCMessage) error {
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if p.closed {
+		return fmt.Errorf("proxy is closed")
+	}
 
 	if _, err := p.stdin.Write([]byte(header)); err != nil {
 		return err

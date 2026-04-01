@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -211,5 +212,97 @@ func TestDevReloader_WatchSignal_BroadcastsOnFile(t *testing.T) {
 	// Signal file should be deleted after detection.
 	if _, err := os.Stat(signal); err == nil {
 		t.Error("signal file should have been deleted after broadcast")
+	}
+}
+
+// --- Concurrency stress tests ---
+
+func TestDevReloader_ConcurrentSubscribeBroadcast(t *testing.T) {
+	d := gastro.NewDevReloader()
+	defer d.Stop()
+
+	const goroutines = 20
+	const iterations = 50
+	var wg sync.WaitGroup
+
+	// Spawn goroutines that subscribe, receive, and unsubscribe concurrently.
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				ch, cancel := d.Subscribe()
+				// Drain any pending notification.
+				select {
+				case <-ch:
+				default:
+				}
+				cancel()
+			}
+		}()
+	}
+
+	// Broadcast concurrently while subscribe/unsubscribe is happening.
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				d.Broadcast()
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestDevReloader_ConcurrentStop(t *testing.T) {
+	d := gastro.NewDevReloader()
+	d.Start()
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+
+	// Calling Stop from many goroutines must not panic.
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			d.Stop()
+		}()
+	}
+
+	wg.Wait()
+}
+
+func TestDevReloader_BroadcastFullChannel(t *testing.T) {
+	d := gastro.NewDevReloader()
+	defer d.Stop()
+
+	ch, cancel := d.Subscribe()
+	defer cancel()
+
+	// Fill the subscriber channel (buffered with size 1).
+	d.Broadcast()
+
+	// Second broadcast with a full channel must not block.
+	done := make(chan struct{})
+	go func() {
+		d.Broadcast()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Broadcast returned without blocking.
+	case <-time.After(time.Second):
+		t.Fatal("Broadcast blocked on full subscriber channel")
+	}
+
+	// Drain the channel — should have exactly one notification.
+	select {
+	case <-ch:
+	default:
+		t.Error("expected a notification on the subscriber channel")
 	}
 }

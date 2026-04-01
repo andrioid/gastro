@@ -20,11 +20,12 @@ var DevReloader = NewDevReloader()
 
 // DevReloader manages live-reload SSE connections in dev mode.
 type devReloader struct {
-	mu      sync.Mutex
-	clients map[chan struct{}]struct{}
-	once    sync.Once
-	done    chan struct{}
-	dir     string // project root where .gastro/.reload is written
+	mu       sync.Mutex
+	clients  map[chan struct{}]struct{}
+	once     sync.Once
+	stopOnce sync.Once
+	done     chan struct{}
+	dir      string // project root where .gastro/.reload is written
 }
 
 // NewDevReloader creates a devReloader that watches for .gastro/.reload in the
@@ -55,15 +56,10 @@ func (d *devReloader) Start() {
 	})
 }
 
-// Stop terminates the signal watcher goroutine. After calling Stop the
-// devReloader cannot be restarted.
+// Stop terminates the signal watcher goroutine. Safe to call concurrently
+// and multiple times. After calling Stop the devReloader cannot be restarted.
 func (d *devReloader) Stop() {
-	select {
-	case <-d.done:
-		// Already closed.
-	default:
-		close(d.done)
-	}
+	d.stopOnce.Do(func() { close(d.done) })
 }
 
 func (d *devReloader) signalPath() string {

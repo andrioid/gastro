@@ -16,16 +16,22 @@ mise trust && mise install
 ### Running Tests
 
 ```sh
-# All tests
-go test ./... -timeout 120s
+# All tests (with race detector)
+mise run test
+
+# Or directly:
+go test ./... -race -timeout 120s
 
 # Specific package
-go test ./internal/parser/ -v
+go test ./internal/parser/ -race -v
 
 # With gopls-dependent tests (requires mise activation)
 eval "$(mise activate zsh)"
-go test ./... -timeout 120s
+go test ./... -race -timeout 120s
 ```
+
+Always use `-race` to catch data races. The `mise run test` task includes it by
+default.
 
 ### Building
 

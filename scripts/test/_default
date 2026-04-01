@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run all tests with race detector"
+
+set -euo pipefail
+
+go test ./... -race -timeout 120s "$@"
