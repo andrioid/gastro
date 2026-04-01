@@ -4,6 +4,7 @@
 - Agents are not allowed to write into `AGENTS.md`
 - If you encounter a changed file, that you didn't edit. Ask if you should revert it or commit it.
 - Before presenting a plan, identify any ambigious parts of it. Ask questions until none remain.
+- Always run tests with `-race` to test for race-conditions.
 
 ### References
 
