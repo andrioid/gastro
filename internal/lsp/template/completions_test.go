@@ -342,8 +342,8 @@ func TestDiagnostics_UnknownComponent(t *testing.T) {
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}
-	templateBody := `{{ render Card (dict "Title" .Name) }}
-{{ render Unknown (dict) }}`
+	templateBody := `{{ Card (dict "Title" .Name) }}
+{{ Unknown (dict) }}`
 
 	diags := lsptemplate.Diagnose(templateBody, info, uses, nil, nil, nil)
 
@@ -476,7 +476,7 @@ func TestDiagnoseComponentProps_UnknownProp(t *testing.T) {
 		},
 	}
 
-	templateBody := `{{ render Card (dict "Title" .Name "Bogus" .X) }}`
+	templateBody := `{{ Card (dict "Title" .Name "Bogus" .X) }}`
 	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
 
 	found := false
@@ -505,7 +505,7 @@ func TestDiagnoseComponentProps_MissingProp(t *testing.T) {
 		},
 	}
 
-	templateBody := `{{ render Card (dict "Title" .Name) }}`
+	templateBody := `{{ Card (dict "Title" .Name) }}`
 	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
 
 	found := false
@@ -529,7 +529,7 @@ func TestDiagnoseComponentProps_NoPropsStruct(t *testing.T) {
 	}
 	propsMap := map[string][]codegen.StructField{}
 
-	templateBody := `{{ render Simple (dict) }}`
+	templateBody := `{{ Simple (dict) }}`
 	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
 
 	if len(diags) != 0 {
@@ -569,12 +569,12 @@ func TestDetectPropValueContext(t *testing.T) {
 	}{
 		{
 			name:    "simple variable in dict value",
-			input:   `{{ render Card (dict "Title" .|`,
+			input:   `{{ Card (dict "Title" .|`,
 			wantNil: false,
 		},
 		{
 			name:      "after pipe in dict value",
-			input:     `{{ render Card (dict "Date" (.CreatedAt | t|`,
+			input:     `{{ Card (dict "Date" (.CreatedAt | t|`,
 			afterPipe: true,
 		},
 		{
@@ -584,7 +584,7 @@ func TestDetectPropValueContext(t *testing.T) {
 		},
 		{
 			name:    "cursor after closed component call",
-			input:   `{{ render Card (dict "Title" .Title) }}|`,
+			input:   `{{ Card (dict "Title" .Title) }}|`,
 			wantNil: true,
 		},
 		{

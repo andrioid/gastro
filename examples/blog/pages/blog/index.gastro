@@ -19,6 +19,6 @@ Title := "Blog"
 {{ wrap Layout (dict "Title" .Title) }}
     <h1>All Posts</h1>
     {{ range .Posts }}
-    {{ render PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
+    {{ PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
     {{ end }}
 {{ end }}

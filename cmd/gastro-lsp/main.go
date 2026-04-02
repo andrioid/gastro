@@ -885,12 +885,12 @@ func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *
 	}
 }
 
-// componentNameRegex matches component names after render/wrap keywords in {{ }} blocks.
-var componentNameRegex = regexp.MustCompile(`\{\{\s*(?:render|wrap)\s+([A-Z][a-zA-Z0-9]*)`)
+// componentNameRegex matches PascalCase component names in {{ }} blocks.
+// Matches bare calls ({{ Card ...) and wrap calls ({{ wrap Layout ...).
+var componentNameRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)`)
 
-// componentHover checks if the cursor is on a component name after render/wrap
-// in a {{ }} block and returns hover information showing the component's Props
-// struct fields.
+// componentHover checks if the cursor is on a component name in a {{ }} block
+// and returns hover information showing the component's Props struct fields.
 func (s *server) componentHover(parsed *parser.File, cursorOffset int) any {
 	body := parsed.TemplateBody
 	for _, idx := range componentNameRegex.FindAllStringSubmatchIndex(body, -1) {

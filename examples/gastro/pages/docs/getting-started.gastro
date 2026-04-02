@@ -21,11 +21,11 @@ DevMode := content.GettingStartedDevMode
 
     <h2>Install the CLI</h2>
     <p>Build the <code>gastro</code> CLI from source. If you use <a href="https://mise.jdx.dev/" target="_blank" rel="noopener">mise</a>, it will manage your Go toolchain automatically.</p>
-    {{ render CodeBlock (dict "Code" .Install "Language" "bash") }}
+    {{ CodeBlock (dict "Code" .Install "Language" "bash") }}
 
     <h2>Project Structure</h2>
     <p>A Gastro project has a simple, opinionated layout:</p>
-    {{ render CodeBlock (dict "Code" .ProjectStructure "Language" "bash") }}
+    {{ CodeBlock (dict "Code" .ProjectStructure "Language" "bash") }}
     <ul>
         <li><strong>pages/</strong> &mdash; <code>.gastro</code> files that become HTTP routes</li>
         <li><strong>components/</strong> &mdash; reusable <code>.gastro</code> components</li>
@@ -35,21 +35,21 @@ DevMode := content.GettingStartedDevMode
 
     <h2>Your First Page</h2>
     <p>Create <code>pages/index.gastro</code>. The code between <code>---</code> delimiters is Go frontmatter that runs on the server. The HTML below is rendered with Go's <code>html/template</code>.</p>
-    {{ render CodeBlock (dict "Code" .FirstPage "Language" "go") }}
+    {{ CodeBlock (dict "Code" .FirstPage "Language" "go") }}
     <p>Uppercase variables like <code>Title</code> and <code>Year</code> are automatically exported to the template as <code>{{ "{{ .Title }}" }}</code> and <code>{{ "{{ .Year }}" }}</code>. Lowercase variables stay private.</p>
 
     <h2>Entry Point</h2>
     <p>Create <code>main.go</code> that imports the generated code and starts the server:</p>
-    {{ render CodeBlock (dict "Code" .MainGo "Language" "go") }}
+    {{ CodeBlock (dict "Code" .MainGo "Language" "go") }}
     <p>The <code>.gastro/</code> directory contains generated Go code. Import it as a package with any alias you like.</p>
 
     <h2>Build &amp; Run</h2>
-    {{ render CodeBlock (dict "Code" .BuildRun "Language" "bash") }}
+    {{ CodeBlock (dict "Code" .BuildRun "Language" "bash") }}
     <p>Open <a href="http://localhost:4242">http://localhost:4242</a> to see your page.</p>
 
     <h2>Development Mode</h2>
     <p>For development, use the <code>gastro dev</code> command. It watches for file changes, regenerates code, and restarts the server automatically. Template changes are hot-reloaded without a restart.</p>
-    {{ render CodeBlock (dict "Code" .DevMode "Language" "bash") }}
+    {{ CodeBlock (dict "Code" .DevMode "Language" "bash") }}
 
     <div class="docs-nav">
         <div></div>

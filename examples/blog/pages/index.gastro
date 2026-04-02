@@ -20,7 +20,7 @@ Title := "Home"
     <h1>Welcome to My Blog</h1>
     <section>
         {{ range .Posts }}
-        {{ render PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
+        {{ PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
         {{ end }}
     </section>
 {{ end }}

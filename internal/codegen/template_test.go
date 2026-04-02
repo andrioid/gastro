@@ -39,8 +39,8 @@ func TestTransformTemplate_PassthroughGoTemplateExpressions(t *testing.T) {
 	}
 }
 
-func TestTransformTemplate_RenderLeafComponent(t *testing.T) {
-	body := `{{ render Card (dict "Title" .Name "Urgent" .IsHot) }}`
+func TestTransformTemplate_BareFunctionCallPassthrough(t *testing.T) {
+	body := `{{ Card (dict "Title" .Name "Urgent" .IsHot) }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}
@@ -50,14 +50,13 @@ func TestTransformTemplate_RenderLeafComponent(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := `{{ __gastro_Card (dict "Title" .Name "Urgent" .IsHot) }}`
-	if result != want {
-		t.Errorf("render leaf:\ngot:  %q\nwant: %q", result, want)
+	if result != body {
+		t.Errorf("bare function call should pass through unchanged:\ngot:  %q\nwant: %q", result, body)
 	}
 }
 
-func TestTransformTemplate_RenderNoProps(t *testing.T) {
-	body := `{{ render Hero (dict) }}`
+func TestTransformTemplate_BareFunctionCallNoProps(t *testing.T) {
+	body := `{{ Hero (dict) }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Hero", Path: "components/hero.gastro"},
 	}
@@ -67,9 +66,8 @@ func TestTransformTemplate_RenderNoProps(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := `{{ __gastro_Hero (dict) }}`
-	if result != want {
-		t.Errorf("render no props:\ngot:  %q\nwant: %q", result, want)
+	if result != body {
+		t.Errorf("bare function call should pass through unchanged:\ngot:  %q\nwant: %q", result, body)
 	}
 }
 
@@ -86,7 +84,8 @@ func TestTransformTemplate_WrapWithChildren(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertContains(t, result, `__gastro_Layout`)
+	assertContains(t, result, `{{ Layout`)
+	assertNotContains(t, result, `__gastro_Layout`)
 	assertContains(t, result, `"Title" .Title`)
 	assertContains(t, result, `__gastro_render_children`)
 	assertContains(t, result, `{{define "layout_children_0"}}`)
@@ -105,14 +104,15 @@ func TestTransformTemplate_WrapEmptyChildren(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertContains(t, result, `__gastro_Layout`)
+	assertContains(t, result, `{{ Layout`)
+	assertNotContains(t, result, `__gastro_Layout`)
 	assertContains(t, result, `{{define "layout_children_0"}}`)
 }
 
 func TestTransformTemplate_MixedHTMLAndComponents(t *testing.T) {
 	body := `<h1>{{ .Title }}</h1>
 {{ range .Items }}
-    {{ render Card (dict "Title" .Name) }}
+    {{ Card (dict "Title" .Name) }}
 {{ end }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
@@ -123,10 +123,9 @@ func TestTransformTemplate_MixedHTMLAndComponents(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertContains(t, result, `<h1>{{ .Title }}</h1>`)
-	assertContains(t, result, `{{ range .Items }}`)
-	assertContains(t, result, `__gastro_Card`)
-	assertNotContains(t, result, `render Card`)
+	if result != body {
+		t.Errorf("mixed HTML with bare calls should pass through unchanged:\ngot:  %q\nwant: %q", result, body)
+	}
 }
 
 func TestTransformTemplate_NestedWraps(t *testing.T) {
@@ -141,15 +140,17 @@ func TestTransformTemplate_NestedWraps(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertContains(t, result, `__gastro_A`)
-	assertContains(t, result, `__gastro_B`)
+	assertContains(t, result, `{{ A`)
+	assertNotContains(t, result, `__gastro_A`)
+	assertContains(t, result, `{{ B`)
+	assertNotContains(t, result, `__gastro_B`)
 	assertContains(t, result, `{{define "a_children_0"}}`)
 	assertContains(t, result, `{{define "b_children_1"}}`)
 	assertContains(t, result, `inner`)
 }
 
 func TestTransformTemplate_WrapWithInnerRange(t *testing.T) {
-	body := `{{ wrap Layout (dict "Title" .Title) }}{{ range .Items }}{{ render Card (dict "Title" .Name) }}{{ end }}{{ end }}`
+	body := `{{ wrap Layout (dict "Title" .Title) }}{{ range .Items }}{{ Card (dict "Title" .Name) }}{{ end }}{{ end }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Layout", Path: "components/layout.gastro"},
 		{Name: "Card", Path: "components/card.gastro"},
@@ -160,8 +161,9 @@ func TestTransformTemplate_WrapWithInnerRange(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertContains(t, result, `__gastro_Layout`)
-	assertContains(t, result, `__gastro_Card`)
+	assertContains(t, result, `{{ Layout`)
+	assertNotContains(t, result, `__gastro_Layout`)
+	assertContains(t, result, `{{ Card (dict "Title" .Name) }}`)
 	assertContains(t, result, `{{ range .Items }}`)
 }
 
@@ -176,7 +178,8 @@ func TestTransformTemplate_WrapWithInnerIfElse(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertContains(t, result, `__gastro_Layout`)
+	assertContains(t, result, `{{ Layout`)
+	assertNotContains(t, result, `__gastro_Layout`)
 	assertContains(t, result, `{{ if .X }}yes{{ else }}no{{ end }}`)
 }
 
@@ -196,17 +199,6 @@ func TestTransformTemplate_DuplicateWrapSameComponent(t *testing.T) {
 	assertContains(t, result, `{{define "layout_children_1"}}`)
 	assertContains(t, result, `First`)
 	assertContains(t, result, `Second`)
-}
-
-func TestTransformTemplate_UnknownComponentRender(t *testing.T) {
-	body := `{{ render Unknown (dict "Title" .Name) }}`
-
-	_, err := codegen.TransformTemplate(body, nil)
-	if err == nil {
-		t.Fatal("expected error for unknown component, got nil")
-	}
-	assertContains(t, err.Error(), "Unknown")
-	assertContains(t, err.Error(), "not imported")
 }
 
 func TestTransformTemplate_UnknownComponentWrap(t *testing.T) {
@@ -233,7 +225,7 @@ func TestTransformTemplate_UnclosedWrap(t *testing.T) {
 }
 
 func TestTransformTemplate_CommentWithWrapInside(t *testing.T) {
-	body := `{{/* Example: {{ wrap Layout }} */}}{{ render Card (dict) }}`
+	body := `{{/* Example: {{ wrap Layout }} */}}{{ Card (dict) }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}
@@ -243,12 +235,12 @@ func TestTransformTemplate_CommentWithWrapInside(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertContains(t, result, `__gastro_Card`)
+	assertContains(t, result, `{{ Card (dict) }}`)
 	assertContains(t, result, `{{/* Example: {{ wrap Layout }} */}}`)
 }
 
-func TestTransformTemplate_RenderWithPipeline(t *testing.T) {
-	body := `{{ render Card (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
+func TestTransformTemplate_BareFunctionCallWithPipeline(t *testing.T) {
+	body := `{{ Card (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}
@@ -258,9 +250,8 @@ func TestTransformTemplate_RenderWithPipeline(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := `{{ __gastro_Card (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
-	if result != want {
-		t.Errorf("render with pipeline:\ngot:  %q\nwant: %q", result, want)
+	if result != body {
+		t.Errorf("bare function call with pipeline should pass through unchanged:\ngot:  %q\nwant: %q", result, body)
 	}
 }
 
@@ -295,7 +286,7 @@ func TestTransformTemplate_OldPropSyntaxErrors(t *testing.T) {
 func TestTransformTemplate_OutputParseable(t *testing.T) {
 	body := `<h1>{{ .Title }}</h1>
 {{ range .Items }}
-    {{ render Card (dict "Title" .Name) }}
+    {{ Card (dict "Title" .Name) }}
 {{ end }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
@@ -311,7 +302,7 @@ func TestTransformTemplate_OutputParseable(t *testing.T) {
 		stubFuncs[name] = ""
 	}
 	for _, u := range uses {
-		stubFuncs["__gastro_"+u.Name] = ""
+		stubFuncs[u.Name] = ""
 	}
 	stubFuncs["__gastro_render_children"] = ""
 
@@ -328,7 +319,7 @@ func TestTransformTemplate_WrapOutputParseable(t *testing.T) {
 	body := `{{ wrap Layout (dict "Title" .Title) }}
     <h1>Welcome</h1>
     {{ range .Posts }}
-        {{ render Card (dict "Title" .Name) }}
+        {{ Card (dict "Title" .Name) }}
     {{ end }}
 {{ end }}`
 	uses := []parser.UseDeclaration{
@@ -346,7 +337,7 @@ func TestTransformTemplate_WrapOutputParseable(t *testing.T) {
 		stubFuncs[name] = ""
 	}
 	for _, u := range uses {
-		stubFuncs["__gastro_"+u.Name] = ""
+		stubFuncs[u.Name] = ""
 	}
 	stubFuncs["__gastro_render_children"] = ""
 
@@ -362,7 +353,7 @@ func TestTransformTemplate_WrapOutputParseable(t *testing.T) {
 func TestTransformTemplate_DuplicateWrapParseable(t *testing.T) {
 	body := `{{ wrap Layout (dict "Title" "A") }}<p>One</p>{{ end }}
 {{ wrap Layout (dict "Title" "B") }}<p>Two</p>{{ end }}
-{{ render Card (dict "Title" .Name) }}`
+{{ Card (dict "Title" .Name) }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Layout", Path: "components/layout.gastro"},
 		{Name: "Card", Path: "components/card.gastro"},
@@ -378,7 +369,7 @@ func TestTransformTemplate_DuplicateWrapParseable(t *testing.T) {
 		stubFuncs[name] = ""
 	}
 	for _, u := range uses {
-		stubFuncs["__gastro_"+u.Name] = ""
+		stubFuncs[u.Name] = ""
 	}
 	stubFuncs["__gastro_render_children"] = ""
 

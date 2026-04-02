@@ -12,7 +12,7 @@ ComponentCode := content.LandingComponentExample
 BuildCode := content.LandingBuildExample
 ---
 {{ wrap Layout (dict "Title" .Title) }}
-    {{ render Hero (dict) }}
+    {{ Hero (dict) }}
 
     <section class="features-section">
         <h2>Why Gastro?</h2>
@@ -58,11 +58,11 @@ BuildCode := content.LandingBuildExample
             <div class="quickstart-steps">
                 <div class="quickstart-step">
                     <h3>Write a component</h3>
-                    {{ render CodeBlock (dict "Code" .ComponentCode "Language" "go") }}
+                    {{ CodeBlock (dict "Code" .ComponentCode "Language" "go") }}
                 </div>
                 <div class="quickstart-step">
                     <h3>Build &amp; run</h3>
-                    {{ render CodeBlock (dict "Code" .BuildCode "Language" "bash") }}
+                    {{ CodeBlock (dict "Code" .BuildCode "Language" "bash") }}
                 </div>
             </div>
         </div>

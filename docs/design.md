@@ -15,7 +15,7 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 |-------|--------|-------|
 | 1. Parser | Done | 14 tests. Splits frontmatter/body, extracts imports and component imports. |
 | 2. Frontmatter codegen | Done | 9 tests. Go AST analysis, variable extraction, gastro marker detection. |
-| 3. Template codegen | Done | 12 tests. `{{ render Component ... }}` / `{{ wrap Component ... }}` to internal template calls, prop parsing, pipe expressions in props, child content extraction into `{{define}}` blocks. |
+| 3. Template codegen | Done | 12 tests. `{{ Component ... }}` (bare call) / `{{ wrap Component ... }}` to internal template calls, prop parsing, pipe expressions in props, child content extraction into `{{define}}` blocks. |
 | 4. Component system | Done | 8 tests. `MapToStruct[T]` with type coercion, component render functions (`func(map[string]any) template.HTML`), per-page init with component FuncMap, `__gastro_render_children` closure for slot content. |
 | 5. File router | Done | 10 tests. Directory-to-route mapping, `[param]` patterns, func name derivation. |
 | 6. Runtime library | Done | 13 tests. Context, DefaultFuncs (18 helpers), Recover. |
@@ -63,7 +63,7 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 |-------|-------------|----------|
 | 1. Parser | Frontmatter extraction, `---` delimiter handling, component import declarations, edge cases (empty frontmatter, missing delimiters, `---` inside strings) | Table-driven: input `.gastro` string -> expected frontmatter + template body |
 | 2. Frontmatter codegen | Import extraction (Go and component), uppercase/lowercase variable separation, struct pointer detection, generated Go code output | Table-driven: frontmatter string -> expected AST results. Golden files: frontmatter -> generated `.go` code |
-| 3. Template codegen | `{{ render Component ... }}` / `{{ wrap Component ... }}` transformation, prop parsing via `(dict ...)`, passthrough of `{{ }}` | Table-driven: template body input -> expected transformed template output |
+| 3. Template codegen | `{{ Component ... }}` (bare call) / `{{ wrap Component ... }}` transformation, prop parsing via `(dict ...)`, passthrough of `{{ }}` | Table-driven: template body input -> expected transformed template output |
 | 4. Component system | Props struct detection, `mapToStruct[T]()` coercion (string->bool, string->int, type mismatches), render function generation | Unit tests for `mapToStruct` with all coercion paths. Golden files for generated component code |
 | 5. File router | Directory walking, route table generation, `[param]` pattern mapping, `index.gastro` handling, route ordering | Table-driven: directory tree structure -> expected route table |
 | 6. Runtime library | `Context` methods, `DefaultFuncs()` behaviour (each built-in helper), `WithFuncs()` override semantics, `Recover` panic handling | Standard unit tests per function. Integration test: full request cycle through a generated handler |
@@ -131,7 +131,7 @@ A `.gastro` file has two sections separated by `---` delimiters:
 **Template body rules:**
 
 - Uses standard Go `html/template` syntax (`{{ }}`).
-- `{{ render Component ... }}` and `{{ wrap Component ... }}` invoke components (imported via `import`).
+- `{{ Component (dict ...) }}` (bare calls) and `{{ wrap Component (dict ...) }}...{{ end }}` invoke components (imported via `import`).
 - `{{ .Children }}` renders child content passed by a parent component.
 - No custom expression shorthand -- `{{ }}` only.
 - `{{define}}` / `{{template}}` are supported but scoped to the file.
@@ -310,7 +310,7 @@ import (
 Components are invoked with Go template actions:
 
 ```
-{{ render Card (dict "Title" .post.Title "Body" .post.Summary "Urgent" .post.IsHot) }}
+{{ Card (dict "Title" .post.Title "Body" .post.Summary "Urgent" .post.IsHot) }}
 ```
 
 **Prop passing syntax:**
@@ -335,13 +335,15 @@ reflection. Type coercion rules:
 The compiler can also emit **compile-time warnings** for obvious type mismatches
 by analyzing the frontmatter AST.
 
-The compiler transforms component template actions into internal function calls:
+Leaf components use bare function calls, which are already valid Go template
+syntax — no transformation is needed:
 
 ```
-{{ render Card (dict "Title" .Name) }}
-->
-{{ __gastro_Card (dict "Title" .Name) }}
+{{ Card (dict "Title" .Name) }}
 ```
+
+The compiler registers the component function in the FuncMap under its
+PascalCase name (`"Card"`).
 
 ---
 
@@ -601,9 +603,9 @@ func main() {
      |      - Detect Props struct (components) or Context() call (pages)
     |
     +- 3. Analyze template body:
-     |      - Find `{{ render Component ... }}` and `{{ wrap Component ... }}` actions
-     |      - Parse component props from `(dict ...)` syntax
-     |      - Transform to __gastro_ComponentName template function calls
+     |      - Bare `{{ Component (dict ...) }}` calls pass through unchanged
+     |      - Transform `{{ wrap Component ... }}...{{ end }}` into function call + {{define}} blocks
+     |      - Register component functions in FuncMap under PascalCase names
      |      - Pass through {{ .Children }} and other {{ }} expressions unchanged
     |
     +- 4. Generate Go source:
@@ -722,7 +724,7 @@ document
   frontmatter_delimiter   ---
   template_body           -> injects tree-sitter-html
     template_expression   {{ ... }}
-    component_render      {{ render Component (dict ...) }}
+    component_call        {{ Component (dict ...) }}
     component_wrap        {{ wrap Component (dict ...) }} ... {{ end }}
 ```
 
@@ -791,12 +793,12 @@ virtual `.go` line numbers.
 | `{{ .Var.Field }}` completions   | Template exprs    | gastro-lsp via gopls |
 | `{{ func }}` / pipe completions  | Template exprs    | gastro-lsp (FuncMap) |
 | Type-aware hover on `{{ }}`      | Template exprs    | gastro-lsp via gopls |
-| Component name completions       | `{{ render/wrap }}` | gastro-lsp           |
-| Component prop completions       | `{{ render/wrap }}` | gastro-lsp           |
-| Component go-to-definition       | `{{ render/wrap }}` | gastro-lsp           |
+| Component name completions       | `{{ Component/wrap }}` | gastro-lsp           |
+| Component prop completions       | `{{ Component/wrap }}` | gastro-lsp           |
+| Component go-to-definition       | `{{ Component/wrap }}` | gastro-lsp           |
 | Unknown variable diagnostic      | Template exprs    | gastro-lsp           |
-| Unknown component diagnostic     | `{{ render/wrap }}` | gastro-lsp           |
-| Missing/wrong prop diagnostic    | `{{ render/wrap }}` | gastro-lsp           |
+| Unknown component diagnostic     | `{{ Component/wrap }}` | gastro-lsp           |
+| Missing/wrong prop diagnostic    | `{{ Component/wrap }}` | gastro-lsp           |
 | Component import completions     | Frontmatter       | gastro-lsp           |
 
 ---
@@ -840,7 +842,7 @@ virtual `.go` line numbers.
 |-------|--------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
 | 1     | **Parser**                     | `.gastro` file parser: split frontmatter from template body. Handle `---` delimiters, component import declarations, edge cases.                     |
 | 2     | **Frontmatter codegen**        | Go AST analysis: extract imports (Go and component), uppercase variable capture. Generate handler functions with data maps. Store struct pointers.   |
-| 3     | **Template codegen**           | Parse template body: transform `{{ render Component ... }}` and `{{ wrap Component ... }}` actions into internal template function calls, generate `html/template` code. Child content extracted into `{{define}}` blocks. Pipe expressions in props wrapped in parens. |
+| 3     | **Template codegen**           | Parse template body: bare `{{ Component (dict ...) }}` calls pass through unchanged; transform `{{ wrap Component ... }}` actions into function call + `{{define}}` blocks. Components registered in FuncMap under PascalCase names. Pipe expressions in props wrapped in parens. |
 | 4     | **Component system**           | Props struct detection, `gastro.Props()` codegen, `MapToStruct[T]` runtime helper, component render functions, per-page init with component FuncMap registration, `__gastro_render_children` closure for slot content. End-to-end working. |
 | 5     | **File router**                | Walk `pages/`, generate route table, handle `[param]` patterns, generate `Routes()` function with options.                                          |
 | 6     | **Runtime library**            | `gastro` package: `Context`, `Props`, `Recover`, `DefaultFuncs()`, `WithFuncs()` option, dev/prod FS abstraction.                                   |

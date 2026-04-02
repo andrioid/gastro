@@ -19,19 +19,19 @@ EnvVars := content.DeployEnvVars
 
     <h2>Building for Production</h2>
     <p>Generate the Go code and cross-compile for your target platform:</p>
-    {{ render CodeBlock (dict "Code" .Build "Language" "bash") }}
+    {{ CodeBlock (dict "Code" .Build "Language" "bash") }}
     <p>Or use the shorthand:</p>
-    {{ render CodeBlock (dict "Code" .OneLiner "Language" "bash") }}
+    {{ CodeBlock (dict "Code" .OneLiner "Language" "bash") }}
     <p>The resulting binary contains everything: your Go handlers, compiled templates, and static assets from <code>static/</code>. No runtime dependencies.</p>
 
     <h2>Docker</h2>
     <p>A multi-stage Dockerfile keeps the image small. The build stage compiles everything, and the runtime stage contains only the binary:</p>
-    {{ render CodeBlock (dict "Code" .Dockerfile "Language" "docker") }}
+    {{ CodeBlock (dict "Code" .Dockerfile "Language" "docker") }}
     <p>The runtime image uses Alpine Linux with a non-root user for security. The final image is typically under 20MB.</p>
 
     <h2>Environment Variables</h2>
     <p>The only configuration is the <code>PORT</code> environment variable:</p>
-    {{ render CodeBlock (dict "Code" .EnvVars "Language" "bash") }}
+    {{ CodeBlock (dict "Code" .EnvVars "Language" "bash") }}
     <p>If <code>PORT</code> is not set, the server defaults to port 4242.</p>
 
     <h2>Platform Guides</h2>

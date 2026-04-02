@@ -310,16 +310,24 @@ package gastro
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
 	"net/http"
+	"regexp"
+	"strings"
 
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
 
 // Suppress unused import warning for bytes (needed when templates have component uses).
 var _ bytes.Buffer
+
+// Suppress unused import warnings for error-enhancement dependencies.
+var _ = fmt.Errorf
+var _ = regexp.Compile
+var _ = strings.Contains
 
 // Option configures the generated router.
 type Option func(*config)
@@ -358,7 +366,7 @@ func __gastro_buildFuncMap(name string, userFuncs template.FuncMap) template.Fun
 {{- range .Templates}}{{- if .Uses}}{{$fn := .FuncName}}
 	case "{{$fn}}":
 {{- range .Uses}}
-		fm["__gastro_{{ .Name }}"] = {{ .FuncName }}
+		fm["{{ .Name }}"] = {{ .FuncName }}
 {{- end}}
 		fm["__gastro_render_children"] = func(n string, data any) template.HTML {
 			var __buf bytes.Buffer
@@ -384,13 +392,31 @@ func __gastro_templateFile(name string) string {
 
 // __gastro_parseTemplate reads a template from tfs and parses it with the
 // FuncMap appropriate for its component dependencies.
-func __gastro_parseTemplate(name string, tfs fs.FS, userFuncs template.FuncMap) *template.Template {
+func __gastro_parseTemplate(name string, tfs fs.FS, userFuncs template.FuncMap) (*template.Template, error) {
 	content, err := fs.ReadFile(tfs, __gastro_templateFile(name))
 	if err != nil {
-		log.Printf("gastro: reading template %s: %v", name, err)
-		return template.New(name)
+		return nil, fmt.Errorf("gastro: reading template %s: %w", name, err)
 	}
-	return template.Must(template.New(name).Funcs(__gastro_buildFuncMap(name, userFuncs)).Parse(string(content)))
+	tmpl, err := template.New(name).Funcs(__gastro_buildFuncMap(name, userFuncs)).Parse(string(content))
+	if err != nil {
+		return nil, __gastro_enhanceTemplateError(err)
+	}
+	return tmpl, nil
+}
+
+// __gastro_pascalCaseFuncRegex matches Go template errors for undefined PascalCase functions,
+// which are likely missing component imports.
+var __gastro_pascalCaseFuncRegex = regexp.MustCompile("function \"([A-Z][a-zA-Z0-9]*)\" not defined")
+
+// __gastro_enhanceTemplateError rewrites Go template parse errors to provide
+// component-specific hints. A generic "function X not defined" for a PascalCase
+// name becomes "unknown component X (did you forget to import it?)".
+func __gastro_enhanceTemplateError(err error) error {
+	msg := err.Error()
+	if matches := __gastro_pascalCaseFuncRegex.FindStringSubmatch(msg); len(matches) > 1 {
+		return fmt.Errorf("unknown component %q (did you forget to import it?)", matches[1])
+	}
+	return err
 }
 
 // __gastro_getTemplate returns the parsed template for the given name.
@@ -399,7 +425,11 @@ func __gastro_parseTemplate(name string, tfs fs.FS, userFuncs template.FuncMap) 
 func __gastro_getTemplate(name string) *template.Template {
 	if __gastro_isDev {
 		tfs := gastroRuntime.GetTemplateFS(templateFS)
-		return __gastro_parseTemplate(name, tfs, __gastro_userFuncs)
+		tmpl, err := __gastro_parseTemplate(name, tfs, __gastro_userFuncs)
+		if err != nil {
+			log.Fatalf("gastro: %v", err)
+		}
+		return tmpl
 	}
 	return __gastro_templateRegistry[name]
 }
@@ -416,6 +446,17 @@ func Routes(opts ...Option) http.Handler {
 	__gastro_isDev = gastroRuntime.IsDev()
 	__gastro_userFuncs = cfg.funcs
 
+	// Warn if user-provided functions shadow component names.
+	__gastro_componentNames := make(map[string]bool)
+{{- range .Templates}}{{- range .Uses}}
+	__gastro_componentNames["{{ .Name }}"] = true
+{{- end}}{{- end}}
+	for name := range cfg.funcs {
+		if __gastro_componentNames[name] {
+			log.Printf("gastro: warning: user function %q shadows component %q", name, name)
+		}
+	}
+
 	// Parse all templates into the registry.
 	tfs := gastroRuntime.GetTemplateFS(templateFS)
 	__gastro_templateRegistry = make(map[string]*template.Template)
@@ -424,7 +465,11 @@ func Routes(opts ...Option) http.Handler {
 		"{{ .FuncName }}",
 {{- end}}
 	} {
-		__gastro_templateRegistry[name] = __gastro_parseTemplate(name, tfs, cfg.funcs)
+		tmpl, err := __gastro_parseTemplate(name, tfs, cfg.funcs)
+		if err != nil {
+			log.Fatalf("gastro: %v", err)
+		}
+		__gastro_templateRegistry[name] = tmpl
 	}
 
 	mux := http.NewServeMux()

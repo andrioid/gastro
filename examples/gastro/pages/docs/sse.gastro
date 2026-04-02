@@ -29,7 +29,7 @@ PatchOptions := content.SSEPatchOptions
 
     <h2>Generic SSE</h2>
     <p>The core SSE helper in <code>pkg/gastro</code> is framework-agnostic. It works with any client that consumes <code>text/event-stream</code>:</p>
-    {{ render CodeBlock (dict "Code" .BasicHandler "Language" "go") }}
+    {{ CodeBlock (dict "Code" .BasicHandler "Language" "go") }}
     <p>Methods available on the SSE helper:</p>
     <ul>
         <li><strong><code>Send(eventType, data ...string)</code></strong> &mdash; writes and flushes a single SSE event</li>
@@ -39,23 +39,23 @@ PatchOptions := content.SSEPatchOptions
 
     <h2>Datastar Integration</h2>
     <p>The <code>pkg/gastro/datastar</code> subpackage formats events using Datastar's SSE protocol:</p>
-    {{ render CodeBlock (dict "Code" .DatastarHandler "Language" "go") }}
+    {{ CodeBlock (dict "Code" .DatastarHandler "Language" "go") }}
 
     <h3>Datastar Page</h3>
     <p>Add Datastar attributes to your <code>.gastro</code> pages to trigger SSE connections:</p>
-    {{ render CodeBlock (dict "Code" .DatastarPage "Language" "go") }}
+    {{ CodeBlock (dict "Code" .DatastarPage "Language" "go") }}
 
     <h3>Patch Options</h3>
     <p>Datastar supports selectors, patch modes, and signal patching:</p>
-    {{ render CodeBlock (dict "Code" .PatchOptions "Language" "go") }}
+    {{ CodeBlock (dict "Code" .PatchOptions "Language" "go") }}
 
     <h2>Wiring It Up</h2>
     <p>Create a top-level <code>http.ServeMux</code> and mount both API routes and Gastro page routes:</p>
-    {{ render CodeBlock (dict "Code" .MainGo "Language" "go") }}
+    {{ CodeBlock (dict "Code" .MainGo "Language" "go") }}
 
     <h2>Type-Safe Rendering</h2>
     <p>The compiler generates a <code>Render</code> API for calling Gastro components from SSE handlers with full type safety:</p>
-    {{ render CodeBlock (dict "Code" .RenderTyped "Language" "go") }}
+    {{ CodeBlock (dict "Code" .RenderTyped "Language" "go") }}
     <table>
         <thead>
             <tr><th>What</th><th>Safety</th></tr>

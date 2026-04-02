@@ -123,11 +123,11 @@ project root.
 
 ### Invoking in templates
 
-Components are invoked with Go template actions. Use `render` for leaf
-components (no children):
+Components are invoked with Go template actions. Leaf components (no children)
+use bare function calls:
 
 ```
-{{ render PostCard (dict "Title" .Title "Slug" .Slug) }}
+{{ PostCard (dict "Title" .Title "Slug" .Slug) }}
 ```
 
 Use `wrap` for components that accept children, closed by `{{ end }}`:
@@ -273,7 +273,7 @@ Title := "Home"
     <h1>Welcome to My Blog</h1>
     <section>
         {{ range .Posts }}
-        {{ render PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
+        {{ PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
         {{ end }}
     </section>
 {{ end }}

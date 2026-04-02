@@ -1,0 +1,178 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "Gastro" [ref=e4] [cursor=pointer]:
+        - /url: /
+        - img "Gastro" [ref=e5]
+      - generic [ref=e6]:
+        - link "Docs" [ref=e7] [cursor=pointer]:
+          - /url: /docs/getting-started
+        - link "Demo" [ref=e8] [cursor=pointer]:
+          - /url: /docs/demo
+        - link "GitHub" [ref=e9] [cursor=pointer]:
+          - /url: https://github.com/andrioid/gastro
+  - generic [ref=e10]:
+    - complementary [ref=e11]:
+      - heading "Documentation" [level=3] [ref=e12]
+      - list [ref=e13]:
+        - listitem [ref=e14]:
+          - link "Getting Started" [ref=e15] [cursor=pointer]:
+            - /url: /docs/getting-started
+        - listitem [ref=e16]:
+          - link "Pages & Routing" [ref=e17] [cursor=pointer]:
+            - /url: /docs/pages
+        - listitem [ref=e18]:
+          - link "Components" [ref=e19] [cursor=pointer]:
+            - /url: /docs/components
+        - listitem [ref=e20]:
+          - link "SSE & Datastar" [ref=e21] [cursor=pointer]:
+            - /url: /docs/sse
+        - listitem [ref=e22]:
+          - link "Template Helpers" [ref=e23] [cursor=pointer]:
+            - /url: /docs/helpers
+        - listitem [ref=e24]:
+          - link "Deployment" [ref=e25] [cursor=pointer]:
+            - /url: /docs/deployment
+      - heading "Examples" [level=3] [ref=e26]
+      - list [ref=e27]:
+        - listitem [ref=e28]:
+          - link "Live Demo" [ref=e29] [cursor=pointer]:
+            - /url: /docs/demo
+    - main [ref=e30]:
+      - heading "Pages & Routing" [level=1] [ref=e31]
+      - paragraph [ref=e32]:
+        - text: Pages are
+        - code [ref=e33]: .gastro
+        - text: files in the
+        - code [ref=e34]: pages/
+        - text: directory. Each page becomes an HTTP route automatically.
+      - heading "File Format" [level=2] [ref=e35]
+      - paragraph [ref=e36]:
+        - text: A page has two sections separated by
+        - code [ref=e37]: "---"
+        - text: "delimiters: Go frontmatter and an HTML template body."
+      - code [ref=e40]: "--- ctx := gastro.Context() Title := \"Hello\" --- <h1>{{ .Title }}</h1>"
+      - paragraph [ref=e41]:
+        - text: Call
+        - code [ref=e42]: gastro.Context()
+        - text: in the frontmatter to mark the file as a page and get access to the HTTP request.
+      - heading "Static Pages" [level=2] [ref=e43]
+      - paragraph [ref=e44]:
+        - text: Pages that don't need request access can omit
+        - code [ref=e45]: gastro.Context()
+        - text: ". These are static pages that only use component imports and exported variables:"
+      - code [ref=e48]: "--- import Layout \"components/layout.gastro\" Title := \"About\" --- {{ wrap Layout (dict \"Title\" .Title) }} <h1>About Me</h1> {{ end }}"
+      - heading "Data Flow" [level=2] [ref=e49]
+      - paragraph [ref=e50]: "Variables follow Go's export convention:"
+      - list [ref=e51]:
+        - listitem [ref=e52]:
+          - strong [ref=e53]: Uppercase
+          - text: variables (
+          - code [ref=e54]: Title
+          - text: ","
+          - code [ref=e55]: Posts
+          - text: ) are exported to the template
+        - listitem [ref=e56]:
+          - strong [ref=e57]: Lowercase
+          - text: variables (
+          - code [ref=e58]: err
+          - text: ","
+          - code [ref=e59]: slug
+          - text: ) are private to the frontmatter
+      - code [ref=e62]: "--- ctx := gastro.Context() posts, err := db.ListPublished() if err != nil { ctx.Error(500, \"Failed to load posts\") return } Posts := posts Title := \"Blog\" --- <h1>{{ .Title }}</h1> {{ range .Posts }} <p>{{ .Title }}</p> {{ end }}"
+      - heading "Imports" [level=2] [ref=e63]
+      - paragraph [ref=e64]:
+        - text: Use Go
+        - code [ref=e65]: import
+        - text: for both packages and components. Component imports are distinguished by the
+        - code [ref=e66]: .gastro
+        - text: "file extension:"
+      - code [ref=e69]: "--- import ( \"myblog/db\" Layout \"components/layout.gastro\" PostCard \"components/post-card.gastro\" ) ctx := gastro.Context() posts, _ := db.ListPublished() Posts := posts --- {{ wrap Layout (dict \"Title\" \"Home\") }} {{ range .Posts }} {{ PostCard (dict \"Title\" .Title \"Slug\" .Slug) }} {{ end }} {{ end }}"
+      - heading "File-Based Routing" [level=2] [ref=e70]
+      - paragraph [ref=e71]: "Page files map to HTTP routes automatically:"
+      - table [ref=e72]:
+        - rowgroup [ref=e73]:
+          - row "File Route" [ref=e74]:
+            - columnheader "File" [ref=e75]
+            - columnheader "Route" [ref=e76]
+        - rowgroup [ref=e77]:
+          - row "pages/index.gastro GET /" [ref=e78]:
+            - cell "pages/index.gastro" [ref=e79]:
+              - code [ref=e80]: pages/index.gastro
+            - cell "GET /" [ref=e81]:
+              - code [ref=e82]: GET /
+          - row "pages/about/index.gastro GET /about" [ref=e83]:
+            - cell "pages/about/index.gastro" [ref=e84]:
+              - code [ref=e85]: pages/about/index.gastro
+            - cell "GET /about" [ref=e86]:
+              - code [ref=e87]: GET /about
+          - row "pages/blog/index.gastro GET /blog" [ref=e88]:
+            - cell "pages/blog/index.gastro" [ref=e89]:
+              - code [ref=e90]: pages/blog/index.gastro
+            - cell "GET /blog" [ref=e91]:
+              - code [ref=e92]: GET /blog
+          - 'row "pages/blog/[slug].gastro GET /blog/{slug}" [ref=e93]':
+            - cell "pages/blog/[slug].gastro" [ref=e94]:
+              - code [ref=e95]: pages/blog/[slug].gastro
+            - 'cell "GET /blog/{slug}" [ref=e96]':
+              - code [ref=e97]: "GET /blog/{slug}"
+      - paragraph [ref=e98]:
+        - text: "Square brackets denote dynamic segments:"
+        - code [ref=e99]: "[slug]"
+        - text: becomes
+        - code [ref=e100]: "{slug}"
+        - text: in Go 1.22+ router patterns. Only
+        - code [ref=e101]: GET
+        - text: routes are generated.
+      - heading "Dynamic Routes" [level=2] [ref=e102]
+      - paragraph [ref=e103]:
+        - text: Access URL parameters with
+        - code [ref=e104]: ctx.Param()
+        - text: ":"
+      - code [ref=e107]: "--- import ( \"myblog/db\" Layout \"components/layout.gastro\" ) ctx := gastro.Context() slug := ctx.Param(\"slug\") post, err := db.GetBySlug(slug) if err != nil { ctx.Error(404, \"Post not found\") return } Post := post Title := post.Title --- {{ wrap Layout (dict \"Title\" .Title) }} <article> <h1>{{ .Post.Title }}</h1> <p class=\"meta\">By {{ .Post.Author }}</p> <div>{{ .Post.Body | safeHTML }}</div> </article> {{ end }}"
+      - heading "Context API" [level=2] [ref=e108]
+      - paragraph [ref=e109]:
+        - code [ref=e110]: gastro.Context()
+        - text: returns a
+        - code [ref=e111]: "*Context"
+        - text: "with methods for request handling:"
+      - heading "Query Parameters" [level=3] [ref=e112]
+      - code [ref=e115]: "--- ctx := gastro.Context() Name := ctx.Query(\"name\") --- <p>Hello, {{ .Name }}</p>"
+      - heading "Redirects" [level=3] [ref=e116]
+      - paragraph [ref=e117]:
+        - text: Always call
+        - code [ref=e118]: return
+        - text: "after a redirect to prevent the template from rendering:"
+      - code [ref=e121]: "--- ctx := gastro.Context() user := getUser(ctx.Request()) if user == nil { ctx.Redirect(\"/login\", 302) return } Name := user.Name --- <h1>Welcome, {{ .Name }}</h1>"
+      - heading "Response Headers" [level=3] [ref=e122]
+      - code [ref=e125]: "--- ctx := gastro.Context() ctx.Header(\"Cache-Control\", \"public, max-age=3600\") Title := \"Cached Page\" --- <h1>{{ .Title }}</h1>"
+      - heading "Error Handling" [level=2] [ref=e126]
+      - paragraph [ref=e127]: "Two layers protect your application:"
+      - list [ref=e128]:
+        - listitem [ref=e129]:
+          - strong [ref=e130]: Explicit errors
+          - text: — use
+          - code [ref=e131]: ctx.Error(code, msg)
+          - text: +
+          - code [ref=e132]: return
+          - text: for controlled error responses
+        - listitem [ref=e133]:
+          - strong [ref=e134]: Panic recovery
+          - text: — all handlers are wrapped in
+          - code [ref=e135]: defer gastro.Recover(w, r)
+          - text: which catches panics and returns a 500 error
+      - generic [ref=e136]:
+        - link "Previous Getting Started" [ref=e137] [cursor=pointer]:
+          - /url: /docs/getting-started
+          - generic [ref=e138]: Previous
+          - generic [ref=e139]: Getting Started
+        - link "Next Components" [ref=e140] [cursor=pointer]:
+          - /url: /docs/components
+          - generic [ref=e141]: Next
+          - generic [ref=e142]: Components
+  - contentinfo [ref=e143]:
+    - generic [ref=e144]:
+      - paragraph [ref=e145]: Built with Gastro — a file-based component framework for Go.
+      - paragraph [ref=e146]:
+        - link "Source on GitHub" [ref=e147] [cursor=pointer]:
+          - /url: https://github.com/andrioid/gastro

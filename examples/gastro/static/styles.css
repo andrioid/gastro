@@ -415,6 +415,11 @@ h3 code {
     padding-top: 1rem;
 }
 
+/* On desktop, <summary> is hidden -- <details open> keeps nav visible */
+.docs-sidebar-toggle {
+    display: none;
+}
+
 .docs-sidebar h3 {
     font-size: 0.75rem;
     font-weight: 700;
@@ -425,7 +430,7 @@ h3 code {
     margin-top: 1.5rem;
 }
 
-.docs-sidebar h3:first-child {
+.docs-sidebar-nav h3:first-child {
     margin-top: 0;
 }
 
@@ -767,7 +772,41 @@ h3 code {
     .docs-sidebar {
         position: static;
         border-bottom: 1px solid var(--color-border);
-        padding-bottom: 1.5rem;
+        padding-bottom: 0;
+    }
+
+    .docs-sidebar-menu {
+        display: block;
+    }
+
+    .docs-sidebar-toggle {
+        display: block;
+        padding: 0.75rem 0;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--color-text);
+        cursor: pointer;
+        list-style: none;
+    }
+
+    .docs-sidebar-toggle::-webkit-details-marker {
+        display: none;
+    }
+
+    .docs-sidebar-toggle::before {
+        content: "\25B6";
+        display: inline-block;
+        margin-right: 0.5rem;
+        font-size: 0.7rem;
+        transition: transform 0.15s ease;
+    }
+
+    .docs-sidebar-menu[open] > .docs-sidebar-toggle::before {
+        transform: rotate(90deg);
+    }
+
+    .docs-sidebar-nav {
+        padding-bottom: 1rem;
     }
 
     .hero-title {

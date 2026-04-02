@@ -1,0 +1,123 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "Gastro" [ref=e4] [cursor=pointer]:
+        - /url: /
+        - img "Gastro" [ref=e5]
+      - generic [ref=e6]:
+        - link "Docs" [ref=e7] [cursor=pointer]:
+          - /url: /docs/getting-started
+        - link "Demo" [ref=e8] [cursor=pointer]:
+          - /url: /docs/demo
+        - link "GitHub" [ref=e9] [cursor=pointer]:
+          - /url: https://github.com/andrioid/gastro
+  - generic [ref=e10]:
+    - complementary [ref=e11]:
+      - heading "Documentation" [level=3] [ref=e12]
+      - list [ref=e13]:
+        - listitem [ref=e14]:
+          - link "Getting Started" [ref=e15] [cursor=pointer]:
+            - /url: /docs/getting-started
+        - listitem [ref=e16]:
+          - link "Pages & Routing" [ref=e17] [cursor=pointer]:
+            - /url: /docs/pages
+        - listitem [ref=e18]:
+          - link "Components" [ref=e19] [cursor=pointer]:
+            - /url: /docs/components
+        - listitem [ref=e20]:
+          - link "SSE & Datastar" [ref=e21] [cursor=pointer]:
+            - /url: /docs/sse
+        - listitem [ref=e22]:
+          - link "Template Helpers" [ref=e23] [cursor=pointer]:
+            - /url: /docs/helpers
+        - listitem [ref=e24]:
+          - link "Deployment" [ref=e25] [cursor=pointer]:
+            - /url: /docs/deployment
+      - heading "Examples" [level=3] [ref=e26]
+      - list [ref=e27]:
+        - listitem [ref=e28]:
+          - link "Live Demo" [ref=e29] [cursor=pointer]:
+            - /url: /docs/demo
+    - main [ref=e30]:
+      - heading "Deployment" [level=1] [ref=e31]
+      - paragraph [ref=e32]: Gastro applications compile to a single binary with embedded templates and static assets. Deploy by copying one file.
+      - heading "Building for Production" [level=2] [ref=e33]
+      - paragraph [ref=e34]: "Generate the Go code and cross-compile for your target platform:"
+      - code [ref=e37]: "# Generate Go code from .gastro files gastro generate # Cross-compile for Linux GOOS=linux GOARCH=amd64 go build -ldflags=\"-s -w\" -o dist/myapp . # Deploy the single binary scp dist/myapp server:/opt/myapp"
+      - paragraph [ref=e38]: "Or use the shorthand:"
+      - code [ref=e41]: "# Or use gastro build for generate + compile gastro build ./app"
+      - paragraph [ref=e42]:
+        - text: "The resulting binary contains everything: your Go handlers, compiled templates, and static assets from"
+        - code [ref=e43]: static/
+        - text: . No runtime dependencies.
+      - heading "Docker" [level=2] [ref=e44]
+      - paragraph [ref=e45]: "A multi-stage Dockerfile keeps the image small. The build stage compiles everything, and the runtime stage contains only the binary:"
+      - code [ref=e48]:
+        - generic [ref=e49]: FROM golang:1.26-alpine AS build
+        - generic [ref=e50]: WORKDIR /src
+        - text: "# Install the gastro CLI"
+        - generic [ref=e51]: COPY . /gastro-src
+        - generic [ref=e52]: RUN cd /gastro-src && go build -o /usr/local/bin/gastro ./cmd/gastro/
+        - text: "# Copy project files"
+        - generic [ref=e53]: COPY examples/gastro/ .
+        - text: "# Generate and build"
+        - generic [ref=e54]: RUN gastro generate
+        - generic [ref=e55]: RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /app .
+        - generic [ref=e56]: FROM alpine:3
+        - generic [ref=e57]: RUN adduser -D -u 1000 appuser
+        - generic [ref=e58]: USER appuser
+        - generic [ref=e59]:
+          - text: COPY
+          - generic [ref=e60]: "--from=build"
+          - text: /app /app
+        - generic [ref=e61]: EXPOSE 4242
+        - generic [ref=e62]: CMD ["/app"]
+      - paragraph [ref=e63]: The runtime image uses Alpine Linux with a non-root user for security. The final image is typically under 20MB.
+      - heading "Environment Variables" [level=2] [ref=e64]
+      - paragraph [ref=e65]:
+        - text: The only configuration is the
+        - code [ref=e66]: PORT
+        - text: "environment variable:"
+      - code [ref=e69]: "# Set the port via environment variable PORT=8080 ./myapp # In Docker docker run -p 8080:8080 -e PORT=8080 myapp"
+      - paragraph [ref=e70]:
+        - text: If
+        - code [ref=e71]: PORT
+        - text: is not set, the server defaults to port 4242.
+      - heading "Platform Guides" [level=2] [ref=e72]
+      - paragraph [ref=e73]: "The Docker image works with any container platform:"
+      - list [ref=e74]:
+        - listitem [ref=e75]:
+          - strong [ref=e76]: Fly.io
+          - text: —
+          - code [ref=e77]: fly launch
+          - text: auto-detects the Dockerfile
+        - listitem [ref=e78]:
+          - strong [ref=e79]: Railway
+          - text: — connect your repo, Railway builds from the Dockerfile
+        - listitem [ref=e80]:
+          - strong [ref=e81]: Google Cloud Run
+          - text: —
+          - code [ref=e82]: gcloud run deploy --source .
+        - listitem [ref=e83]:
+          - strong [ref=e84]: AWS ECS / Fargate
+          - text: — build the image and push to ECR
+        - listitem [ref=e85]:
+          - strong [ref=e86]: Any VPS
+          - text: — copy the binary directly with
+          - code [ref=e87]: scp
+      - paragraph [ref=e88]: Since Gastro builds a static binary with no runtime dependencies, you can also deploy without Docker by copying the binary to any Linux server.
+      - generic [ref=e89]:
+        - link "Previous Template Helpers" [ref=e90] [cursor=pointer]:
+          - /url: /docs/helpers
+          - generic [ref=e91]: Previous
+          - generic [ref=e92]: Template Helpers
+        - link "Next Live Demo" [ref=e93] [cursor=pointer]:
+          - /url: /docs/demo
+          - generic [ref=e94]: Next
+          - generic [ref=e95]: Live Demo
+  - contentinfo [ref=e96]:
+    - generic [ref=e97]:
+      - paragraph [ref=e98]: Built with Gastro — a file-based component framework for Go.
+      - paragraph [ref=e99]:
+        - link "Source on GitHub" [ref=e100] [cursor=pointer]:
+          - /url: https://github.com/andrioid/gastro

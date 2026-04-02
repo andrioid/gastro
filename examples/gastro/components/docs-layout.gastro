@@ -13,19 +13,29 @@ Active := p.Active
 {{ wrap Layout (dict "Title" .Title) }}
     <div class="docs-container">
         <aside class="docs-sidebar">
-            <h3>Documentation</h3>
-            <ul>
-                <li><a href="/docs/getting-started" class="{{ if eq .Active "getting-started" }}active{{ end }}">Getting Started</a></li>
-                <li><a href="/docs/pages" class="{{ if eq .Active "pages" }}active{{ end }}">Pages &amp; Routing</a></li>
-                <li><a href="/docs/components" class="{{ if eq .Active "components" }}active{{ end }}">Components</a></li>
-                <li><a href="/docs/sse" class="{{ if eq .Active "sse" }}active{{ end }}">SSE &amp; Datastar</a></li>
-                <li><a href="/docs/helpers" class="{{ if eq .Active "helpers" }}active{{ end }}">Template Helpers</a></li>
-                <li><a href="/docs/deployment" class="{{ if eq .Active "deployment" }}active{{ end }}">Deployment</a></li>
-            </ul>
-            <h3>Examples</h3>
-            <ul>
-                <li><a href="/docs/demo" class="{{ if eq .Active "demo" }}active{{ end }}">Live Demo</a></li>
-            </ul>
+            <details class="docs-sidebar-menu" open>
+                <summary class="docs-sidebar-toggle">Navigation</summary>
+                <nav class="docs-sidebar-nav">
+                    <h3>Documentation</h3>
+                    <ul>
+                        <li><a href="/docs/getting-started" class="{{ if eq .Active "getting-started" }}active{{ end }}">Getting Started</a></li>
+                        <li><a href="/docs/pages" class="{{ if eq .Active "pages" }}active{{ end }}">Pages &amp; Routing</a></li>
+                        <li><a href="/docs/components" class="{{ if eq .Active "components" }}active{{ end }}">Components</a></li>
+                        <li><a href="/docs/sse" class="{{ if eq .Active "sse" }}active{{ end }}">SSE &amp; Datastar</a></li>
+                        <li><a href="/docs/helpers" class="{{ if eq .Active "helpers" }}active{{ end }}">Template Helpers</a></li>
+                        <li><a href="/docs/deployment" class="{{ if eq .Active "deployment" }}active{{ end }}">Deployment</a></li>
+                    </ul>
+                    <h3>Examples</h3>
+                    <ul>
+                        <li><a href="/docs/demo" class="{{ if eq .Active "demo" }}active{{ end }}">Live Demo</a></li>
+                    </ul>
+                </nav>
+            </details>
+            <script>
+                if (window.matchMedia("(max-width: 900px)").matches) {
+                    document.querySelector(".docs-sidebar-menu").removeAttribute("open");
+                }
+            </script>
         </aside>
         <main class="docs-content">
             {{ .Children }}

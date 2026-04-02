@@ -93,13 +93,14 @@ The `gastro.Props()` marker is stripped (component generation is TODO).
 **Key function:** `TransformTemplate(body, uses) (string, error)`
 
 Transforms the template body:
-- `{{ render ComponentName (dict "Prop" .expr) }}` becomes `{{ __gastro_ComponentName (dict "Prop" .expr) }}`
-- `{{ wrap ComponentName (dict ...) }}...{{ end }}` becomes a template call with children
+- `{{ ComponentName (dict "Prop" .expr) }}` — bare function calls pass through unchanged
+- `{{ wrap ComponentName (dict ...) }}...{{ end }}` becomes a function call + `{{define}}` block
 - `{{ .Children }}` passes through unchanged
 - Standard `{{ }}` expressions pass through unchanged
 
-Uses iterative string processing with regex for action matching. Processes
-`render` actions first, then `wrap`/`end` actions with children.
+Uses iterative string processing with regex for `wrap` action matching.
+Leaf component calls require no transformation — they are already valid Go
+template syntax.
 
 ### `internal/router/`
 

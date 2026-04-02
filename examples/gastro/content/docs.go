@@ -140,7 +140,7 @@ Posts := posts
 ---
 {{ wrap Layout (dict "Title" "Home") }}
     {{ range .Posts }}
-    {{ render PostCard (dict "Title" .Title "Slug" .Slug) }}
+    {{ PostCard (dict "Title" .Title "Slug" .Slug) }}
     {{ end }}
 {{ end }}`
 
@@ -236,7 +236,7 @@ import (
 ctx := gastro.Context()
 ---
 {{ wrap Layout (dict "Title" "Home") }}
-    {{ render PostCard (dict "Title" "My Post" "Slug" "my-post") }}
+    {{ PostCard (dict "Title" "My Post" "Slug" "my-post") }}
 {{ end }}`
 
 const ComponentSlot = `---
@@ -263,13 +263,13 @@ const ComponentSlotUsage = `{{ wrap Layout (dict "Title" "Home") }}
 {{ end }}`
 
 const ComponentPropSyntax = `<!-- Template expression -->
-{{ render PostCard (dict "Title" .Title "Slug" .Slug) }}
+{{ PostCard (dict "Title" .Title "Slug" .Slug) }}
 
 <!-- String literal -->
-{{ render Layout (dict "Title" "About") }}
+{{ Layout (dict "Title" "About") }}
 
 <!-- Pipe expression -->
-{{ render PostCard (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
+{{ PostCard (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
 
 // SSE examples
 

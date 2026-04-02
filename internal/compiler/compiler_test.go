@@ -214,9 +214,9 @@ func TestCompile_RoutesContainsTemplateFuncMapWiring(t *testing.T) {
 	s := string(content)
 
 	// Card template uses Badge -- routes.go should wire it up
-	assertStringContains(t, s, `fm["__gastro_Badge"] = componentBadge`)
+	assertStringContains(t, s, `fm["Badge"] = componentBadge`)
 	// Page template uses Card -- routes.go should wire it up
-	assertStringContains(t, s, `fm["__gastro_Card"] = componentCard`)
+	assertStringContains(t, s, `fm["Card"] = componentCard`)
 	// Both templates with uses should get render_children wiring
 	assertStringContains(t, s, `__gastro_render_children`)
 	assertStringContains(t, s, `ExecuteTemplate`)

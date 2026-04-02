@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"text/template/parse"
 
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/parser"
@@ -200,18 +201,70 @@ func diagnoseDoubleDot(templateBody string) []Diagnostic {
 	return diags
 }
 
-// componentInvocationRegex matches {{ render X or {{ wrap X where X is PascalCase.
-var componentInvocationRegex = regexp.MustCompile(`\{\{\s*(?:render|wrap)\s+([A-Z][a-zA-Z0-9]*)`)
+// componentInvocationFallbackRegex matches bare PascalCase calls ({{ Card ...)
+// and wrap calls ({{ wrap Layout ...) for use when AST parsing fails.
+var componentInvocationFallbackRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)`)
 
-// diagnoseUnknownComponents detects {{ render X }} and {{ wrap X }} where X is not imported.
+// diagnoseUnknownComponents detects PascalCase function calls (component
+// invocations) and {{ wrap X }} blocks where X is not imported.
+//
+// Primary: walks the AST from ParseTemplateBody to find IdentifierNodes
+// that are PascalCase and not in the known components set.
+// Fallback: uses regex when the template fails to parse (common during editing).
 func diagnoseUnknownComponents(templateBody string, uses []parser.UseDeclaration) []Diagnostic {
 	knownComponents := make(map[string]bool, len(uses))
 	for _, u := range uses {
 		knownComponents[u.Name] = true
 	}
 
+	tree, err := ParseTemplateBody(templateBody, uses)
+	if err != nil {
+		return diagnoseUnknownComponentsRegex(templateBody, knownComponents)
+	}
+
+	return diagnoseUnknownComponentsAST(tree, templateBody, knownComponents)
+}
+
+// diagnoseUnknownComponentsAST walks the parse tree to find PascalCase
+// identifier nodes used as function calls that aren't known components.
+func diagnoseUnknownComponentsAST(tree *parse.Tree, templateBody string, knownComponents map[string]bool) []Diagnostic {
+	if tree == nil || tree.Root == nil {
+		return nil
+	}
+
 	var diags []Diagnostic
-	for _, idx := range componentInvocationRegex.FindAllStringSubmatchIndex(templateBody, -1) {
+	walkNodes(tree.Root.Nodes, func(node parse.Node) {
+		cmd, ok := node.(*parse.CommandNode)
+		if !ok || len(cmd.Args) == 0 {
+			return
+		}
+		ident, ok := cmd.Args[0].(*parse.IdentifierNode)
+		if !ok {
+			return
+		}
+		name := ident.Ident
+		if !isPascalCase(name) || knownComponents[name] {
+			return
+		}
+		offset := int(ident.Position())
+		startLine, startChar := OffsetToLineChar(templateBody, offset)
+		endLine, endChar := OffsetToLineChar(templateBody, offset+len(name))
+		diags = append(diags, Diagnostic{
+			StartLine: startLine,
+			StartChar: startChar,
+			EndLine:   endLine,
+			EndChar:   endChar,
+			Message:   fmt.Sprintf("unknown component %q: not imported", name),
+		})
+	})
+	return diags
+}
+
+// diagnoseUnknownComponentsRegex is the fallback for when the AST can't be
+// parsed (e.g. during editing). Uses regex to find PascalCase calls.
+func diagnoseUnknownComponentsRegex(templateBody string, knownComponents map[string]bool) []Diagnostic {
+	var diags []Diagnostic
+	for _, idx := range componentInvocationFallbackRegex.FindAllStringSubmatchIndex(templateBody, -1) {
 		compName := templateBody[idx[2]:idx[3]]
 		if !knownComponents[compName] {
 			startLine, startChar := OffsetToLineChar(templateBody, idx[2])
@@ -226,6 +279,51 @@ func diagnoseUnknownComponents(templateBody string, uses []parser.UseDeclaration
 		}
 	}
 	return diags
+}
+
+// isPascalCase returns true if the string starts with an uppercase letter.
+func isPascalCase(s string) bool {
+	return len(s) > 0 && s[0] >= 'A' && s[0] <= 'Z'
+}
+
+// walkNodes recursively visits all nodes in a parse tree, calling fn for each.
+func walkNodes(nodes []parse.Node, fn func(parse.Node)) {
+	for _, node := range nodes {
+		fn(node)
+		switch n := node.(type) {
+		case *parse.ListNode:
+			if n != nil {
+				walkNodes(n.Nodes, fn)
+			}
+		case *parse.IfNode:
+			walkNodes(n.List.Nodes, fn)
+			if n.ElseList != nil {
+				walkNodes(n.ElseList.Nodes, fn)
+			}
+		case *parse.RangeNode:
+			walkNodes(n.List.Nodes, fn)
+			if n.ElseList != nil {
+				walkNodes(n.ElseList.Nodes, fn)
+			}
+		case *parse.WithNode:
+			walkNodes(n.List.Nodes, fn)
+			if n.ElseList != nil {
+				walkNodes(n.ElseList.Nodes, fn)
+			}
+		case *parse.ActionNode:
+			if n.Pipe != nil {
+				for _, cmd := range n.Pipe.Cmds {
+					fn(cmd)
+				}
+			}
+		case *parse.PipeNode:
+			for _, cmd := range n.Cmds {
+				fn(cmd)
+			}
+		case *parse.TemplateNode:
+			// {{template}} nodes don't have child nodes to walk
+		}
+	}
 }
 
 // ResolveComponentProps reads a component .gastro file and extracts its Props
@@ -264,9 +362,9 @@ func ResolveComponentProps(projectDir, componentPath string, openDocs map[string
 	return fields, nil
 }
 
-// componentCallRegex matches {{ render X (dict "Key" ...) }} or {{ wrap X (dict "Key" ...) }}
+// componentCallRegex matches {{ X (dict "Key" ...) }} or {{ wrap X (dict "Key" ...) }}
 // and captures the component name and the dict arguments.
-var componentCallRegex = regexp.MustCompile(`\{\{\s*(?:render|wrap)\s+([A-Z][a-zA-Z0-9]*)\s+\(dict\b([^)]*)\)`)
+var componentCallRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)\s+\(dict\b([^)]*)\)`)
 
 // dictKeyRegex matches string keys inside a dict call: "KeyName"
 var dictKeyRegex = regexp.MustCompile(`"([A-Z][a-zA-Z0-9]*)"`)
@@ -354,12 +452,12 @@ type ComponentTagContext struct {
 	ExistingProps []string // prop names already specified on the tag
 }
 
-// unclosedComponentCallRegex matches {{ render X (dict ... or {{ wrap X (dict ...
+// unclosedComponentCallRegex matches {{ X (dict ... or {{ wrap X (dict ...
 // without a closing }} — indicating the cursor is inside the component call.
-var unclosedComponentCallRegex = regexp.MustCompile(`\{\{\s*(?:render|wrap)\s+([A-Z][a-zA-Z0-9]*)\s+\(dict\b([^)]*?)$`)
+var unclosedComponentCallRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)\s+\(dict\b([^)]*?)$`)
 
 // DetectComponentTagContext determines if the cursor (given as a byte offset
-// in the template body) is inside a component call ({{ render X (dict ...) }}
+// in the template body) is inside a component call ({{ X (dict ...) }}
 // or {{ wrap X (dict ...) }}). Returns nil if the cursor is not inside one.
 func DetectComponentTagContext(templateBody string, cursorOffset int, uses []parser.UseDeclaration) *ComponentTagContext {
 	if cursorOffset < 0 || cursorOffset > len(templateBody) {
@@ -414,7 +512,7 @@ func DetectPropValueContext(templateBody string, cursorOffset int) *PropValueCon
 
 	text := templateBody[:cursorOffset]
 
-	// Check if we're inside a component call ({{ render/wrap X (dict ... )
+	// Check if we're inside a component call ({{ X (dict ... ) or {{ wrap X (dict ... )
 	if !unclosedComponentCallRegex.MatchString(text) {
 		return nil
 	}

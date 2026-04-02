@@ -1,0 +1,102 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "Gastro" [ref=e4] [cursor=pointer]:
+        - /url: /
+        - img "Gastro" [ref=e5]
+      - generic [ref=e6]:
+        - link "Docs" [ref=e7] [cursor=pointer]:
+          - /url: /docs/getting-started
+        - link "Demo" [ref=e8] [cursor=pointer]:
+          - /url: /docs/demo
+        - link "GitHub" [ref=e9] [cursor=pointer]:
+          - /url: https://github.com/andrioid/gastro
+  - generic [ref=e10]:
+    - complementary [ref=e11]:
+      - group
+    - main [ref=e12]:
+      - heading "Getting Started" [level=1] [ref=e13]
+      - paragraph [ref=e14]: Set up your first Gastro project in under a minute. You'll need Go 1.26+ installed.
+      - heading "Install the CLI" [level=2] [ref=e15]
+      - paragraph [ref=e16]:
+        - text: Build the
+        - code [ref=e17]: gastro
+        - text: CLI from source. If you use
+        - link "mise" [ref=e18] [cursor=pointer]:
+          - /url: https://mise.jdx.dev/
+        - text: ", it will manage your Go toolchain automatically."
+      - code [ref=e21]: "# Build the gastro CLI from source go build -o gastro ./cmd/gastro/ # Or with mise (managed tooling) mise install"
+      - heading "Project Structure" [level=2] [ref=e22]
+      - paragraph [ref=e23]: "A Gastro project has a simple, opinionated layout:"
+      - code [ref=e26]: myapp/ pages/ index.gastro static/ styles.css main.go go.mod
+      - list [ref=e27]:
+        - listitem [ref=e28]:
+          - strong [ref=e29]: pages/
+          - text: —
+          - code [ref=e30]: .gastro
+          - text: files that become HTTP routes
+        - listitem [ref=e31]:
+          - strong [ref=e32]: components/
+          - text: — reusable
+          - code [ref=e33]: .gastro
+          - text: components
+        - listitem [ref=e34]:
+          - strong [ref=e35]: static/
+          - text: — CSS, images, and other static files served at
+          - code [ref=e36]: /static/
+        - listitem [ref=e37]:
+          - strong [ref=e38]: main.go
+          - text: — your application entry point
+      - heading "Your First Page" [level=2] [ref=e39]
+      - paragraph [ref=e40]:
+        - text: Create
+        - code [ref=e41]: pages/index.gastro
+        - text: . The code between
+        - code [ref=e42]: "---"
+        - text: delimiters is Go frontmatter that runs on the server. The HTML below is rendered with Go's
+        - code [ref=e43]: html/template
+        - text: .
+      - code [ref=e46]: "--- import \"time\" Title := \"Hello, Gastro\" Year := time.Now().Year() --- <!DOCTYPE html> <html> <head><title>{{ .Title }}</title></head> <body> <h1>{{ .Title }}</h1> <p>Copyright {{ .Year }}</p> </body> </html>"
+      - paragraph [ref=e47]:
+        - text: Uppercase variables like
+        - code [ref=e48]: Title
+        - text: and
+        - code [ref=e49]: Year
+        - text: are automatically exported to the template as
+        - code [ref=e50]: "{{ .Title }}"
+        - text: and
+        - code [ref=e51]: "{{ .Year }}"
+        - text: . Lowercase variables stay private.
+      - heading "Entry Point" [level=2] [ref=e52]
+      - paragraph [ref=e53]:
+        - text: Create
+        - code [ref=e54]: main.go
+        - text: "that imports the generated code and starts the server:"
+      - code [ref=e57]: "package main import ( \"fmt\" \"net/http\" \"os\" gastro \"myapp/.gastro\" ) func main() { port := os.Getenv(\"PORT\") if port == \"\" { port = \"4242\" } fmt.Printf(\"Listening on http://localhost:%s\\n\", port) http.ListenAndServe(\":\"+port, gastro.Routes()) }"
+      - paragraph [ref=e58]:
+        - text: The
+        - code [ref=e59]: .gastro/
+        - text: directory contains generated Go code. Import it as a package with any alias you like.
+      - heading "Build & Run" [level=2] [ref=e60]
+      - code [ref=e63]: "# Generate Go code from .gastro files gastro generate # Build the binary go build -o myapp . # Run ./myapp"
+      - paragraph [ref=e64]:
+        - text: Open
+        - link "http://localhost:4242" [ref=e65] [cursor=pointer]:
+          - /url: http://localhost:4242
+        - text: to see your page.
+      - heading "Development Mode" [level=2] [ref=e66]
+      - paragraph [ref=e67]:
+        - text: For development, use the
+        - code [ref=e68]: gastro dev
+        - text: command. It watches for file changes, regenerates code, and restarts the server automatically. Template changes are hot-reloaded without a restart.
+      - code [ref=e71]: "# Watches for changes, rebuilds, restarts server gastro dev"
+      - link "Next Pages & Routing" [ref=e73] [cursor=pointer]:
+        - /url: /docs/pages
+        - generic [ref=e74]: Next
+        - generic [ref=e75]: Pages & Routing
+  - contentinfo [ref=e76]:
+    - generic [ref=e77]:
+      - paragraph [ref=e78]: Built with Gastro — a file-based component framework for Go.
+      - paragraph [ref=e79]:
+        - link "Source on GitHub" [ref=e80] [cursor=pointer]:
+          - /url: https://github.com/andrioid/gastro

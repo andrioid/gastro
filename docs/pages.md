@@ -99,7 +99,7 @@ Posts := posts
 ---
 {{ wrap Layout (dict "Title" "Home") }}
     {{ range .Posts }}
-    {{ render PostCard (dict "Title" .Title "Slug" .Slug) }}
+    {{ PostCard (dict "Title" .Title "Slug" .Slug) }}
     {{ end }}
 {{ end }}
 ```

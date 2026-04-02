@@ -8,9 +8,6 @@ import (
 	"github.com/andrioid/gastro/internal/parser"
 )
 
-// renderRegex matches {{ render ComponentName ... }} where ComponentName is PascalCase.
-var renderRegex = regexp.MustCompile(`\{\{\s*render\s+([A-Z][a-zA-Z0-9]*)(\s*)`)
-
 // wrapRegex matches {{ wrap ComponentName ... }} where ComponentName is PascalCase.
 var wrapRegex = regexp.MustCompile(`\{\{\s*wrap\s+([A-Z][a-zA-Z0-9]*)(\s*)`)
 
@@ -24,7 +21,7 @@ var commentRegex = regexp.MustCompile(`\{\{/\*[\s\S]*?\*/\}\}`)
 const commentPlaceholder = "\x00__GASTRO_COMMENT_"
 
 // extractComments removes Go template comments from the body, replacing them
-// with null-byte-delimited placeholders. This prevents the render/wrap regexes
+// with null-byte-delimited placeholders. This prevents the wrap regex
 // from matching inside comments.
 func extractComments(body string) (string, []string) {
 	var comments []string
@@ -44,10 +41,13 @@ func restoreComments(body string, comments []string) string {
 }
 
 // TransformTemplate transforms the template body:
-//   - {{ render ComponentName (dict ...) }} → {{ __gastro_ComponentName (dict ...) }}
 //   - {{ wrap ComponentName (dict ...) }}...{{ end }} → function call + {{define}} block
 //
-// Component names must be imported via UseDeclaration. Unknown components produce errors.
+// Leaf components use bare function calls ({{ Card (dict ...) }}) which are already
+// valid Go template syntax and pass through unchanged.
+//
+// Component names must be imported via UseDeclaration. Unknown components in wrap
+// blocks produce errors.
 func TransformTemplate(body string, uses []parser.UseDeclaration) (string, error) {
 	known := make(map[string]bool, len(uses))
 	for _, u := range uses {
@@ -62,13 +62,8 @@ func TransformTemplate(body string, uses []parser.UseDeclaration) (string, error
 	// Extract comments to prevent regexes from matching inside them
 	body, comments := extractComments(body)
 
-	// Transform {{ render X ... }} calls (leaf components)
-	result, err := transformRender(body, known)
-	if err != nil {
-		return "", err
-	}
-
 	// Transform {{ wrap X ... }}...{{ end }} blocks (components with children)
+	result := body
 	childIdx := 0
 	for {
 		newResult, changed, wrapErr := transformOneWrap(result, known, &childIdx)
@@ -85,29 +80,6 @@ func TransformTemplate(body string, uses []parser.UseDeclaration) (string, error
 	result = restoreComments(result, comments)
 
 	return result, nil
-}
-
-// transformRender replaces all {{ render X ... }} with {{ __gastro_X ... }}.
-func transformRender(body string, known map[string]bool) (string, error) {
-	var replaceErr error
-
-	result := renderRegex.ReplaceAllStringFunc(body, func(match string) string {
-		if replaceErr != nil {
-			return match
-		}
-
-		groups := renderRegex.FindStringSubmatch(match)
-		name := groups[1]
-
-		if !known[name] {
-			replaceErr = fmt.Errorf("unknown component %q in {{ render }}: not imported", name)
-			return match
-		}
-
-		return strings.Replace(match, "render "+name, "__gastro_"+name, 1)
-	})
-
-	return result, replaceErr
 }
 
 // transformOneWrap finds the first {{ wrap X ... }} block, extracts its children,
@@ -160,7 +132,7 @@ func transformOneWrap(body string, known map[string]bool, childIdx *int) (string
 	}
 
 	replacement := fmt.Sprintf(
-		`{{ __gastro_%s (%s "__children" (__gastro_render_children "%s" .)) }}`,
+		`{{ %s (%s "__children" (__gastro_render_children "%s" .)) }}`,
 		name, dictInner, childTemplateName,
 	)
 
@@ -317,7 +289,7 @@ func isWordChar(c byte) bool {
 func detectOldSyntax(body string, known map[string]bool) error {
 	m := oldPropSyntaxRegex.FindStringSubmatch(body)
 	if m != nil {
-		return fmt.Errorf("found old component syntax (e.g. %s): use {{ render X (dict ...) }} or {{ wrap X (dict ...) }}...{{ end }} instead", m[0])
+		return fmt.Errorf("found old component syntax (e.g. %s): use {{ X (dict ...) }} or {{ wrap X (dict ...) }}...{{ end }} instead", m[0])
 	}
 
 	return nil

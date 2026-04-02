@@ -58,8 +58,8 @@ func TestParseTemplateBody_WithCustomFunctions(t *testing.T) {
 }
 
 func TestParseTemplateBody_WithComponentFunctions(t *testing.T) {
-	// After TransformTemplate, component tags become __gastro_<Name> calls
-	body := `{{ __gastro_Card (dict "Title" .Name) }}`
+	// Components use bare PascalCase function calls
+	body := `{{ Card (dict "Title" .Name) }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}

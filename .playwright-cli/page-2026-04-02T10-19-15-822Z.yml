@@ -1,0 +1,158 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "Gastro" [ref=e4] [cursor=pointer]:
+        - /url: /
+        - img "Gastro" [ref=e5]
+      - generic [ref=e6]:
+        - link "Docs" [ref=e7] [cursor=pointer]:
+          - /url: /docs/getting-started
+        - link "Demo" [ref=e8] [cursor=pointer]:
+          - /url: /docs/demo
+        - link "GitHub" [ref=e9] [cursor=pointer]:
+          - /url: https://github.com/andrioid/gastro
+  - generic [ref=e10]:
+    - complementary [ref=e11]:
+      - heading "Documentation" [level=3] [ref=e12]
+      - list [ref=e13]:
+        - listitem [ref=e14]:
+          - link "Getting Started" [ref=e15] [cursor=pointer]:
+            - /url: /docs/getting-started
+        - listitem [ref=e16]:
+          - link "Pages & Routing" [ref=e17] [cursor=pointer]:
+            - /url: /docs/pages
+        - listitem [ref=e18]:
+          - link "Components" [ref=e19] [cursor=pointer]:
+            - /url: /docs/components
+        - listitem [ref=e20]:
+          - link "SSE & Datastar" [ref=e21] [cursor=pointer]:
+            - /url: /docs/sse
+        - listitem [ref=e22]:
+          - link "Template Helpers" [ref=e23] [cursor=pointer]:
+            - /url: /docs/helpers
+        - listitem [ref=e24]:
+          - link "Deployment" [ref=e25] [cursor=pointer]:
+            - /url: /docs/deployment
+      - heading "Examples" [level=3] [ref=e26]
+      - list [ref=e27]:
+        - listitem [ref=e28]:
+          - link "Live Demo" [ref=e29] [cursor=pointer]:
+            - /url: /docs/demo
+    - main [ref=e30]:
+      - heading "SSE & Datastar" [level=1] [ref=e31]
+      - paragraph [ref=e32]:
+        - text: Gastro provides a lightweight SSE helper for streaming events from the server to the browser, enabling real-time UI updates with
+        - link "Datastar" [ref=e33] [cursor=pointer]:
+          - /url: https://data-star.dev/
+        - text: and
+        - link "HTMX" [ref=e34] [cursor=pointer]:
+          - /url: https://htmx.org/
+        - text: .
+      - heading "How It Works" [level=2] [ref=e35]
+      - list [ref=e36]:
+        - listitem [ref=e37]: A Gastro page renders the initial HTML (as usual)
+        - listitem [ref=e38]: Client-side attributes open an SSE connection to an API endpoint
+        - listitem [ref=e39]: Your Go handler writes SSE events that patch the DOM
+      - paragraph [ref=e40]:
+        - text: SSE endpoints are plain Go HTTP handlers — no compiler changes needed. Register them alongside Gastro routes in your
+        - code [ref=e41]: main.go
+        - text: .
+      - heading "Generic SSE" [level=2] [ref=e42]
+      - paragraph [ref=e43]:
+        - text: The core SSE helper in
+        - code [ref=e44]: pkg/gastro
+        - text: is framework-agnostic. It works with any client that consumes
+        - code [ref=e45]: text/event-stream
+        - text: ":"
+      - code [ref=e48]: "func handleUpdates(w http.ResponseWriter, r *http.Request) { sse := gastro.NewSSE(w, r) ticker := time.NewTicker(1 * time.Second) defer ticker.Stop() for { select { case <-sse.Context().Done(): return case <-ticker.C: now := time.Now().Format(\"15:04:05\") sse.Send(\"time\", now) } } }"
+      - paragraph [ref=e49]: "Methods available on the SSE helper:"
+      - list [ref=e50]:
+        - listitem [ref=e51]:
+          - strong [ref=e52]:
+            - code [ref=e53]: Send(eventType, data ...string)
+          - text: — writes and flushes a single SSE event
+        - listitem [ref=e54]:
+          - strong [ref=e55]:
+            - code [ref=e56]: IsClosed()
+          - text: — reports whether the client disconnected
+        - listitem [ref=e57]:
+          - strong [ref=e58]:
+            - code [ref=e59]: Context()
+          - text: — returns the request context for
+          - code [ref=e60]: select
+          - text: loops
+      - heading "Datastar Integration" [level=2] [ref=e61]
+      - paragraph [ref=e62]:
+        - text: The
+        - code [ref=e63]: pkg/gastro/datastar
+        - text: "subpackage formats events using Datastar's SSE protocol:"
+      - code [ref=e66]: "var count atomic.Int64 func handleIncrement(w http.ResponseWriter, r *http.Request) { n := count.Add(1) html, err := gastro.Render.Counter( gastro.CounterProps{Count: int(n)}, ) if err != nil { http.Error(w, err.Error(), 500) return } sse := datastar.NewSSE(w, r) sse.PatchElements(html) }"
+      - heading "Datastar Page" [level=3] [ref=e67]
+      - paragraph [ref=e68]:
+        - text: Add Datastar attributes to your
+        - code [ref=e69]: .gastro
+        - text: "pages to trigger SSE connections:"
+      - code [ref=e72]: "--- import Layout \"components/layout.gastro\" Title := \"Counter\" --- {{ wrap Layout (dict \"Title\" .Title) }} <div id=\"count\">0</div> <button data-on:click=\"@get('/api/increment')\">+1</button> {{ end }}"
+      - heading "Patch Options" [level=3] [ref=e73]
+      - paragraph [ref=e74]: "Datastar supports selectors, patch modes, and signal patching:"
+      - code [ref=e77]: "sse.PatchElements(html, datastar.WithSelector(\"#dashboard\"), datastar.WithMode(datastar.ModeInner), ) sse.PatchSignals(map[string]any{ \"count\": 42, \"loading\": false, }) sse.RemoveElement(\"#toast-1\")"
+      - heading "Wiring It Up" [level=2] [ref=e78]
+      - paragraph [ref=e79]:
+        - text: Create a top-level
+        - code [ref=e80]: http.ServeMux
+        - text: "and mount both API routes and Gastro page routes:"
+      - code [ref=e83]: "func main() { mux := http.NewServeMux() // API/SSE endpoints first mux.HandleFunc(\"GET /api/increment\", handleIncrement) mux.HandleFunc(\"GET /api/clock\", handleClock) // Gastro page routes (catch-all) mux.Handle(\"/\", gastro.Routes()) http.ListenAndServe(\":4242\", mux) }"
+      - heading "Type-Safe Rendering" [level=2] [ref=e84]
+      - paragraph [ref=e85]:
+        - text: The compiler generates a
+        - code [ref=e86]: Render
+        - text: "API for calling Gastro components from SSE handlers with full type safety:"
+      - code [ref=e89]: "// Each component gets a typed Render method html, err := gastro.Render.Counter( gastro.CounterProps{Count: 42}, ) // Components with slots accept optional children inner, _ := gastro.Render.Counter( gastro.CounterProps{Count: 42}, ) full, _ := gastro.Render.Layout( gastro.LayoutProps{Title: \"Dashboard\"}, template.HTML(inner), )"
+      - table [ref=e90]:
+        - rowgroup [ref=e91]:
+          - row "What Safety" [ref=e92]:
+            - columnheader "What" [ref=e93]
+            - columnheader "Safety" [ref=e94]
+        - rowgroup [ref=e95]:
+          - row "Method name Compile-time — method exists or doesn't" [ref=e96]:
+            - cell "Method name" [ref=e97]
+            - cell "Compile-time — method exists or doesn't" [ref=e98]
+          - row "Props fields Compile-time — struct fields checked by Go" [ref=e99]:
+            - cell "Props fields" [ref=e100]
+            - cell "Compile-time — struct fields checked by Go" [ref=e101]
+          - row "Props types Compile-time — Go type system" [ref=e102]:
+            - cell "Props types" [ref=e103]
+            - cell "Compile-time — Go type system" [ref=e104]
+      - heading "Design Notes" [level=2] [ref=e105]
+      - list [ref=e106]:
+        - listitem [ref=e107]:
+          - strong [ref=e108]: No external dependencies.
+          - text: The SSE protocol is ~90 lines of Go.
+        - listitem [ref=e109]:
+          - strong [ref=e110]: Two layers.
+          - text: Generic
+          - code [ref=e111]: pkg/gastro
+          - text: works with any SSE client.
+          - code [ref=e112]: pkg/gastro/datastar
+          - text: adds Datastar-specific formatting.
+        - listitem [ref=e113]:
+          - strong [ref=e114]: Render wraps internal functions.
+          - text: Each method calls the internal component function, preserving all frontmatter logic.
+      - paragraph [ref=e115]:
+        - link "Try the live SSE demo →" [ref=e116] [cursor=pointer]:
+          - /url: /docs/demo
+      - generic [ref=e117]:
+        - link "Previous Components" [ref=e118] [cursor=pointer]:
+          - /url: /docs/components
+          - generic [ref=e119]: Previous
+          - generic [ref=e120]: Components
+        - link "Next Template Helpers" [ref=e121] [cursor=pointer]:
+          - /url: /docs/helpers
+          - generic [ref=e122]: Next
+          - generic [ref=e123]: Template Helpers
+  - contentinfo [ref=e124]:
+    - generic [ref=e125]:
+      - paragraph [ref=e126]: Built with Gastro — a file-based component framework for Go.
+      - paragraph [ref=e127]:
+        - link "Source on GitHub" [ref=e128] [cursor=pointer]:
+          - /url: https://github.com/andrioid/gastro

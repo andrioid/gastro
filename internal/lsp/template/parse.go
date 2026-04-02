@@ -51,15 +51,14 @@ func buildStubFuncMap(uses []gastroparser.UseDeclaration) map[string]any {
 		stubFuncs[name] = ""
 	}
 
+	// Components are registered under their PascalCase names (bare function calls).
 	for _, u := range uses {
-		stubFuncs["__gastro_"+u.Name] = ""
+		stubFuncs[u.Name] = ""
 	}
 	stubFuncs["__gastro_render_children"] = ""
 
-	// render and wrap are compile-time keywords that appear in untransformed
-	// templates. The LSP parses raw templates, so these must be in the FuncMap
-	// for parsing to succeed.
-	stubFuncs["render"] = ""
+	// wrap is a compile-time keyword that appears in untransformed templates.
+	// The LSP parses raw templates, so it must be in the FuncMap for parsing.
 	stubFuncs["wrap"] = ""
 
 	return stubFuncs

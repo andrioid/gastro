@@ -29,11 +29,11 @@ PageCode := content.SSEDatastarPage
 
         <h3>The SSE Handler</h3>
         <p>This Go handler runs on the server. It uses <code>gastro.Render.Counter()</code> to render the component with the new count, then sends it as a Datastar patch event:</p>
-        {{ render CodeBlock (dict "Code" .HandlerCode "Language" "go") }}
+        {{ CodeBlock (dict "Code" .HandlerCode "Language" "go") }}
 
         <h3>The Page</h3>
         <p>The page uses Datastar's <code>data-on:click</code> attribute to trigger the SSE request. No custom JavaScript needed:</p>
-        {{ render CodeBlock (dict "Code" .PageCode "Language" "go") }}
+        {{ CodeBlock (dict "Code" .PageCode "Language" "go") }}
 
         <p>This pattern works for any real-time UI: dashboards, notifications, live feeds, collaborative editing, and more. See the <a href="/docs/sse">SSE &amp; Datastar docs</a> for the full API.</p>
     </div>

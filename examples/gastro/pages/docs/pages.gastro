@@ -23,12 +23,12 @@ Header := content.PagesContextHeader
 
     <h2>File Format</h2>
     <p>A page has two sections separated by <code>---</code> delimiters: Go frontmatter and an HTML template body.</p>
-    {{ render CodeBlock (dict "Code" .BasicPage "Language" "go") }}
+    {{ CodeBlock (dict "Code" .BasicPage "Language" "go") }}
     <p>Call <code>gastro.Context()</code> in the frontmatter to mark the file as a page and get access to the HTTP request.</p>
 
     <h2>Static Pages</h2>
     <p>Pages that don't need request access can omit <code>gastro.Context()</code>. These are static pages that only use component imports and exported variables:</p>
-    {{ render CodeBlock (dict "Code" .StaticPage "Language" "go") }}
+    {{ CodeBlock (dict "Code" .StaticPage "Language" "go") }}
 
     <h2>Data Flow</h2>
     <p>Variables follow Go's export convention:</p>
@@ -36,11 +36,11 @@ Header := content.PagesContextHeader
         <li><strong>Uppercase</strong> variables (<code>Title</code>, <code>Posts</code>) are exported to the template</li>
         <li><strong>Lowercase</strong> variables (<code>err</code>, <code>slug</code>) are private to the frontmatter</li>
     </ul>
-    {{ render CodeBlock (dict "Code" .DataFlow "Language" "go") }}
+    {{ CodeBlock (dict "Code" .DataFlow "Language" "go") }}
 
     <h2>Imports</h2>
     <p>Use Go <code>import</code> for both packages and components. Component imports are distinguished by the <code>.gastro</code> file extension:</p>
-    {{ render CodeBlock (dict "Code" .Imports "Language" "go") }}
+    {{ CodeBlock (dict "Code" .Imports "Language" "go") }}
 
     <h2>File-Based Routing</h2>
     <p>Page files map to HTTP routes automatically:</p>
@@ -59,20 +59,20 @@ Header := content.PagesContextHeader
 
     <h2>Dynamic Routes</h2>
     <p>Access URL parameters with <code>ctx.Param()</code>:</p>
-    {{ render CodeBlock (dict "Code" .DynamicRoute "Language" "go") }}
+    {{ CodeBlock (dict "Code" .DynamicRoute "Language" "go") }}
 
     <h2>Context API</h2>
     <p><code>gastro.Context()</code> returns a <code>*Context</code> with methods for request handling:</p>
 
     <h3>Query Parameters</h3>
-    {{ render CodeBlock (dict "Code" .Query "Language" "go") }}
+    {{ CodeBlock (dict "Code" .Query "Language" "go") }}
 
     <h3>Redirects</h3>
     <p>Always call <code>return</code> after a redirect to prevent the template from rendering:</p>
-    {{ render CodeBlock (dict "Code" .Redirect "Language" "go") }}
+    {{ CodeBlock (dict "Code" .Redirect "Language" "go") }}
 
     <h3>Response Headers</h3>
-    {{ render CodeBlock (dict "Code" .Header "Language" "go") }}
+    {{ CodeBlock (dict "Code" .Header "Language" "go") }}
 
     <h2>Error Handling</h2>
     <p>Two layers protect your application:</p>
