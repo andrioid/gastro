@@ -1170,7 +1170,7 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	}
 
 	// Check if cursor is inside a component tag — if so, offer prop completions
-	tagCtx := lsptemplate.DetectComponentTagContext(parsed.TemplateBody, cursorOffset, parsed.Uses)
+	tagCtx := lsptemplate.DetectComponentTagContext(parsed.TemplateBody, cursorOffset, parsed.Uses, tree)
 	if tagCtx != nil {
 		// Resolve the component's Props fields
 		compPath := ""

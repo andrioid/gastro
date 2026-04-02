@@ -10,9 +10,10 @@ COPY pkg/ pkg/
 # Build the gastro CLI
 RUN go build -o /usr/local/bin/gastro ./cmd/gastro/
 
-# Copy the website example
-WORKDIR /app
-COPY examples/gastro/ .
+# Copy the website example into a path where the replace directive
+# (replace github.com/andrioid/gastro => ../..) resolves to /src
+COPY examples/gastro/ /src/examples/gastro/
+WORKDIR /src/examples/gastro
 
 # Generate Go code from .gastro files and build the binary
 RUN gastro generate

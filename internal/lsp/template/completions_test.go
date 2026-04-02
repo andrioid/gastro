@@ -1,10 +1,12 @@
 package template_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"text/template/parse"
 
 	"github.com/andrioid/gastro/internal/codegen"
 	lsptemplate "github.com/andrioid/gastro/internal/lsp/template"
@@ -465,6 +467,13 @@ Title := gastro.Props().Title
 	}
 }
 
+// parseForTest is a test helper that parses a template body into an AST.
+// Returns nil tree on parse failure (which exercises the regex fallback path).
+func parseForTest(body string, uses []parser.UseDeclaration) *parse.Tree {
+	tree, _ := lsptemplate.ParseTemplateBody(body, uses)
+	return tree
+}
+
 func TestDiagnoseComponentProps_UnknownProp(t *testing.T) {
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
@@ -477,7 +486,8 @@ func TestDiagnoseComponentProps_UnknownProp(t *testing.T) {
 	}
 
 	templateBody := `{{ Card (dict "Title" .Name "Bogus" .X) }}`
-	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
 
 	found := false
 	for _, d := range diags {
@@ -506,7 +516,8 @@ func TestDiagnoseComponentProps_MissingProp(t *testing.T) {
 	}
 
 	templateBody := `{{ Card (dict "Title" .Name) }}`
-	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
 
 	found := false
 	for _, d := range diags {
@@ -530,7 +541,8 @@ func TestDiagnoseComponentProps_NoPropsStruct(t *testing.T) {
 	propsMap := map[string][]codegen.StructField{}
 
 	templateBody := `{{ Simple (dict) }}`
-	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
 
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics for component without Props, got: %v", diags)
@@ -551,12 +563,163 @@ func TestDiagnoseComponentProps_WithChildren(t *testing.T) {
 <p>child content</p>
 {{ end }}`
 
-	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
 
 	for _, d := range diags {
 		if strings.Contains(d.Message, "unknown prop") {
 			t.Errorf("unexpected unknown prop diagnostic: %s", d.Message)
 		}
+	}
+}
+
+func TestDiagnoseComponentProps_BareCall(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "KpiCard", Path: "components/kpi-card.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"KpiCard": {
+			{Name: "X", Type: "int"},
+			{Name: "Value", Type: "string"},
+			{Name: "Label", Type: "string"},
+		},
+	}
+
+	templateBody := `{{ KpiCard }}`
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
+
+	missingProps := make(map[string]bool)
+	for _, d := range diags {
+		if strings.Contains(d.Message, "missing prop") {
+			for _, f := range []string{"X", "Value", "Label"} {
+				if strings.Contains(d.Message, fmt.Sprintf("%q", f)) {
+					missingProps[f] = true
+				}
+			}
+			if d.Severity != 2 {
+				t.Errorf("expected severity 2 (Warning), got %d for: %s", d.Severity, d.Message)
+			}
+		}
+	}
+
+	for _, f := range []string{"X", "Value", "Label"} {
+		if !missingProps[f] {
+			t.Errorf("expected missing prop warning for %q, got diagnostics: %v", f, diags)
+		}
+	}
+}
+
+func TestDiagnoseComponentProps_NestedParens(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Card": {
+			{Name: "Date", Type: "string"},
+			{Name: "Title", Type: "string"},
+		},
+	}
+
+	templateBody := `{{ Card (dict "Date" (.CreatedAt | timeFormat "Jan") "Title" .Name) }}`
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
+
+	// Should not have any unknown prop errors
+	for _, d := range diags {
+		if strings.Contains(d.Message, "unknown prop") {
+			t.Errorf("unexpected unknown prop diagnostic: %s", d.Message)
+		}
+	}
+	// Should not have missing prop warnings since both are provided
+	for _, d := range diags {
+		if strings.Contains(d.Message, "missing prop") {
+			t.Errorf("unexpected missing prop diagnostic: %s", d.Message)
+		}
+	}
+}
+
+func TestDetectComponentTagContext(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+
+	tests := []struct {
+		name      string
+		input     string // | marks cursor position
+		wantNil   bool
+		wantComp  string
+		wantProps []string
+	}{
+		{
+			name:      "inside dict with existing prop",
+			input:     `{{ Card (dict "Title" .Name |`,
+			wantComp:  "Card",
+			wantProps: []string{"Title"},
+		},
+		{
+			name:     "bare component call with cursor after name",
+			input:    `{{ Card |`,
+			wantComp: "Card",
+		},
+		{
+			name:      "wrap call inside dict",
+			input:     `{{ wrap Layout (dict "Title" .T |`,
+			wantComp:  "Layout",
+			wantProps: []string{"Title"},
+		},
+		{
+			name:    "cursor outside component call",
+			input:   `<p>hello|</p>`,
+			wantNil: true,
+		},
+		{
+			name:    "cursor after closed component call",
+			input:   `{{ Card (dict "Title" .Title) }}|`,
+			wantNil: true,
+		},
+		{
+			name:    "unknown component",
+			input:   `{{ Unknown (dict |`,
+			wantNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := strings.LastIndex(tt.input, "|")
+			templateBody := tt.input[:idx] + tt.input[idx+1:]
+			cursorOffset := idx
+
+			// Test regex fallback path (tree=nil, simulating parse failure during editing)
+			got := lsptemplate.DetectComponentTagContext(templateBody, cursorOffset, uses, nil)
+
+			if tt.wantNil {
+				if got != nil {
+					t.Errorf("expected nil, got %+v", got)
+				}
+				return
+			}
+
+			if got == nil {
+				t.Fatal("expected non-nil ComponentTagContext, got nil")
+			}
+
+			if got.ComponentName != tt.wantComp {
+				t.Errorf("ComponentName: got %q, want %q", got.ComponentName, tt.wantComp)
+			}
+
+			if len(got.ExistingProps) != len(tt.wantProps) {
+				t.Errorf("ExistingProps: got %v, want %v", got.ExistingProps, tt.wantProps)
+			} else {
+				for i, p := range tt.wantProps {
+					if got.ExistingProps[i] != p {
+						t.Errorf("ExistingProps[%d]: got %q, want %q", i, got.ExistingProps[i], p)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -596,6 +759,11 @@ func TestDetectPropValueContext(t *testing.T) {
 			name:    "wrap call with cursor in dict",
 			input:   `{{ wrap Layout (dict "Title" .|`,
 			wantNil: false,
+		},
+		{
+			name:    "bare component call has no value context",
+			input:   `{{ Card |`,
+			wantNil: true,
 		},
 	}
 

@@ -177,7 +177,7 @@ func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.
 	}
 
 	diags = append(diags, diagnoseUnknownComponents(templateBody, uses)...)
-	diags = append(diags, DiagnoseComponentProps(templateBody, uses, propsMap)...)
+	diags = append(diags, DiagnoseComponentProps(templateBody, tree, uses, propsMap)...)
 
 	return diags
 }
@@ -362,24 +362,221 @@ func ResolveComponentProps(projectDir, componentPath string, openDocs map[string
 	return fields, nil
 }
 
-// componentCallRegex matches {{ X (dict "Key" ...) }} or {{ wrap X (dict "Key" ...) }}
-// and captures the component name and the dict arguments.
-var componentCallRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)\s+\(dict\b([^)]*)\)`)
+// componentCall represents a component invocation found in the template AST.
+type componentCall struct {
+	name       string          // PascalCase component name
+	nameOffset int             // byte offset of the component name in the template body
+	nameEnd    int             // byte offset of the end of the component name
+	callOffset int             // byte offset of the start of the entire call ({{ or wrap)
+	callEnd    int             // byte offset of the end of the entire call
+	props      []componentProp // prop keys extracted from (dict ...) args
+	hasDict    bool            // whether a dict call was found
+}
+
+// componentProp represents a single prop key found in a component's dict args.
+type componentProp struct {
+	name   string // the prop key name
+	offset int    // byte offset of the key name (inside the quotes)
+}
+
+// extractComponentCalls walks the AST to find all component invocations.
+// Handles both {{ Card (dict ...) }} and {{ wrap Layout (dict ...) }} forms,
+// as well as bare calls like {{ Card }}.
+func extractComponentCalls(tree *parse.Tree, templateBody string, knownComponents map[string]bool) []componentCall {
+	if tree == nil || tree.Root == nil {
+		return nil
+	}
+
+	var calls []componentCall
+	walkNodes(tree.Root.Nodes, func(node parse.Node) {
+		cmd, ok := node.(*parse.CommandNode)
+		if !ok || len(cmd.Args) == 0 {
+			return
+		}
+
+		var compName string
+		var compIdent *parse.IdentifierNode
+		var dictArgIndex int // index in cmd.Args where dict pipe would be
+
+		ident0, ok := cmd.Args[0].(*parse.IdentifierNode)
+		if !ok {
+			return
+		}
+
+		if ident0.Ident == "wrap" && len(cmd.Args) >= 2 {
+			// {{ wrap Layout (dict ...) }}
+			ident1, ok := cmd.Args[1].(*parse.IdentifierNode)
+			if !ok || !isPascalCase(ident1.Ident) {
+				return
+			}
+			compName = ident1.Ident
+			compIdent = ident1
+			dictArgIndex = 2
+		} else if isPascalCase(ident0.Ident) {
+			// {{ Card (dict ...) }} or {{ Card }}
+			compName = ident0.Ident
+			compIdent = ident0
+			dictArgIndex = 1
+		} else {
+			return
+		}
+
+		if !knownComponents[compName] {
+			return
+		}
+
+		call := componentCall{
+			name:       compName,
+			nameOffset: int(compIdent.Position()),
+			nameEnd:    int(compIdent.Position()) + len(compName),
+			callOffset: int(cmd.Position()),
+			callEnd:    int(cmd.Position()) + len(cmd.String()),
+		}
+
+		// Look for (dict ...) in the remaining args
+		if dictArgIndex < len(cmd.Args) {
+			call.props, call.hasDict = extractDictProps(cmd.Args[dictArgIndex])
+		}
+
+		calls = append(calls, call)
+	})
+
+	return calls
+}
+
+// extractDictProps extracts prop keys from a dict call argument.
+// The dict arg is typically a PipeNode containing a CommandNode with
+// IdentifierNode{"dict"} as its first arg, followed by alternating
+// string-key / value pairs.
+func extractDictProps(node parse.Node) ([]componentProp, bool) {
+	// The (dict ...) expression parses as a PipeNode wrapping a CommandNode
+	pipe, ok := node.(*parse.PipeNode)
+	if !ok || len(pipe.Cmds) == 0 {
+		return nil, false
+	}
+
+	dictCmd := pipe.Cmds[0]
+	if len(dictCmd.Args) == 0 {
+		return nil, false
+	}
+
+	dictIdent, ok := dictCmd.Args[0].(*parse.IdentifierNode)
+	if !ok || dictIdent.Ident != "dict" {
+		return nil, false
+	}
+
+	var props []componentProp
+	// Dict args are: dict "Key1" value1 "Key2" value2 ...
+	// Keys are at odd indices (1, 3, 5, ...)
+	for i := 1; i < len(dictCmd.Args); i += 2 {
+		strNode, ok := dictCmd.Args[i].(*parse.StringNode)
+		if !ok {
+			continue
+		}
+		props = append(props, componentProp{
+			name:   strNode.Text,
+			offset: int(strNode.Position()) + 1, // +1 to skip opening quote
+		})
+	}
+
+	return props, true
+}
+
+// componentCallFallbackRegex matches {{ X (dict ...) }}, {{ wrap X (dict ...) }},
+// and bare calls like {{ X }}. Used when AST parsing fails.
+var componentCallFallbackRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)(?:\s+\(dict\b([^)]*)\))?`)
 
 // dictKeyRegex matches string keys inside a dict call: "KeyName"
 var dictKeyRegex = regexp.MustCompile(`"([A-Z][a-zA-Z0-9]*)"`)
 
 // DiagnoseComponentProps checks that props passed to component calls match
 // the component's Props struct. Reports unknown props as errors and missing
-// props as warnings. Props are detected in (dict "Key" value ...) syntax.
-func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
+// props as warnings.
+//
+// Primary: walks the AST to find component calls and extract dict keys.
+// Fallback: uses regex when the template fails to parse (common during editing).
+func DiagnoseComponentProps(templateBody string, tree *parse.Tree, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
 	if len(propsMap) == 0 {
 		return nil
 	}
 
+	if tree != nil {
+		return diagnoseComponentPropsAST(templateBody, tree, uses, propsMap)
+	}
+	return diagnoseComponentPropsRegex(templateBody, uses, propsMap)
+}
+
+func diagnoseComponentPropsAST(templateBody string, tree *parse.Tree, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
+	knownComponents := make(map[string]bool, len(uses))
+	for _, u := range uses {
+		knownComponents[u.Name] = true
+	}
+
+	calls := extractComponentCalls(tree, templateBody, knownComponents)
 	var diags []Diagnostic
 
-	for _, idx := range componentCallRegex.FindAllStringSubmatchIndex(templateBody, -1) {
+	for _, call := range calls {
+		fields, ok := propsMap[call.name]
+		if !ok {
+			continue
+		}
+
+		fieldNames := make(map[string]bool, len(fields))
+		for _, f := range fields {
+			fieldNames[f.Name] = true
+		}
+
+		providedProps := make(map[string]bool)
+		for _, p := range call.props {
+			providedProps[p.name] = true
+		}
+
+		// Check for unknown props
+		for _, p := range call.props {
+			if !fieldNames[p.name] {
+				startLine, startChar := OffsetToLineChar(templateBody, p.offset)
+				endLine, endChar := OffsetToLineChar(templateBody, p.offset+len(p.name))
+
+				available := make([]string, 0, len(fields))
+				for _, f := range fields {
+					available = append(available, f.Name)
+				}
+				diags = append(diags, Diagnostic{
+					StartLine: startLine,
+					StartChar: startChar,
+					EndLine:   endLine,
+					EndChar:   endChar,
+					Message:   fmt.Sprintf("unknown prop %q on component %s; available: %s", p.name, call.name, strings.Join(available, ", ")),
+					Severity:  1,
+				})
+			}
+		}
+
+		// Check for missing props (warning)
+		tagStartLine, tagStartChar := OffsetToLineChar(templateBody, call.nameOffset)
+		tagEndLine, tagEndChar := OffsetToLineChar(templateBody, call.nameEnd)
+		for _, f := range fields {
+			if !providedProps[f.Name] {
+				diags = append(diags, Diagnostic{
+					StartLine: tagStartLine,
+					StartChar: tagStartChar,
+					EndLine:   tagEndLine,
+					EndChar:   tagEndChar,
+					Message:   fmt.Sprintf("missing prop %q on component %s", f.Name, call.name),
+					Severity:  2,
+				})
+			}
+		}
+	}
+
+	return diags
+}
+
+// diagnoseComponentPropsRegex is the fallback when the AST can't be parsed.
+func diagnoseComponentPropsRegex(templateBody string, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
+	var diags []Diagnostic
+
+	for _, idx := range componentCallFallbackRegex.FindAllStringSubmatchIndex(templateBody, -1) {
 		compName := templateBody[idx[2]:idx[3]]
 		dictArgs := ""
 		if idx[4] >= 0 && idx[5] >= 0 {
@@ -396,7 +593,6 @@ func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, p
 			fieldNames[f.Name] = true
 		}
 
-		// Extract provided prop names from dict keys
 		providedProps := make(map[string]bool)
 		for _, m := range dictKeyRegex.FindAllStringSubmatch(dictArgs, -1) {
 			providedProps[m[1]] = true
@@ -426,8 +622,8 @@ func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, p
 		}
 
 		// Check for missing props (warning)
-		tagStartLine, tagStartChar := OffsetToLineChar(templateBody, idx[0])
-		tagEndLine, tagEndChar := OffsetToLineChar(templateBody, idx[1])
+		tagStartLine, tagStartChar := OffsetToLineChar(templateBody, idx[2])
+		tagEndLine, tagEndChar := OffsetToLineChar(templateBody, idx[3])
 		for _, f := range fields {
 			if !providedProps[f.Name] {
 				diags = append(diags, Diagnostic{
@@ -452,14 +648,18 @@ type ComponentTagContext struct {
 	ExistingProps []string // prop names already specified on the tag
 }
 
-// unclosedComponentCallRegex matches {{ X (dict ... or {{ wrap X (dict ...
-// without a closing }} — indicating the cursor is inside the component call.
-var unclosedComponentCallRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)\s+\(dict\b([^)]*?)$`)
+// unclosedComponentCallRegex matches {{ X (dict ..., {{ wrap X (dict ...,
+// or bare {{ X / {{ wrap X without a closing }} — indicating the cursor
+// is inside the component call. Used as fallback when AST parsing fails.
+// The trailing \s* allows matching when the cursor is after whitespace
+// following the component name (e.g. "{{ Card |" where | is cursor).
+var unclosedComponentCallRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)(?:\s+\(dict\b([^)]*?))?\s*$`)
 
 // DetectComponentTagContext determines if the cursor (given as a byte offset
-// in the template body) is inside a component call ({{ X (dict ...) }}
-// or {{ wrap X (dict ...) }}). Returns nil if the cursor is not inside one.
-func DetectComponentTagContext(templateBody string, cursorOffset int, uses []parser.UseDeclaration) *ComponentTagContext {
+// in the template body) is inside a component call. Uses AST when available,
+// falls back to regex when the template fails to parse (during editing).
+// Returns nil if the cursor is not inside a component call.
+func DetectComponentTagContext(templateBody string, cursorOffset int, uses []parser.UseDeclaration, tree *parse.Tree) *ComponentTagContext {
 	if cursorOffset < 0 || cursorOffset > len(templateBody) {
 		return nil
 	}
@@ -469,6 +669,37 @@ func DetectComponentTagContext(templateBody string, cursorOffset int, uses []par
 		known[u.Name] = true
 	}
 
+	// AST-based detection when the template parses successfully
+	if tree != nil {
+		return detectComponentTagAST(tree, templateBody, cursorOffset, known)
+	}
+
+	// Regex fallback for when the template is syntactically incomplete
+	return detectComponentTagRegex(templateBody, cursorOffset, known)
+}
+
+// detectComponentTagAST walks the AST to find if the cursor is inside a
+// component call, and extracts existing prop keys from the dict args.
+func detectComponentTagAST(tree *parse.Tree, templateBody string, cursorOffset int, known map[string]bool) *ComponentTagContext {
+	calls := extractComponentCalls(tree, templateBody, known)
+	for _, call := range calls {
+		if cursorOffset < call.callOffset || cursorOffset > call.callEnd {
+			continue
+		}
+		var existing []string
+		for _, p := range call.props {
+			existing = append(existing, p.name)
+		}
+		return &ComponentTagContext{
+			ComponentName: call.name,
+			ExistingProps: existing,
+		}
+	}
+	return nil
+}
+
+// detectComponentTagRegex is the fallback for when the template can't be parsed.
+func detectComponentTagRegex(templateBody string, cursorOffset int, known map[string]bool) *ComponentTagContext {
 	before := templateBody[:cursorOffset]
 
 	m := unclosedComponentCallRegex.FindStringSubmatch(before)
@@ -481,8 +712,7 @@ func DetectComponentTagContext(templateBody string, cursorOffset int, uses []par
 		return nil
 	}
 
-	// Extract already-specified prop keys from the dict arguments
-	dictArgs := m[2]
+	dictArgs := m[2] // may be empty for bare calls
 	var existing []string
 	for _, pm := range dictKeyRegex.FindAllStringSubmatch(dictArgs, -1) {
 		existing = append(existing, pm[1])
@@ -512,12 +742,19 @@ func DetectPropValueContext(templateBody string, cursorOffset int) *PropValueCon
 
 	text := templateBody[:cursorOffset]
 
-	// Check if we're inside a component call ({{ X (dict ... ) or {{ wrap X (dict ... )
+	// Check if we're inside a component call with a dict expression.
+	// DetectPropValueContext only applies when there's an active dict;
+	// bare component calls ({{ Card }}) don't have a value context.
 	if !unclosedComponentCallRegex.MatchString(text) {
 		return nil
 	}
 
-	// Check if the cursor is after a pipe character (for function completions)
+	// Verify there's actually a (dict in the match (capture group 2 is non-empty)
+	m := unclosedComponentCallRegex.FindStringSubmatch(text)
+	if m == nil || m[2] == "" {
+		return nil
+	}
+
 	return &PropValueContext{
 		AfterPipe: isAfterPipeInDict(text),
 	}
@@ -525,7 +762,6 @@ func DetectPropValueContext(templateBody string, cursorOffset int) *PropValueCon
 
 // isAfterPipeInDict checks if the cursor is after a | inside a dict expression.
 func isAfterPipeInDict(text string) bool {
-	// Find the last (dict in the text
 	dictStart := strings.LastIndex(text, "(dict")
 	if dictStart < 0 {
 		return false

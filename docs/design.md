@@ -80,6 +80,16 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 - Comments explain why, not what.
 - Dead code must be deleted.
 
+### LSP Analysis
+
+- **Prefer AST over regex** for template analysis. Go's `text/template/parse`
+  package provides a full AST that handles nesting, quoting, and edge cases
+  correctly. Regex is fragile against nested parentheses, string escapes, and
+  template comments.
+- **Regex fallbacks** are acceptable when the AST is unavailable (e.g. during
+  editing when the template is syntactically incomplete). The pattern is:
+  AST-based primary path, regex-based fallback when `ParseTemplateBody` fails.
+
 ---
 
 ## Table of Contents

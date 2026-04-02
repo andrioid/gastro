@@ -968,6 +968,71 @@ Title := "Hello"
 	}
 }
 
+func TestLSP_ComponentPropDiagnostics_BareCall(t *testing.T) {
+	projectDir := setupTestProjectWithComponents(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// Open a page with a bare component call (no dict args)
+	gastroContent := `---
+import Card "components/card.gastro"
+Title := "Hello"
+---
+{{ Card }}`
+
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Collect diagnostics — bare call should produce missing-prop warnings
+	foundMissingTitle := false
+	foundMissingBody := false
+	for attempts := 0; attempts < 5; attempts++ {
+		notification := client.recvNotification(t, "textDocument/publishDiagnostics", 3*time.Second)
+		if notification == nil {
+			break
+		}
+
+		params, _ := notification["params"].(map[string]any)
+		diags, _ := params["diagnostics"].([]any)
+
+		for _, d := range diags {
+			dm, _ := d.(map[string]any)
+			msg, _ := dm["message"].(string)
+			if strings.Contains(msg, `missing prop "Title"`) {
+				foundMissingTitle = true
+			}
+			if strings.Contains(msg, `missing prop "Body"`) {
+				foundMissingBody = true
+			}
+		}
+
+		if foundMissingTitle && foundMissingBody {
+			break
+		}
+	}
+	if !foundMissingTitle {
+		stderr := client.drainStderr()
+		t.Errorf("expected diagnostic for missing prop 'Title' on bare {{ Card }}\nstderr: %s", stderr)
+	}
+	if !foundMissingBody {
+		stderr := client.drainStderr()
+		t.Errorf("expected diagnostic for missing prop 'Body' on bare {{ Card }}\nstderr: %s", stderr)
+	}
+}
+
 func TestLSP_ComponentHover(t *testing.T) {
 	projectDir := setupTestProjectWithComponents(t)
 	client := startLSP(t, projectDir)
