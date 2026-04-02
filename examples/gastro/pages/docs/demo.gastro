@@ -1,13 +1,19 @@
 ---
 import (
     "gastro-website/content"
+    "gastro-website/demo"
 
     DocsLayout "components/docs-layout.gastro"
     CodeBlock "components/code-block.gastro"
+    Counter "components/counter.gastro"
 )
+
+ctx := gastro.Context()
+_ = ctx
 
 Title := "Live Demo"
 Active := "demo"
+CurrentCount := demo.Count()
 HandlerCode := content.SSEDatastarHandler
 PageCode := content.SSEDatastarPage
 ---
@@ -17,9 +23,9 @@ PageCode := content.SSEDatastarPage
 
     <div class="demo-section">
         <div class="demo-container">
-            <p>Server-side counter via SSE</p>
-            <div id="count" class="demo-count">0</div>
-            <button class="demo-button" data-on:click="@get('/api/increment')">Increment</button>
+            <p class="demo-label">Server-side counter via SSE</p>
+            {{ Counter (dict "Count" .CurrentCount) }}
+            <button class="demo-button" data-on:click="@get('/api/increment')" aria-label="Increment counter">Increment</button>
         </div>
     </div>
 

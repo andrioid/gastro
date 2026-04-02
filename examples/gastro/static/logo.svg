@@ -1,5 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 140 32" fill="none">
-  <circle cx="16" cy="16" r="12" fill="#F97316"/>
-  <path d="M11 14c0-2.8 2.2-5 5-5s5 2.2 5 5v1h-2v-1c0-1.7-1.3-3-3-3s-3 1.3-3 3v4c0 1.7 1.3 3 3 3 1.1 0 2-.5 2.5-1.3H16v-2h6v2c0 2.8-2.2 5-5 5s-5-2.2-5-5v-4z" fill="white"/>
-  <text x="36" y="23" font-family="system-ui, -apple-system, sans-serif" font-size="20" font-weight="700" fill="currentColor">Gastro</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 26" fill="none">
+  <!-- Pot body -->
+  <rect x="5" y="13" width="16" height="9" rx="2" fill="#e8722a"/>
+  <!-- Pot rim -->
+  <rect x="3" y="11.5" width="20" height="3" rx="1.5" fill="#e8722a"/>
+  <!-- Pot handles -->
+  <rect x="1" y="12.5" width="3" height="1.5" rx="0.75" fill="#e8722a"/>
+  <rect x="22" y="12.5" width="3" height="1.5" rx="0.75" fill="#e8722a"/>
+  <!-- Lid knob -->
+  <circle cx="13" cy="10" r="1.5" fill="#e8722a"/>
+  <!-- Steam wisps -->
+  <path d="M9 8 Q8 5.5 9 3" stroke="#e8722a" stroke-width="1.2" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <path d="M13 7.5 Q12 4.5 13 2" stroke="#e8722a" stroke-width="1.2" stroke-linecap="round" fill="none" opacity="0.65"/>
+  <path d="M17 8 Q18 5.5 17 3" stroke="#e8722a" stroke-width="1.2" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <!-- Wordmark -->
+  <text x="30" y="18.5" font-family="'Source Serif 4', Georgia, serif" font-size="18" font-weight="700" fill="#f7f2ec" letter-spacing="-0.02em">Gastro</text>
 </svg>

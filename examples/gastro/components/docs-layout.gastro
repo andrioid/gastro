@@ -15,19 +15,19 @@ Active := p.Active
         <aside class="docs-sidebar">
             <details class="docs-sidebar-menu" open>
                 <summary class="docs-sidebar-toggle">Navigation</summary>
-                <nav class="docs-sidebar-nav">
+                <nav class="docs-sidebar-nav" aria-label="Documentation">
                     <h3>Documentation</h3>
                     <ul>
-                        <li><a href="/docs/getting-started" class="{{ if eq .Active "getting-started" }}active{{ end }}">Getting Started</a></li>
-                        <li><a href="/docs/pages" class="{{ if eq .Active "pages" }}active{{ end }}">Pages &amp; Routing</a></li>
-                        <li><a href="/docs/components" class="{{ if eq .Active "components" }}active{{ end }}">Components</a></li>
-                        <li><a href="/docs/sse" class="{{ if eq .Active "sse" }}active{{ end }}">SSE &amp; Datastar</a></li>
-                        <li><a href="/docs/helpers" class="{{ if eq .Active "helpers" }}active{{ end }}">Template Helpers</a></li>
-                        <li><a href="/docs/deployment" class="{{ if eq .Active "deployment" }}active{{ end }}">Deployment</a></li>
+                        <li><a href="/docs/getting-started" {{ if eq .Active "getting-started" }}class="active" aria-current="page"{{ end }}>Getting Started</a></li>
+                        <li><a href="/docs/pages" {{ if eq .Active "pages" }}class="active" aria-current="page"{{ end }}>Pages &amp; Routing</a></li>
+                        <li><a href="/docs/components" {{ if eq .Active "components" }}class="active" aria-current="page"{{ end }}>Components</a></li>
+                        <li><a href="/docs/sse" {{ if eq .Active "sse" }}class="active" aria-current="page"{{ end }}>SSE &amp; Datastar</a></li>
+                        <li><a href="/docs/helpers" {{ if eq .Active "helpers" }}class="active" aria-current="page"{{ end }}>Template Helpers</a></li>
+                        <li><a href="/docs/deployment" {{ if eq .Active "deployment" }}class="active" aria-current="page"{{ end }}>Deployment</a></li>
                     </ul>
                     <h3>Examples</h3>
                     <ul>
-                        <li><a href="/docs/demo" class="{{ if eq .Active "demo" }}active{{ end }}">Live Demo</a></li>
+                        <li><a href="/docs/demo" {{ if eq .Active "demo" }}class="active" aria-current="page"{{ end }}>Live Demo</a></li>
                     </ul>
                 </nav>
             </details>
@@ -37,7 +37,7 @@ Active := p.Active
                 }
             </script>
         </aside>
-        <main class="docs-content">
+        <main id="main-content" class="docs-content">
             {{ .Children }}
         </main>
     </div>

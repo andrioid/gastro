@@ -15,6 +15,7 @@ route, build, serve). Editor support is in progress.
 ### Goals
 
 - Make Go web development fun again
+- Idiomatic Go -- standard `html/template`, `net/http`, and `go:embed` under the hood. No new language to learn.
 - Type-safety for pages, components and templates
 - Opinionated project structure
 

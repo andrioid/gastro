@@ -13,22 +13,28 @@ type Props struct {
     Author string
 }
 
-Title := gastro.Props().Title
-Author := gastro.Props().Author
+p := gastro.Props()
+Title := p.Title
+Author := p.Author
 ---
 <article>
     <h2>{{ .Title }}</h2>
     <p>By {{ .Author }}</p>
 </article>`
 
-const LandingBuildExample = `# Generate Go code from .gastro files
-gastro generate
+const LandingDevExample = `# Start the dev server
+gastro dev
 
-# Build a single binary
-go build -o myapp .
+# Watches for changes, rebuilds,
+# and restarts automatically.
+# Template changes are hot-reloaded.`
 
-# Run it
-./myapp`
+const LandingDeployExample = `# Build a single binary
+gastro build
+
+# Templates and static assets are
+# embedded. Ship one file anywhere.
+./app`
 
 // Getting Started examples
 

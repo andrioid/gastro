@@ -5,14 +5,12 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync/atomic"
 
 	gastro "gastro-website/.gastro"
+	"gastro-website/demo"
 
 	"github.com/andrioid/gastro/pkg/gastro/datastar"
 )
-
-var count atomic.Int64
 
 func main() {
 	port := os.Getenv("PORT")
@@ -33,7 +31,7 @@ func main() {
 }
 
 func handleIncrement(w http.ResponseWriter, r *http.Request) {
-	n := count.Add(1)
+	n := demo.Increment()
 
 	html, err := gastro.Render.Counter(gastro.CounterProps{Count: int(n)})
 	if err != nil {
