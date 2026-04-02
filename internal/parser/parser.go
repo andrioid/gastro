@@ -135,8 +135,19 @@ func extractImports(frontmatter string) ([]string, []UseDeclaration, error) {
 	var imports []string
 	var uses []UseDeclaration
 	lines := strings.Split(frontmatter, "\n")
+	inString := false
 
 	for i := 0; i < len(lines); i++ {
+		// Skip lines inside raw string literals (backtick strings).
+		if !inString {
+			inString = hasUnclosedBacktick(lines[i])
+		} else {
+			if hasUnclosedBacktick(lines[i]) {
+				inString = false
+			}
+			continue
+		}
+
 		trimmed := strings.TrimSpace(lines[i])
 
 		// Grouped import: import ( ... )
@@ -244,9 +255,21 @@ func stripImports(frontmatter string) string {
 	lines := strings.Split(frontmatter, "\n")
 	var kept []string
 	inGroupedImport := false
+	inString := false
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
+
+		// Preserve lines inside raw string literals (backtick strings).
+		if !inString {
+			inString = hasUnclosedBacktick(line)
+		} else {
+			if hasUnclosedBacktick(line) {
+				inString = false
+			}
+			kept = append(kept, line)
+			continue
+		}
 
 		if inGroupedImport {
 			if trimmed == ")" {

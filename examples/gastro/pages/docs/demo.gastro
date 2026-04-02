@@ -1,0 +1,48 @@
+---
+import (
+    "gastro-website/content"
+
+    DocsLayout "components/docs-layout.gastro"
+    CodeBlock "components/code-block.gastro"
+)
+
+Title := "Live Demo"
+Active := "demo"
+HandlerCode := content.SSEDatastarHandler
+PageCode := content.SSEDatastarPage
+---
+{{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
+    <h1>Live Demo</h1>
+    <p>This is a working SSE counter running on this very site. Click the button to see server-sent events in action.</p>
+
+    <div class="demo-section">
+        <div class="demo-container">
+            <p>Server-side counter via SSE</p>
+            <div id="count" class="demo-count">0</div>
+            <button class="demo-button" data-on:click="@get('/api/increment')">Increment</button>
+        </div>
+    </div>
+
+    <div class="demo-explanation">
+        <h2>How It Works</h2>
+        <p>When you click the button, Datastar sends a <code>GET</code> request to <code>/api/increment</code>. The server atomically increments a counter, renders the <code>Counter</code> component using the type-safe <code>Render</code> API, and sends an SSE event that patches the DOM.</p>
+
+        <h3>The SSE Handler</h3>
+        <p>This Go handler runs on the server. It uses <code>gastro.Render.Counter()</code> to render the component with the new count, then sends it as a Datastar patch event:</p>
+        {{ render CodeBlock (dict "Code" .HandlerCode "Language" "go") }}
+
+        <h3>The Page</h3>
+        <p>The page uses Datastar's <code>data-on:click</code> attribute to trigger the SSE request. No custom JavaScript needed:</p>
+        {{ render CodeBlock (dict "Code" .PageCode "Language" "go") }}
+
+        <p>This pattern works for any real-time UI: dashboards, notifications, live feeds, collaborative editing, and more. See the <a href="/docs/sse">SSE &amp; Datastar docs</a> for the full API.</p>
+    </div>
+
+    <div class="docs-nav">
+        <a href="/docs/deployment">
+            <div class="docs-nav-label">Previous</div>
+            <div class="docs-nav-title">Deployment</div>
+        </a>
+        <div></div>
+    </div>
+{{ end }}

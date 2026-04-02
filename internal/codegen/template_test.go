@@ -39,8 +39,8 @@ func TestTransformTemplate_PassthroughGoTemplateExpressions(t *testing.T) {
 	}
 }
 
-func TestTransformTemplate_SelfClosingComponent(t *testing.T) {
-	body := `<Card Title={.Name} Urgent={.IsHot} />`
+func TestTransformTemplate_RenderLeafComponent(t *testing.T) {
+	body := `{{ render Card (dict "Title" .Name "Urgent" .IsHot) }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}
@@ -52,14 +52,14 @@ func TestTransformTemplate_SelfClosingComponent(t *testing.T) {
 
 	want := `{{ __gastro_Card (dict "Title" .Name "Urgent" .IsHot) }}`
 	if result != want {
-		t.Errorf("self-closing component:\ngot:  %q\nwant: %q", result, want)
+		t.Errorf("render leaf:\ngot:  %q\nwant: %q", result, want)
 	}
 }
 
-func TestTransformTemplate_ComponentWithStringLiteral(t *testing.T) {
-	body := `<Card Title="hello" />`
+func TestTransformTemplate_RenderNoProps(t *testing.T) {
+	body := `{{ render Hero (dict) }}`
 	uses := []parser.UseDeclaration{
-		{Name: "Card", Path: "components/card.gastro"},
+		{Name: "Hero", Path: "components/hero.gastro"},
 	}
 
 	result, err := codegen.TransformTemplate(body, uses)
@@ -67,16 +67,16 @@ func TestTransformTemplate_ComponentWithStringLiteral(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := `{{ __gastro_Card (dict "Title" "hello") }}`
+	want := `{{ __gastro_Hero (dict) }}`
 	if result != want {
-		t.Errorf("string literal prop:\ngot:  %q\nwant: %q", result, want)
+		t.Errorf("render no props:\ngot:  %q\nwant: %q", result, want)
 	}
 }
 
-func TestTransformTemplate_ComponentWithChildren(t *testing.T) {
-	body := `<Layout Title={.Title}>
+func TestTransformTemplate_WrapWithChildren(t *testing.T) {
+	body := `{{ wrap Layout (dict "Title" .Title) }}
     <p>Hello</p>
-</Layout>`
+{{ end }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Layout", Path: "components/layout.gastro"},
 	}
@@ -86,35 +86,33 @@ func TestTransformTemplate_ComponentWithChildren(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Children should be captured and passed as __children
 	assertContains(t, result, `__gastro_Layout`)
 	assertContains(t, result, `"Title" .Title`)
 	assertContains(t, result, `__gastro_render_children`)
-
-	// Child content should be extracted into a {{define}} block
-	assertContains(t, result, `{{define "layout_children"}}`)
+	assertContains(t, result, `{{define "layout_children_0"}}`)
 	assertContains(t, result, `<p>Hello</p>`)
 	assertContains(t, result, `{{end}}`)
 }
 
-func TestTransformTemplate_SlotBecomesChildren(t *testing.T) {
-	body := `<div>
-    <slot />
-</div>`
+func TestTransformTemplate_WrapEmptyChildren(t *testing.T) {
+	body := `{{ wrap Layout (dict "Title" .Title) }}{{ end }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
 
-	result, err := codegen.TransformTemplate(body, nil)
+	result, err := codegen.TransformTemplate(body, uses)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	assertContains(t, result, `{{ .Children }}`)
-	assertNotContains(t, result, `<slot />`)
+	assertContains(t, result, `__gastro_Layout`)
+	assertContains(t, result, `{{define "layout_children_0"}}`)
 }
 
 func TestTransformTemplate_MixedHTMLAndComponents(t *testing.T) {
 	body := `<h1>{{ .Title }}</h1>
 {{ range .Items }}
-    <Card Title={.Name} />
+    {{ render Card (dict "Title" .Name) }}
 {{ end }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
@@ -125,29 +123,17 @@ func TestTransformTemplate_MixedHTMLAndComponents(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// HTML and go template expressions should be unchanged
 	assertContains(t, result, `<h1>{{ .Title }}</h1>`)
 	assertContains(t, result, `{{ range .Items }}`)
-	assertContains(t, result, `{{ end }}`)
-
-	// Component should be transformed
 	assertContains(t, result, `__gastro_Card`)
-	assertNotContains(t, result, `<Card`)
+	assertNotContains(t, result, `render Card`)
 }
 
-func TestTransformTemplate_UnknownComponentReturnsError(t *testing.T) {
-	body := `<Unknown Title={.Name} />`
-
-	_, err := codegen.TransformTemplate(body, nil)
-	if err == nil {
-		t.Fatal("expected an error for unknown component, got nil")
-	}
-}
-
-func TestTransformTemplate_ComponentNoProps(t *testing.T) {
-	body := `<Header />`
+func TestTransformTemplate_NestedWraps(t *testing.T) {
+	body := `{{ wrap A (dict) }}{{ wrap B (dict) }}inner{{ end }}{{ end }}`
 	uses := []parser.UseDeclaration{
-		{Name: "Header", Path: "components/header.gastro"},
+		{Name: "A", Path: "components/a.gastro"},
+		{Name: "B", Path: "components/b.gastro"},
 	}
 
 	result, err := codegen.TransformTemplate(body, uses)
@@ -155,14 +141,99 @@ func TestTransformTemplate_ComponentNoProps(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := `{{ __gastro_Header (dict) }}`
-	if result != want {
-		t.Errorf("component with no props:\ngot:  %q\nwant: %q", result, want)
-	}
+	assertContains(t, result, `__gastro_A`)
+	assertContains(t, result, `__gastro_B`)
+	assertContains(t, result, `{{define "a_children_0"}}`)
+	assertContains(t, result, `{{define "b_children_1"}}`)
+	assertContains(t, result, `inner`)
 }
 
-func TestTransformTemplate_PipeExpressionInProps(t *testing.T) {
-	body := `<Card Title={.Name} Date={.CreatedAt | timeFormat "Jan 2, 2006"} />`
+func TestTransformTemplate_WrapWithInnerRange(t *testing.T) {
+	body := `{{ wrap Layout (dict "Title" .Title) }}{{ range .Items }}{{ render Card (dict "Title" .Name) }}{{ end }}{{ end }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertContains(t, result, `__gastro_Layout`)
+	assertContains(t, result, `__gastro_Card`)
+	assertContains(t, result, `{{ range .Items }}`)
+}
+
+func TestTransformTemplate_WrapWithInnerIfElse(t *testing.T) {
+	body := `{{ wrap Layout (dict) }}{{ if .X }}yes{{ else }}no{{ end }}{{ end }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertContains(t, result, `__gastro_Layout`)
+	assertContains(t, result, `{{ if .X }}yes{{ else }}no{{ end }}`)
+}
+
+func TestTransformTemplate_DuplicateWrapSameComponent(t *testing.T) {
+	body := `{{ wrap Layout (dict "Title" "A") }}First{{ end }}
+{{ wrap Layout (dict "Title" "B") }}Second{{ end }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assertContains(t, result, `{{define "layout_children_0"}}`)
+	assertContains(t, result, `{{define "layout_children_1"}}`)
+	assertContains(t, result, `First`)
+	assertContains(t, result, `Second`)
+}
+
+func TestTransformTemplate_UnknownComponentRender(t *testing.T) {
+	body := `{{ render Unknown (dict "Title" .Name) }}`
+
+	_, err := codegen.TransformTemplate(body, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown component, got nil")
+	}
+	assertContains(t, err.Error(), "Unknown")
+	assertContains(t, err.Error(), "not imported")
+}
+
+func TestTransformTemplate_UnknownComponentWrap(t *testing.T) {
+	body := `{{ wrap Unknown (dict) }}content{{ end }}`
+
+	_, err := codegen.TransformTemplate(body, nil)
+	if err == nil {
+		t.Fatal("expected error for unknown component, got nil")
+	}
+	assertContains(t, err.Error(), "Unknown")
+}
+
+func TestTransformTemplate_UnclosedWrap(t *testing.T) {
+	body := `{{ wrap Layout (dict) }}content`
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+
+	_, err := codegen.TransformTemplate(body, uses)
+	if err == nil {
+		t.Fatal("expected error for unclosed wrap, got nil")
+	}
+	assertContains(t, err.Error(), "missing {{ end }}")
+}
+
+func TestTransformTemplate_CommentWithWrapInside(t *testing.T) {
+	body := `{{/* Example: {{ wrap Layout }} */}}{{ render Card (dict) }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}
@@ -172,20 +243,59 @@ func TestTransformTemplate_PipeExpressionInProps(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Pipe expressions must be wrapped in parens to avoid precedence issues
-	want := `{{ __gastro_Card (dict "Title" .Name "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
+	assertContains(t, result, `__gastro_Card`)
+	assertContains(t, result, `{{/* Example: {{ wrap Layout }} */}}`)
+}
+
+func TestTransformTemplate_RenderWithPipeline(t *testing.T) {
+	body := `{{ render Card (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := `{{ __gastro_Card (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}`
 	if result != want {
-		t.Errorf("pipe expression in props:\ngot:  %q\nwant: %q", result, want)
+		t.Errorf("render with pipeline:\ngot:  %q\nwant: %q", result, want)
 	}
 }
 
-// TestTransformTemplate_OutputParseable verifies that transformed template
-// output can be parsed by Go's text/template/parse package. The AST-based
-// diagnostics depend on this.
+func TestTransformTemplate_HTMLTagsPassThrough(t *testing.T) {
+	// PascalCase HTML tags that are NOT imported should pass through
+	// because with the new syntax, HTML is just HTML
+	body := `<Badge Label="hello" /><MyComponent>content</MyComponent>`
+
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result != body {
+		t.Errorf("HTML should pass through unchanged:\ngot:  %q\nwant: %q", result, body)
+	}
+}
+
+func TestTransformTemplate_OldPropSyntaxErrors(t *testing.T) {
+	body := `<Card Title={.Name} />`
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+
+	_, err := codegen.TransformTemplate(body, uses)
+	if err == nil {
+		t.Fatal("expected error for old prop syntax")
+	}
+	assertContains(t, err.Error(), "old component syntax")
+}
+
 func TestTransformTemplate_OutputParseable(t *testing.T) {
 	body := `<h1>{{ .Title }}</h1>
 {{ range .Items }}
-    <Card Title={.Name} />
+    {{ render Card (dict "Title" .Name) }}
 {{ end }}`
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
@@ -196,7 +306,6 @@ func TestTransformTemplate_OutputParseable(t *testing.T) {
 		t.Fatalf("TransformTemplate error: %v", err)
 	}
 
-	// Build a stub FuncMap with all default functions + component functions
 	stubFuncs := make(map[string]any)
 	for name := range gastro.DefaultFuncs() {
 		stubFuncs[name] = ""
@@ -208,7 +317,74 @@ func TestTransformTemplate_OutputParseable(t *testing.T) {
 
 	trees, err := parse.Parse("test", result, "{{", "}}", stubFuncs)
 	if err != nil {
-		t.Fatalf("transformed output is not parseable by text/template/parse: %v\noutput:\n%s", err, result)
+		t.Fatalf("transformed output is not parseable: %v\noutput:\n%s", err, result)
+	}
+	if trees["test"] == nil {
+		t.Fatal("expected parse tree for 'test', got nil")
+	}
+}
+
+func TestTransformTemplate_WrapOutputParseable(t *testing.T) {
+	body := `{{ wrap Layout (dict "Title" .Title) }}
+    <h1>Welcome</h1>
+    {{ range .Posts }}
+        {{ render Card (dict "Title" .Name) }}
+    {{ end }}
+{{ end }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("TransformTemplate error: %v", err)
+	}
+
+	stubFuncs := make(map[string]any)
+	for name := range gastro.DefaultFuncs() {
+		stubFuncs[name] = ""
+	}
+	for _, u := range uses {
+		stubFuncs["__gastro_"+u.Name] = ""
+	}
+	stubFuncs["__gastro_render_children"] = ""
+
+	trees, err := parse.Parse("test", result, "{{", "}}", stubFuncs)
+	if err != nil {
+		t.Fatalf("output not parseable: %v\noutput:\n%s", err, result)
+	}
+	if trees["test"] == nil {
+		t.Fatal("expected parse tree for 'test', got nil")
+	}
+}
+
+func TestTransformTemplate_DuplicateWrapParseable(t *testing.T) {
+	body := `{{ wrap Layout (dict "Title" "A") }}<p>One</p>{{ end }}
+{{ wrap Layout (dict "Title" "B") }}<p>Two</p>{{ end }}
+{{ render Card (dict "Title" .Name) }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("TransformTemplate error: %v", err)
+	}
+
+	stubFuncs := make(map[string]any)
+	for name := range gastro.DefaultFuncs() {
+		stubFuncs[name] = ""
+	}
+	for _, u := range uses {
+		stubFuncs["__gastro_"+u.Name] = ""
+	}
+	stubFuncs["__gastro_render_children"] = ""
+
+	trees, err := parse.Parse("test", result, "{{", "}}", stubFuncs)
+	if err != nil {
+		t.Fatalf("output not parseable: %v\noutput:\n%s", err, result)
 	}
 	if trees["test"] == nil {
 		t.Fatal("expected parse tree for 'test', got nil")

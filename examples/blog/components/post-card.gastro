@@ -15,5 +15,5 @@ Date := gastro.Props().Date
 ---
 <article class="post-card">
     <h2><a href="/blog/{{ .Slug }}">{{ .Title }}</a></h2>
-    <p class="meta"><Badge Label={.Author} /> on {{ .Date }}</p>
+    <p class="meta">{{ render Badge (dict "Label" .Author) }} on {{ .Date }}</p>
 </article>

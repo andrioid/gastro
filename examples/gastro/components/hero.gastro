@@ -1,0 +1,40 @@
+---
+type Props struct {}
+
+_ = gastro.Props()
+---
+<section class="hero">
+    <div class="hero-content">
+        <h1 class="hero-title">A file-based component framework for <span class="hero-accent">Go</span></h1>
+        <p class="hero-subtitle">Astro's developer experience. Go's type safety. PHP's file-based routing.</p>
+        <p class="hero-description">Combine Go frontmatter with html/template markup in a single <code>.gastro</code> file. The compiler generates type-safe Go code with automatic routing.</p>
+        <div class="hero-actions">
+            <a href="/docs/getting-started" class="btn btn-primary">Get Started</a>
+            <a href="https://github.com/andrioid/gastro" class="btn btn-secondary" target="_blank" rel="noopener">View on GitHub</a>
+        </div>
+    </div>
+    <div class="hero-code">
+        <div class="code-window">
+            <div class="code-window-bar">
+                <span class="code-dot red"></span>
+                <span class="code-dot yellow"></span>
+                <span class="code-dot green"></span>
+                <span class="code-window-title">pages/index.gastro</span>
+            </div>
+            <pre><code class="language-go">---
+import "time"
+
+Title := "Hello, Gastro"
+Year := time.Now().Year()
+---
+&lt;!DOCTYPE html&gt;
+&lt;html&gt;
+&lt;head&gt;&lt;title&gt;{{ .Title }}&lt;/title&gt;&lt;/head&gt;
+&lt;body&gt;
+    &lt;h1&gt;{{ .Title }}&lt;/h1&gt;
+    &lt;p&gt;Copyright {{ .Year }}&lt;/p&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+        </div>
+    </div>
+</section>

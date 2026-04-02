@@ -1,0 +1,58 @@
+---
+import (
+    "gastro-website/content"
+
+    DocsLayout "components/docs-layout.gastro"
+    CodeBlock "components/code-block.gastro"
+)
+
+Title := "Deployment"
+Active := "deployment"
+Build := content.DeployBuild
+OneLiner := content.DeployOneLiner
+Dockerfile := content.DeployDockerfile
+EnvVars := content.DeployEnvVars
+---
+{{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
+    <h1>Deployment</h1>
+    <p>Gastro applications compile to a single binary with embedded templates and static assets. Deploy by copying one file.</p>
+
+    <h2>Building for Production</h2>
+    <p>Generate the Go code and cross-compile for your target platform:</p>
+    {{ render CodeBlock (dict "Code" .Build "Language" "bash") }}
+    <p>Or use the shorthand:</p>
+    {{ render CodeBlock (dict "Code" .OneLiner "Language" "bash") }}
+    <p>The resulting binary contains everything: your Go handlers, compiled templates, and static assets from <code>static/</code>. No runtime dependencies.</p>
+
+    <h2>Docker</h2>
+    <p>A multi-stage Dockerfile keeps the image small. The build stage compiles everything, and the runtime stage contains only the binary:</p>
+    {{ render CodeBlock (dict "Code" .Dockerfile "Language" "docker") }}
+    <p>The runtime image uses Alpine Linux with a non-root user for security. The final image is typically under 20MB.</p>
+
+    <h2>Environment Variables</h2>
+    <p>The only configuration is the <code>PORT</code> environment variable:</p>
+    {{ render CodeBlock (dict "Code" .EnvVars "Language" "bash") }}
+    <p>If <code>PORT</code> is not set, the server defaults to port 4242.</p>
+
+    <h2>Platform Guides</h2>
+    <p>The Docker image works with any container platform:</p>
+    <ul>
+        <li><strong>Fly.io</strong> &mdash; <code>fly launch</code> auto-detects the Dockerfile</li>
+        <li><strong>Railway</strong> &mdash; connect your repo, Railway builds from the Dockerfile</li>
+        <li><strong>Google Cloud Run</strong> &mdash; <code>gcloud run deploy --source .</code></li>
+        <li><strong>AWS ECS / Fargate</strong> &mdash; build the image and push to ECR</li>
+        <li><strong>Any VPS</strong> &mdash; copy the binary directly with <code>scp</code></li>
+    </ul>
+    <p>Since Gastro builds a static binary with no runtime dependencies, you can also deploy without Docker by copying the binary to any Linux server.</p>
+
+    <div class="docs-nav">
+        <a href="/docs/helpers">
+            <div class="docs-nav-label">Previous</div>
+            <div class="docs-nav-title">Template Helpers</div>
+        </a>
+        <a href="/docs/demo" class="next">
+            <div class="docs-nav-label">Next</div>
+            <div class="docs-nav-title">Live Demo</div>
+        </a>
+    </div>
+{{ end }}

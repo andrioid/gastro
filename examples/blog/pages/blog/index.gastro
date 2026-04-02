@@ -16,9 +16,9 @@ if err != nil {
 Posts := posts
 Title := "Blog"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <h1>All Posts</h1>
     {{ range .Posts }}
-    <PostCard Slug={.Slug} Title={.Title} Author={.Author} Date={.CreatedAt | timeFormat "Jan 2, 2006"} />
+    {{ render PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
     {{ end }}
-</Layout>
+{{ end }}

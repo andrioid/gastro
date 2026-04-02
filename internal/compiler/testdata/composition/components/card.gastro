@@ -11,5 +11,5 @@ Tag := gastro.Props().Tag
 ---
 <div class="card">
     <h2>{{ .Title }}</h2>
-    <Badge Label={.Tag} />
+    {{ render Badge (dict "Label" .Tag) }}
 </div>

@@ -1,0 +1,70 @@
+---
+import (
+    "gastro-website/content"
+
+    Layout "components/layout.gastro"
+    Hero "components/hero.gastro"
+    CodeBlock "components/code-block.gastro"
+)
+
+Title := "Home"
+ComponentCode := content.LandingComponentExample
+BuildCode := content.LandingBuildExample
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    {{ render Hero (dict) }}
+
+    <section class="features-section">
+        <h2>Why Gastro?</h2>
+        <p>Everything you need for productive server-rendered Go web development.</p>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2"><path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/><path d="M8 12h8M12 8v8"/></svg></div>
+                <h3>File-Based Routing</h3>
+                <p>Pages in your pages/ directory automatically become routes. Dynamic parameters with [slug] syntax. No configuration needed.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
+                <h3>Type-Safe Components</h3>
+                <p>Define Props as Go structs. The compiler checks every prop at build time. No runtime surprises.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/><line x1="14" y1="4" x2="10" y2="20"/></svg></div>
+                <h3>Go Frontmatter</h3>
+                <p>Server-side Go code and HTML templates live in one file. Uppercase variables are automatically exported to the template.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></div>
+                <h3>Zero Dependencies</h3>
+                <p>Built entirely on Go's standard library. No external runtime dependencies. net/http, html/template, and embed.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+                <h3>Single Binary Deploy</h3>
+                <p>Templates and static assets are embedded at build time. Ship one file anywhere. No runtime dependencies.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
+                <h3>SSE &amp; Real-time</h3>
+                <p>Built-in Server-Sent Events with Datastar integration. Type-safe component rendering for SSE handlers.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="quickstart-section">
+        <div class="quickstart-container">
+            <h2>Quick Start</h2>
+            <p>Get a Gastro project running in under a minute.</p>
+            <div class="quickstart-steps">
+                <div class="quickstart-step">
+                    <h3>Write a component</h3>
+                    {{ render CodeBlock (dict "Code" .ComponentCode "Language" "go") }}
+                </div>
+                <div class="quickstart-step">
+                    <h3>Build &amp; run</h3>
+                    {{ render CodeBlock (dict "Code" .BuildCode "Language" "bash") }}
+                </div>
+            </div>
+        </div>
+    </section>
+{{ end }}

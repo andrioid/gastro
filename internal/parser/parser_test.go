@@ -1,6 +1,7 @@
 package parser_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/andrioid/gastro/internal/parser"
@@ -365,6 +366,100 @@ Title := "Hello"
 	// Template body starts at line 6 (line after the second ---)
 	if result.TemplateBodyLine != 6 {
 		t.Errorf("template body start line: got %d, want %d", result.TemplateBodyLine, 6)
+	}
+}
+
+func TestParse_ImportInsideBacktickStringNotExtracted(t *testing.T) {
+	input := "---\nExample := `import \"fmt\"`\nTitle := \"Hello\"\n---\n<h1>{{ .Title }}</h1>"
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Imports) != 0 {
+		t.Errorf("expected 0 imports, got %d: %v", len(result.Imports), result.Imports)
+	}
+	if len(result.Uses) != 0 {
+		t.Errorf("expected 0 uses, got %d: %v", len(result.Uses), result.Uses)
+	}
+}
+
+func TestParse_ImportInsideMultiLineBacktickString(t *testing.T) {
+	input := "---\nimport \"fmt\"\n\nExample := `\nimport Layout \"components/layout.gastro\"\nimport \"os\"\n`\nTitle := \"Hello\"\n---\n<h1>{{ .Title }}</h1>"
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only the real "fmt" import should be extracted
+	if len(result.Imports) != 1 {
+		t.Fatalf("expected 1 import, got %d: %v", len(result.Imports), result.Imports)
+	}
+	if result.Imports[0] != "fmt" {
+		t.Errorf("expected import \"fmt\", got %q", result.Imports[0])
+	}
+
+	// The component import inside the backtick string should NOT be extracted
+	if len(result.Uses) != 0 {
+		t.Errorf("expected 0 uses, got %d: %v", len(result.Uses), result.Uses)
+	}
+
+	// The backtick string content should be preserved in frontmatter
+	if !strings.Contains(result.Frontmatter, `import Layout "components/layout.gastro"`) {
+		t.Error("backtick string content was corrupted by stripImports")
+	}
+}
+
+func TestParse_GroupedImportInsideBacktickString(t *testing.T) {
+	input := "---\nimport \"fmt\"\n\nExample := `\nimport (\n\t\"os\"\n)\n`\nTitle := \"Hello\"\n---\n<h1>{{ .Title }}</h1>"
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only the real "fmt" import should be extracted, not the grouped import inside backtick
+	if len(result.Imports) != 1 {
+		t.Fatalf("expected 1 import, got %d: %v", len(result.Imports), result.Imports)
+	}
+	if result.Imports[0] != "fmt" {
+		t.Errorf("expected import \"fmt\", got %q", result.Imports[0])
+	}
+
+	// The grouped import inside the backtick string should be preserved in frontmatter
+	if !strings.Contains(result.Frontmatter, `import (`) {
+		t.Error("grouped import inside backtick string was stripped from frontmatter")
+	}
+}
+
+func TestParse_RealImportsWithBacktickStrings(t *testing.T) {
+	input := "---\nimport (\n\t\"fmt\"\n\n\tLayout \"components/layout.gastro\"\n)\n\nExample := `\nimport Card \"components/card.gastro\"\n`\nTitle := \"Hello\"\n---\n<h1>{{ .Title }}</h1>"
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Real imports should be extracted
+	if len(result.Imports) != 1 {
+		t.Fatalf("expected 1 import, got %d: %v", len(result.Imports), result.Imports)
+	}
+	if result.Imports[0] != "fmt" {
+		t.Errorf("expected import \"fmt\", got %q", result.Imports[0])
+	}
+
+	if len(result.Uses) != 1 {
+		t.Fatalf("expected 1 use, got %d: %v", len(result.Uses), result.Uses)
+	}
+	if result.Uses[0].Name != "Layout" {
+		t.Errorf("expected use Layout, got %q", result.Uses[0].Name)
+	}
+
+	// The fake import inside backtick should be preserved in frontmatter
+	if !strings.Contains(result.Frontmatter, `import Card "components/card.gastro"`) {
+		t.Error("backtick string content was corrupted by stripImports")
 	}
 }
 

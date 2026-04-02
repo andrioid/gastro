@@ -2,7 +2,7 @@
 
 Components are reusable `.gastro` files in the `components/` directory. They
 accept typed props, can render children via slots, and are invoked from pages
-or other templates using HTML-like syntax.
+or other templates using Go template actions.
 
 ## Defining a component
 
@@ -123,38 +123,38 @@ project root.
 
 ### Invoking in templates
 
-Components are invoked with HTML-like syntax. Self-closing for components
-without children:
+Components are invoked with Go template actions. Use `render` for leaf
+components (no children):
 
-```html
-<PostCard Title={.Title} Slug={.Slug} />
+```
+{{ render PostCard (dict "Title" .Title "Slug" .Slug) }}
 ```
 
-With opening and closing tags for components that accept children:
+Use `wrap` for components that accept children, closed by `{{ end }}`:
 
-```html
-<Layout Title={.Title}>
+```
+{{ wrap Layout (dict "Title" .Title) }}
     <h1>Hello</h1>
     <p>This content goes into the slot.</p>
-</Layout>
+{{ end }}
 ```
 
 ### Prop syntax
 
-Props are passed as attributes on the component tag:
+Props are passed using `dict` syntax inside the template action:
 
 | Syntax | Meaning | Example |
 |--------|---------|---------|
-| `{.Expr}` | Go template expression, evaluated in the parent's data context | `Title={.Title}` |
-| `"literal"` | String literal | `Title="About"` |
-| `{.Val \| func "arg"}` | Pipe expression | `Date={.CreatedAt \| timeFormat "Jan 2, 2006"}` |
+| `.Expr` | Go template expression, evaluated in the parent's data context | `"Title" .Title` |
+| `"literal"` | String literal | `"Title" "About"` |
+| `(.Val \| func "arg")` | Pipe expression | `"Date" (.CreatedAt \| timeFormat "Jan 2, 2006")` |
 
-Expressions inside `{}` have access to the parent page's template data (the
+Expressions have access to the parent page's template data (the
 uppercase variables from the parent's frontmatter).
 
 ## Slots
 
-Slots let a component render content provided by its parent. Place `<slot />`
+Slots let a component render content provided by its parent. Place `{{ .Children }}`
 in the component template where children should appear:
 
 ```gastro
@@ -170,27 +170,27 @@ Title := gastro.Props().Title
 <body>
     <nav>...</nav>
     <main>
-        <slot />
+        {{ .Children }}
     </main>
     <footer>...</footer>
 </body>
 </html>
 ```
 
-The parent passes children by wrapping content in the component tags:
+The parent passes children by using `wrap` with the component:
 
-```html
-<Layout Title="Home">
+```
+{{ wrap Layout (dict "Title" "Home") }}
     <h1>Welcome</h1>
     <p>This replaces the slot.</p>
-</Layout>
+{{ end }}
 ```
 
 Children are rendered in the **parent's** data context, so they can reference
-the parent's template data. The rendered HTML is then inserted where `<slot />`
+the parent's template data. The rendered HTML is then inserted where `{{ .Children }}`
 appears in the component.
 
-Only unnamed slots are supported. A component can have one `<slot />`.
+Only unnamed slots are supported. A component can have one `{{ .Children }}`.
 
 ## Complete example
 
@@ -218,7 +218,7 @@ Title := gastro.Props().Title
         <a href="/blog">Blog</a>
     </nav>
     <main>
-        <slot />
+        {{ .Children }}
     </main>
     <footer><p>Built with Gastro</p></footer>
 </body>
@@ -269,12 +269,12 @@ if err != nil {
 Posts := posts
 Title := "Home"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <h1>Welcome to My Blog</h1>
     <section>
         {{ range .Posts }}
-        <PostCard Slug={.Slug} Title={.Title} Author={.Author} Date={.CreatedAt | timeFormat "Jan 2, 2006"} />
+        {{ render PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
         {{ end }}
     </section>
-</Layout>
+{{ end }}
 ```

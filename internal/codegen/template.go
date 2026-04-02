@@ -4,197 +4,321 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"unicode"
 
 	"github.com/andrioid/gastro/internal/parser"
 )
 
-// TransformTemplate transforms the template body, converting <Component /> tags
-// into Go template function calls and <slot /> into {{ .Children }}.
+// renderRegex matches {{ render ComponentName ... }} where ComponentName is PascalCase.
+var renderRegex = regexp.MustCompile(`\{\{\s*render\s+([A-Z][a-zA-Z0-9]*)(\s*)`)
+
+// wrapRegex matches {{ wrap ComponentName ... }} where ComponentName is PascalCase.
+var wrapRegex = regexp.MustCompile(`\{\{\s*wrap\s+([A-Z][a-zA-Z0-9]*)(\s*)`)
+
+// oldPropSyntaxRegex detects old Gastro-specific {.Expr} prop syntax in HTML tags.
+// This pattern cannot appear in valid HTML, so it's a reliable migration signal.
+var oldPropSyntaxRegex = regexp.MustCompile(`<[A-Z][a-zA-Z0-9]*[^>]*\w+=\{[^}]+\}`)
+
+// commentRegex matches Go template comments {{/* ... */}}.
+var commentRegex = regexp.MustCompile(`\{\{/\*[\s\S]*?\*/\}\}`)
+
+const commentPlaceholder = "\x00__GASTRO_COMMENT_"
+
+// extractComments removes Go template comments from the body, replacing them
+// with null-byte-delimited placeholders. This prevents the render/wrap regexes
+// from matching inside comments.
+func extractComments(body string) (string, []string) {
+	var comments []string
+	result := commentRegex.ReplaceAllStringFunc(body, func(match string) string {
+		comments = append(comments, match)
+		return fmt.Sprintf("%s%d\x00", commentPlaceholder, len(comments)-1)
+	})
+	return result, comments
+}
+
+func restoreComments(body string, comments []string) string {
+	for i, c := range comments {
+		placeholder := fmt.Sprintf("%s%d\x00", commentPlaceholder, i)
+		body = strings.Replace(body, placeholder, c, 1)
+	}
+	return body
+}
+
+// TransformTemplate transforms the template body:
+//   - {{ render ComponentName (dict ...) }} → {{ __gastro_ComponentName (dict ...) }}
+//   - {{ wrap ComponentName (dict ...) }}...{{ end }} → function call + {{define}} block
+//
+// Component names must be imported via UseDeclaration. Unknown components produce errors.
 func TransformTemplate(body string, uses []parser.UseDeclaration) (string, error) {
-	knownComponents := make(map[string]bool, len(uses))
+	known := make(map[string]bool, len(uses))
 	for _, u := range uses {
-		knownComponents[u.Name] = true
+		known[u.Name] = true
 	}
 
-	result := body
+	// Detect old HTML-like syntax and provide migration hints
+	if err := detectOldSyntax(body, known); err != nil {
+		return "", err
+	}
 
-	// Replace <slot /> with {{ .Children }}
-	result = replaceSlotTags(result)
+	// Extract comments to prevent regexes from matching inside them
+	body, comments := extractComments(body)
 
-	// Replace component tags (both self-closing and with children)
-	var err error
-	result, err = replaceComponents(result, knownComponents)
+	// Transform {{ render X ... }} calls (leaf components)
+	result, err := transformRender(body, known)
 	if err != nil {
 		return "", err
 	}
 
-	return result, nil
-}
-
-var slotRegex = regexp.MustCompile(`<slot\s*/>`)
-
-func replaceSlotTags(body string) string {
-	return slotRegex.ReplaceAllString(body, "{{ .Children }}")
-}
-
-// replaceComponents processes the template body, replacing component tags.
-// Handles both self-closing <Name /> and open/close <Name>...</Name> tags.
-// Uses iterative string scanning instead of regex to correctly handle nesting.
-func replaceComponents(body string, known map[string]bool) (string, error) {
-	// Keep processing until no more component tags are found.
-	// Process innermost components first (self-closing), then outer wrappers.
+	// Transform {{ wrap X ... }}...{{ end }} blocks (components with children)
+	childIdx := 0
 	for {
-		changed := false
-
-		// First pass: replace self-closing <Name prop={x} />
-		newBody, didChange, err := replaceSelfClosing(body, known)
-		if err != nil {
-			return "", err
+		newResult, changed, wrapErr := transformOneWrap(result, known, &childIdx)
+		if wrapErr != nil {
+			return "", wrapErr
 		}
-		if didChange {
-			body = newBody
-			changed = true
-		}
-
-		// Second pass: replace innermost <Name>...</Name> (no nested same-name tags)
-		newBody, didChange, err = replaceWithChildren(body, known)
-		if err != nil {
-			return "", err
-		}
-		if didChange {
-			body = newBody
-			changed = true
-		}
-
 		if !changed {
 			break
 		}
+		result = newResult
 	}
 
-	return body, nil
+	// Restore comments
+	result = restoreComments(result, comments)
+
+	return result, nil
 }
 
-// selfClosingTagRegex matches a self-closing component tag on a single logical
-// unit. It requires the tag name to start with uppercase, and matches props
-// up to the closing />. The key constraint: no > character in the props
-// (which prevents matching across line boundaries into other tags).
-var selfClosingTagRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)((?:\s+\w+=(?:\{[^}]*\}|"[^"]*"))*)\s*/>`)
-
-func replaceSelfClosing(body string, known map[string]bool) (string, bool, error) {
-	didChange := false
+// transformRender replaces all {{ render X ... }} with {{ __gastro_X ... }}.
+func transformRender(body string, known map[string]bool) (string, error) {
 	var replaceErr error
 
-	result := selfClosingTagRegex.ReplaceAllStringFunc(body, func(match string) string {
+	result := renderRegex.ReplaceAllStringFunc(body, func(match string) string {
 		if replaceErr != nil {
 			return match
 		}
 
-		groups := selfClosingTagRegex.FindStringSubmatch(match)
+		groups := renderRegex.FindStringSubmatch(match)
 		name := groups[1]
-		propsStr := strings.TrimSpace(groups[2])
 
 		if !known[name] {
-			replaceErr = fmt.Errorf("unknown component <%s />: not imported", name)
+			replaceErr = fmt.Errorf("unknown component %q in {{ render }}: not imported", name)
 			return match
 		}
 
-		didChange = true
-		dictCall := buildDictCall(propsStr)
-		return fmt.Sprintf("{{ __gastro_%s (%s) }}", name, dictCall)
+		return strings.Replace(match, "render "+name, "__gastro_"+name, 1)
 	})
 
-	return result, didChange, replaceErr
+	return result, replaceErr
 }
 
-// openTagRegex matches a component open tag: <Name props...>
-// It matches the FIRST occurrence of a PascalCase open tag.
-var openTagRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)((?:\s+\w+=(?:\{[^}]*\}|"[^"]*"))*)\s*>`)
-
-func replaceWithChildren(body string, known map[string]bool) (string, bool, error) {
-	loc := openTagRegex.FindStringIndex(body)
+// transformOneWrap finds the first {{ wrap X ... }} block, extracts its children,
+// and replaces it with a function call + {{define}} block. Returns false if no
+// wrap block was found.
+func transformOneWrap(body string, known map[string]bool, childIdx *int) (string, bool, error) {
+	loc := wrapRegex.FindStringIndex(body)
 	if loc == nil {
 		return body, false, nil
 	}
 
-	match := openTagRegex.FindStringSubmatch(body[loc[0]:loc[1]])
+	match := wrapRegex.FindStringSubmatch(body[loc[0]:loc[1]])
 	name := match[1]
-	propsStr := strings.TrimSpace(match[2])
 
 	if !known[name] {
-		if isPascalCase(name) {
-			return "", false, fmt.Errorf("unknown component <%s>: not imported", name)
-		}
-		return body, false, nil
+		return "", false, fmt.Errorf("unknown component %q in {{ wrap }}: not imported", name)
 	}
 
-	// Find the matching closing tag </Name>
-	closeTag := fmt.Sprintf("</%s>", name)
-	closeIdx := strings.Index(body[loc[1]:], closeTag)
-	if closeIdx == -1 {
-		return "", false, fmt.Errorf("unclosed component tag <%s>", name)
+	// Find the end of the {{ wrap ... }} action (the closing }})
+	wrapClose := findActionClose(body, loc[0])
+	if wrapClose == -1 {
+		return "", false, fmt.Errorf("unclosed {{ wrap %s }}: missing }}", name)
 	}
-	closeIdx += loc[1]
 
-	// Extract child content between open and close tags
-	childContent := body[loc[1]:closeIdx]
+	// Extract the arguments between the component name and }}
+	// body[loc[1]:wrapClose] contains everything after "wrap ComponentName " up to "}}"
+	argsStr := strings.TrimSpace(body[loc[1]:wrapClose])
 
-	dictCall := buildDictCall(propsStr)
-	childTemplateName := fmt.Sprintf("%s_children", strings.ToLower(name))
+	// Find the matching {{ end }} using a state-aware scanner
+	endStart, endClose, err := findMatchingEnd(body, wrapClose+2) // +2 to skip past }}
+	if err != nil {
+		return "", false, fmt.Errorf("{{ wrap %s }}: %w", name, err)
+	}
+
+	// Extract child content between {{ wrap ... }} and {{ end }}
+	childContent := body[wrapClose+2 : endStart]
+
+	childTemplateName := fmt.Sprintf("%s_children_%d", strings.ToLower(name), *childIdx)
+	*childIdx++
+
+	// Build the dict call. The user passes (dict ...) as argsStr.
+	// We need to inject "__children" into the dict arguments.
+	// Strip outer parens from the dict expression to get the inner args.
+	dictInner := argsStr
+	if strings.HasPrefix(dictInner, "(") && strings.HasSuffix(dictInner, ")") {
+		dictInner = dictInner[1 : len(dictInner)-1]
+	}
+	if dictInner == "" {
+		dictInner = "dict"
+	}
 
 	replacement := fmt.Sprintf(
 		`{{ __gastro_%s (%s "__children" (__gastro_render_children "%s" .)) }}`,
-		name, dictCall, childTemplateName,
+		name, dictInner, childTemplateName,
 	)
 
-	// Append a {{define}} block so the child content is available as a sub-template
 	defineBlock := fmt.Sprintf(
 		"\n{{define %q}}%s{{end}}",
 		childTemplateName, childContent,
 	)
 
-	result := body[:loc[0]] + replacement + body[closeIdx+len(closeTag):] + defineBlock
+	result := body[:loc[0]] + replacement + body[endClose:] + defineBlock
 	return result, true, nil
 }
 
-// propRegex matches Key={.expr} or Key="literal" patterns
-var propRegex = regexp.MustCompile(`(\w+)=(?:\{([^}]+)\}|"([^"]*)")`)
-
-// buildDictCall parses props and builds a Go template `dict` call.
-// e.g. `Title={.Name} Urgent={.IsHot}` -> `dict "Title" .Name "Urgent" .IsHot`
-func buildDictCall(propsStr string) string {
-	if strings.TrimSpace(propsStr) == "" {
-		return "dict"
-	}
-
-	matches := propRegex.FindAllStringSubmatch(propsStr, -1)
-	if len(matches) == 0 {
-		return "dict"
-	}
-
-	var parts []string
-	parts = append(parts, "dict")
-	for _, m := range matches {
-		key := m[1]
-		if m[2] != "" {
-			// {.expr} form — wrap in parens if it contains a pipe
-			expr := m[2]
-			if strings.Contains(expr, "|") {
-				expr = "(" + expr + ")"
-			}
-			parts = append(parts, fmt.Sprintf("%q %s", key, expr))
-		} else {
-			// "literal" form
-			parts = append(parts, fmt.Sprintf("%q %q", key, m[3]))
+// findActionClose finds the position of the }} that closes the {{ action starting at pos.
+// It skips over quoted strings inside the action. Returns the index of the first } of }},
+// or -1 if not found.
+func findActionClose(body string, pos int) int {
+	i := pos
+	// Skip past {{
+	for i < len(body)-1 {
+		if body[i] == '{' && body[i+1] == '{' {
+			i += 2
+			break
 		}
+		i++
 	}
 
-	return strings.Join(parts, " ")
+	for i < len(body)-1 {
+		switch body[i] {
+		case '"':
+			// Skip double-quoted string
+			i++
+			for i < len(body) && body[i] != '"' {
+				if body[i] == '\\' {
+					i++ // skip escaped char
+				}
+				i++
+			}
+		case '`':
+			// Skip raw string
+			i++
+			for i < len(body) && body[i] != '`' {
+				i++
+			}
+		case '}':
+			if i+1 < len(body) && body[i+1] == '}' {
+				return i
+			}
+		}
+		i++
+	}
+	return -1
 }
 
-func isPascalCase(s string) bool {
-	if s == "" {
-		return false
+// findMatchingEnd scans from startPos to find the {{ end }} that matches
+// the current nesting depth. It correctly handles nested {{ if }}, {{ range }},
+// {{ with }}, {{ block }}, {{ define }}, and {{ wrap }} blocks, and skips
+// over comments and string literals.
+//
+// Returns (endStart, endClose, error) where endStart is the position of the
+// opening {{ of {{ end }}, and endClose is the position after the closing }}.
+func findMatchingEnd(body string, startPos int) (int, int, error) {
+	depth := 1
+	i := startPos
+
+	for i < len(body)-1 {
+		// Skip non-action content
+		if body[i] != '{' || (i+1 < len(body) && body[i+1] != '{') {
+			i++
+			continue
+		}
+
+		// We found {{ — determine what kind of action it is
+		actionStart := i
+
+		// Check for comment {{/* ... */}}
+		if i+3 < len(body) && body[i+2] == '/' && body[i+3] == '*' {
+			end := strings.Index(body[i:], "*/}}")
+			if end == -1 {
+				return -1, -1, fmt.Errorf("unclosed comment")
+			}
+			i += end + 4
+			continue
+		}
+
+		// Read the keyword of the action
+		keyword, actionEnd := readActionKeyword(body, i)
+
+		switch keyword {
+		case "if", "range", "with", "block", "define", "wrap":
+			depth++
+		case "end":
+			depth--
+			if depth == 0 {
+				return actionStart, actionEnd, nil
+			}
+		}
+
+		i = actionEnd
 	}
-	return unicode.IsUpper(rune(s[0]))
+
+	return -1, -1, fmt.Errorf("missing {{ end }}")
+}
+
+// readActionKeyword reads the first keyword from a {{ ... }} action starting at pos.
+// Returns the keyword and the position after the closing }}.
+func readActionKeyword(body string, pos int) (string, int) {
+	i := pos + 2 // skip {{
+
+	// Skip whitespace and optional leading dash ({{- ...)
+	for i < len(body) && (body[i] == ' ' || body[i] == '\t' || body[i] == '\n' || body[i] == '\r' || body[i] == '-') {
+		i++
+	}
+
+	// Read keyword
+	start := i
+	for i < len(body) && isWordChar(body[i]) {
+		i++
+	}
+	keyword := body[start:i]
+
+	// Find the closing }}
+	for i < len(body)-1 {
+		switch body[i] {
+		case '"':
+			i++
+			for i < len(body) && body[i] != '"' {
+				if body[i] == '\\' {
+					i++
+				}
+				i++
+			}
+		case '`':
+			i++
+			for i < len(body) && body[i] != '`' {
+				i++
+			}
+		case '}':
+			if i+1 < len(body) && body[i+1] == '}' {
+				return keyword, i + 2
+			}
+		}
+		i++
+	}
+
+	return keyword, len(body)
+}
+
+func isWordChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
+// detectOldSyntax checks for old HTML-like component syntax and provides
+// helpful migration errors.
+func detectOldSyntax(body string, known map[string]bool) error {
+	m := oldPropSyntaxRegex.FindStringSubmatch(body)
+	if m != nil {
+		return fmt.Errorf("found old component syntax (e.g. %s): use {{ render X (dict ...) }} or {{ wrap X (dict ...) }}...{{ end }} instead", m[0])
+	}
+
+	return nil
 }

@@ -8,6 +8,6 @@ Title := gastro.Props().Title
 <html>
 <head><title>{{ .Title }}</title></head>
 <body>
-    <slot />
+    {{ .Children }}
 </body>
 </html>

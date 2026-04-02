@@ -3,8 +3,8 @@ import Layout "components/layout.gastro"
 
 Title := "Call Center Dashboard"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <div id="dashboard" data-init="@get('/api/dashboard')">
         <p class="loading">Connecting...</p>
     </div>
-</Layout>
+{{ end }}

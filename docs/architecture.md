@@ -93,13 +93,13 @@ The `gastro.Props()` marker is stripped (component generation is TODO).
 **Key function:** `TransformTemplate(body, uses) (string, error)`
 
 Transforms the template body:
-- `<ComponentName Prop={.expr} />` becomes `{{ __gastro_ComponentName (dict "Prop" .expr) }}`
-- `<ComponentName>...</ComponentName>` becomes a template call with children
-- `<slot />` becomes `{{ .Children }}`
+- `{{ render ComponentName (dict "Prop" .expr) }}` becomes `{{ __gastro_ComponentName (dict "Prop" .expr) }}`
+- `{{ wrap ComponentName (dict ...) }}...{{ end }}` becomes a template call with children
+- `{{ .Children }}` passes through unchanged
 - Standard `{{ }}` expressions pass through unchanged
 
-Uses iterative string processing with regex for tag matching. Processes
-self-closing tags first, then open/close tags with children.
+Uses iterative string processing with regex for action matching. Processes
+`render` actions first, then `wrap`/`end` actions with children.
 
 ### `internal/router/`
 

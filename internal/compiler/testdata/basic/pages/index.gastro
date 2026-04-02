@@ -4,6 +4,6 @@ import Layout "components/layout.gastro"
 ctx := gastro.Context()
 Title := "Home"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <h1>{{ .Title }}</h1>
-</Layout>
+{{ end }}

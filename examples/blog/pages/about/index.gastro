@@ -3,7 +3,7 @@ import Layout "components/layout.gastro"
 
 Title := "About"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <h1>About Me</h1>
     <p>I'm a developer who builds things with Go.</p>
-</Layout>
+{{ end }}

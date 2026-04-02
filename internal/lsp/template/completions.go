@@ -200,7 +200,10 @@ func diagnoseDoubleDot(templateBody string) []Diagnostic {
 	return diags
 }
 
-// diagnoseUnknownComponents detects <PascalCase> tags that are not imported.
+// componentInvocationRegex matches {{ render X or {{ wrap X where X is PascalCase.
+var componentInvocationRegex = regexp.MustCompile(`\{\{\s*(?:render|wrap)\s+([A-Z][a-zA-Z0-9]*)`)
+
+// diagnoseUnknownComponents detects {{ render X }} and {{ wrap X }} where X is not imported.
 func diagnoseUnknownComponents(templateBody string, uses []parser.UseDeclaration) []Diagnostic {
 	knownComponents := make(map[string]bool, len(uses))
 	for _, u := range uses {
@@ -208,8 +211,7 @@ func diagnoseUnknownComponents(templateBody string, uses []parser.UseDeclaration
 	}
 
 	var diags []Diagnostic
-	compRe := regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)[\s/>]`)
-	for _, idx := range compRe.FindAllStringSubmatchIndex(templateBody, -1) {
+	for _, idx := range componentInvocationRegex.FindAllStringSubmatchIndex(templateBody, -1) {
 		compName := templateBody[idx[2]:idx[3]]
 		if !knownComponents[compName] {
 			startLine, startChar := OffsetToLineChar(templateBody, idx[2])
@@ -262,32 +264,28 @@ func ResolveComponentProps(projectDir, componentPath string, openDocs map[string
 	return fields, nil
 }
 
-// componentTagRegex matches self-closing and open component tags with their props.
-var componentTagRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)((?:\s+\w+=(?:\{[^}]*\}|"[^"]*"))*)\s*/?>`)
+// componentCallRegex matches {{ render X (dict "Key" ...) }} or {{ wrap X (dict "Key" ...) }}
+// and captures the component name and the dict arguments.
+var componentCallRegex = regexp.MustCompile(`\{\{\s*(?:render|wrap)\s+([A-Z][a-zA-Z0-9]*)\s+\(dict\b([^)]*)\)`)
 
-// componentPropRegex matches Key={.expr} or Key="literal" patterns inside a tag.
-var componentPropRegex = regexp.MustCompile(`(\w+)=(?:\{[^}]*\}|"[^"]*")`)
+// dictKeyRegex matches string keys inside a dict call: "KeyName"
+var dictKeyRegex = regexp.MustCompile(`"([A-Z][a-zA-Z0-9]*)"`)
 
-// DiagnoseComponentProps checks that props passed to component tags match
+// DiagnoseComponentProps checks that props passed to component calls match
 // the component's Props struct. Reports unknown props as errors and missing
-// props as warnings.
+// props as warnings. Props are detected in (dict "Key" value ...) syntax.
 func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
 	if len(propsMap) == 0 {
 		return nil
 	}
 
-	usePaths := make(map[string]string, len(uses))
-	for _, u := range uses {
-		usePaths[u.Name] = u.Path
-	}
-
 	var diags []Diagnostic
 
-	for _, idx := range componentTagRegex.FindAllStringSubmatchIndex(templateBody, -1) {
+	for _, idx := range componentCallRegex.FindAllStringSubmatchIndex(templateBody, -1) {
 		compName := templateBody[idx[2]:idx[3]]
-		propsStr := ""
+		dictArgs := ""
 		if idx[4] >= 0 && idx[5] >= 0 {
-			propsStr = strings.TrimSpace(templateBody[idx[4]:idx[5]])
+			dictArgs = templateBody[idx[4]:idx[5]]
 		}
 
 		fields, ok := propsMap[compName]
@@ -295,29 +293,22 @@ func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, p
 			continue
 		}
 
-		// Build set of known field names
 		fieldNames := make(map[string]bool, len(fields))
 		for _, f := range fields {
 			fieldNames[f.Name] = true
 		}
 
-		// Extract provided prop names
+		// Extract provided prop names from dict keys
 		providedProps := make(map[string]bool)
-		propMatches := componentPropRegex.FindAllStringSubmatch(propsStr, -1)
-		for _, m := range propMatches {
+		for _, m := range dictKeyRegex.FindAllStringSubmatch(dictArgs, -1) {
 			providedProps[m[1]] = true
 		}
 
 		// Check for unknown props
-		for _, m := range componentPropRegex.FindAllStringSubmatchIndex(propsStr, -1) {
-			propName := propsStr[m[2]:m[3]]
+		for _, m := range dictKeyRegex.FindAllStringSubmatchIndex(dictArgs, -1) {
+			propName := dictArgs[m[2]:m[3]]
 			if !fieldNames[propName] {
-				// Calculate position relative to the full template body
 				propAbsOffset := idx[4] + m[2]
-				// Skip leading whitespace that was trimmed
-				if propsStr != templateBody[idx[4]:idx[5]] {
-					propAbsOffset = strings.Index(templateBody[idx[4]:idx[5]], propsStr) + idx[4] + m[2]
-				}
 				startLine, startChar := OffsetToLineChar(templateBody, propAbsOffset)
 				endLine, endChar := OffsetToLineChar(templateBody, propAbsOffset+len(propName))
 
@@ -330,7 +321,7 @@ func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, p
 					StartChar: startChar,
 					EndLine:   endLine,
 					EndChar:   endChar,
-					Message:   fmt.Sprintf("unknown prop %q on component <%s>; available: %s", propName, compName, strings.Join(available, ", ")),
+					Message:   fmt.Sprintf("unknown prop %q on component %s; available: %s", propName, compName, strings.Join(available, ", ")),
 					Severity:  1,
 				})
 			}
@@ -346,7 +337,7 @@ func DiagnoseComponentProps(templateBody string, uses []parser.UseDeclaration, p
 					StartChar: tagStartChar,
 					EndLine:   tagEndLine,
 					EndChar:   tagEndChar,
-					Message:   fmt.Sprintf("missing prop %q on component <%s>", f.Name, compName),
+					Message:   fmt.Sprintf("missing prop %q on component %s", f.Name, compName),
 					Severity:  2,
 				})
 			}
@@ -363,42 +354,26 @@ type ComponentTagContext struct {
 	ExistingProps []string // prop names already specified on the tag
 }
 
-// unclosedTagRegex matches an opening component tag up to where the cursor
-// might be positioned (no closing > or />).
-var unclosedTagRegex = regexp.MustCompile(`<([A-Z][a-zA-Z0-9]*)((?:\s+\w+=(?:\{[^}]*\}|"[^"]*"))*)\s*$`)
+// unclosedComponentCallRegex matches {{ render X (dict ... or {{ wrap X (dict ...
+// without a closing }} — indicating the cursor is inside the component call.
+var unclosedComponentCallRegex = regexp.MustCompile(`\{\{\s*(?:render|wrap)\s+([A-Z][a-zA-Z0-9]*)\s+\(dict\b([^)]*?)$`)
 
 // DetectComponentTagContext determines if the cursor (given as a byte offset
-// in the template body) is inside a component tag. Returns nil if the cursor
-// is not inside a component tag.
+// in the template body) is inside a component call ({{ render X (dict ...) }}
+// or {{ wrap X (dict ...) }}). Returns nil if the cursor is not inside one.
 func DetectComponentTagContext(templateBody string, cursorOffset int, uses []parser.UseDeclaration) *ComponentTagContext {
 	if cursorOffset < 0 || cursorOffset > len(templateBody) {
 		return nil
 	}
 
-	// Build set of known component names
 	known := make(map[string]bool, len(uses))
 	for _, u := range uses {
 		known[u.Name] = true
 	}
 
-	// Take the text before the cursor and look for an unclosed component tag
 	before := templateBody[:cursorOffset]
 
-	// Find the last `<` that starts a PascalCase tag
-	lastOpen := strings.LastIndex(before, "<")
-	if lastOpen < 0 {
-		return nil
-	}
-
-	// Check for a closing `>` or `/>` between the tag open and cursor —
-	// if found, the tag is already closed and cursor is not inside it
-	afterOpen := before[lastOpen:]
-	if strings.Contains(afterOpen, "/>") || strings.ContainsRune(afterOpen, '>') {
-		return nil
-	}
-
-	// Match the tag pattern
-	m := unclosedTagRegex.FindStringSubmatch(afterOpen)
+	m := unclosedComponentCallRegex.FindStringSubmatch(before)
 	if m == nil {
 		return nil
 	}
@@ -408,11 +383,10 @@ func DetectComponentTagContext(templateBody string, cursorOffset int, uses []par
 		return nil
 	}
 
-	// Extract already-specified props from the attributes string
-	attrsStr := m[2]
+	// Extract already-specified prop keys from the dict arguments
+	dictArgs := m[2]
 	var existing []string
-	propRe := regexp.MustCompile(`(\w+)=`)
-	for _, pm := range propRe.FindAllStringSubmatch(attrsStr, -1) {
+	for _, pm := range dictKeyRegex.FindAllStringSubmatch(dictArgs, -1) {
 		existing = append(existing, pm[1])
 	}
 
@@ -423,14 +397,16 @@ func DetectComponentTagContext(templateBody string, cursorOffset int, uses []par
 }
 
 // PropValueContext is the result of detecting whether the cursor is inside a
-// prop value expression ({...}) within a component tag.
+// prop value expression within a component call's (dict ...) block.
 type PropValueContext struct {
 	AfterPipe bool // true if cursor is after a | — suggest functions, not variables
 }
 
-// DetectPropValueContext determines if the cursor is inside an incomplete
-// prop value expression within a component tag. Returns nil if the cursor
-// is not in a prop value context.
+// DetectPropValueContext determines if the cursor is inside a prop value
+// expression within a component call. With the new syntax, props are inside
+// (dict "Key" .value ...) — the cursor is in a value position if it's
+// inside a component call's dict and not immediately after a string key.
+// Returns nil if the cursor is not in a prop value context.
 func DetectPropValueContext(templateBody string, cursorOffset int) *PropValueContext {
 	if cursorOffset <= 0 || cursorOffset > len(templateBody) {
 		return nil
@@ -438,58 +414,26 @@ func DetectPropValueContext(templateBody string, cursorOffset int) *PropValueCon
 
 	text := templateBody[:cursorOffset]
 
-	if !isInsideComponentTag(text) {
-		return nil
-	}
-	if !isInsideUnclosedBrace(text) {
+	// Check if we're inside a component call ({{ render/wrap X (dict ... )
+	if !unclosedComponentCallRegex.MatchString(text) {
 		return nil
 	}
 
+	// Check if the cursor is after a pipe character (for function completions)
 	return &PropValueContext{
-		AfterPipe: isAfterPipeOutsideQuotes(text),
+		AfterPipe: isAfterPipeInDict(text),
 	}
 }
 
-// isInsideComponentTag returns true if the text ends inside an unclosed
-// component tag (a <PascalCase tag with no closing > or />).
-func isInsideComponentTag(text string) bool {
-	lastOpen := strings.LastIndex(text, "<")
-	if lastOpen < 0 {
+// isAfterPipeInDict checks if the cursor is after a | inside a dict expression.
+func isAfterPipeInDict(text string) bool {
+	// Find the last (dict in the text
+	dictStart := strings.LastIndex(text, "(dict")
+	if dictStart < 0 {
 		return false
 	}
 
-	afterOpen := text[lastOpen:]
-
-	// If there's a > or /> after the <, the tag is closed
-	if strings.Contains(afterOpen, "/>") || strings.ContainsRune(afterOpen, '>') {
-		return false
-	}
-
-	// Check that the tag starts with a PascalCase name (component tag)
-	if len(afterOpen) < 2 {
-		return false
-	}
-	return afterOpen[1] >= 'A' && afterOpen[1] <= 'Z'
-}
-
-// isInsideUnclosedBrace returns true if the text has an unclosed { — meaning
-// the last { appears after the last }.
-func isInsideUnclosedBrace(text string) bool {
-	lastOpen := strings.LastIndex(text, "{")
-	lastClose := strings.LastIndex(text, "}")
-	return lastOpen > lastClose
-}
-
-// isAfterPipeOutsideQuotes returns true if the cursor (end of text) is after
-// a | character that is not inside a quoted string. Scans from the last
-// unclosed { to the end of text.
-func isAfterPipeOutsideQuotes(text string) bool {
-	braceStart := strings.LastIndex(text, "{")
-	if braceStart < 0 {
-		return false
-	}
-
-	expr := text[braceStart+1:]
+	expr := text[dictStart:]
 	inQuote := false
 	lastPipe := -1
 
@@ -504,8 +448,6 @@ func isAfterPipeOutsideQuotes(text string) bool {
 		}
 	}
 
-	// Cursor is after a pipe if the last unquoted | exists and there's
-	// only whitespace and identifier chars between it and the cursor
 	return lastPipe >= 0
 }
 
@@ -525,7 +467,7 @@ func ComponentPropCompletions(fields []codegen.StructField, existingProps []stri
 		items = append(items, CompletionItem{
 			Label:      f.Name,
 			Detail:     f.Type,
-			InsertText: f.Name + `={.}`,
+			InsertText: `"` + f.Name + `" .`,
 		})
 	}
 	return items

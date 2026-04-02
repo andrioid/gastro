@@ -342,8 +342,8 @@ func TestDiagnostics_UnknownComponent(t *testing.T) {
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}
-	templateBody := `<Card Title={.Name} />
-<Unknown />`
+	templateBody := `{{ render Card (dict "Title" .Name) }}
+{{ render Unknown (dict) }}`
 
 	diags := lsptemplate.Diagnose(templateBody, info, uses, nil, nil, nil)
 
@@ -476,7 +476,7 @@ func TestDiagnoseComponentProps_UnknownProp(t *testing.T) {
 		},
 	}
 
-	templateBody := `<Card Title={.Name} Bogus={.X} />`
+	templateBody := `{{ render Card (dict "Title" .Name "Bogus" .X) }}`
 	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
 
 	found := false
@@ -505,8 +505,7 @@ func TestDiagnoseComponentProps_MissingProp(t *testing.T) {
 		},
 	}
 
-	// Only provide Title, missing Body
-	templateBody := `<Card Title={.Name} />`
+	templateBody := `{{ render Card (dict "Title" .Name) }}`
 	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
 
 	found := false
@@ -528,10 +527,9 @@ func TestDiagnoseComponentProps_NoPropsStruct(t *testing.T) {
 	uses := []parser.UseDeclaration{
 		{Name: "Simple", Path: "components/simple.gastro"},
 	}
-	// Simple is not in propsMap — no Props struct
 	propsMap := map[string][]codegen.StructField{}
 
-	templateBody := `<Simple />`
+	templateBody := `{{ render Simple (dict) }}`
 	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
 
 	if len(diags) != 0 {
@@ -549,14 +547,12 @@ func TestDiagnoseComponentProps_WithChildren(t *testing.T) {
 		},
 	}
 
-	// Open tag with children — should check props on the open tag
-	templateBody := `<Layout Title={.Title}>
+	templateBody := `{{ wrap Layout (dict "Title" .Title) }}
 <p>child content</p>
-</Layout>`
+{{ end }}`
 
 	diags := lsptemplate.DiagnoseComponentProps(templateBody, uses, propsMap)
 
-	// Should not flag missing __children or any other internal prop
 	for _, d := range diags {
 		if strings.Contains(d.Message, "unknown prop") {
 			t.Errorf("unexpected unknown prop diagnostic: %s", d.Message)
@@ -572,71 +568,23 @@ func TestDetectPropValueContext(t *testing.T) {
 		afterPipe bool
 	}{
 		{
-			name:    "simple variable in prop value",
-			input:   `<Card Title={.|`,
+			name:    "simple variable in dict value",
+			input:   `{{ render Card (dict "Title" .|`,
 			wantNil: false,
 		},
 		{
-			name:    "partial variable in prop value",
-			input:   `<Card Title={.Tit|`,
-			wantNil: false,
-		},
-		{
-			name:      "after pipe in prop value",
-			input:     `<Card Date={.CreatedAt | t|`,
+			name:      "after pipe in dict value",
+			input:     `{{ render Card (dict "Date" (.CreatedAt | t|`,
 			afterPipe: true,
 		},
 		{
-			name:      "after pipe with space",
-			input:     `<Card Date={.X | |`,
-			afterPipe: true,
-		},
-		{
-			name:    "pipe inside quotes is not a real pipe",
-			input:   `<Card Title={.X | printf "a|b"|`,
-			wantNil: false,
-			// cursor is after closing ", which is after the quoted |
-			// the real pipe is before printf, so AfterPipe is true
-			afterPipe: true,
-		},
-		{
-			name:    "cursor in prop name position",
-			input:   `<Card Title={.Title} S|`,
-			wantNil: true,
-		},
-		{
-			name:    "cursor in string literal prop",
-			input:   `<Card Title="hello|"`,
-			wantNil: true,
-		},
-		{
-			name:    "cursor outside any tag",
+			name:    "cursor outside any component call",
 			input:   `<p>hello|</p>`,
 			wantNil: true,
 		},
 		{
-			name:    "cursor after closed tag",
-			input:   `<Card Title={.Title} />|`,
-			wantNil: true,
-		},
-		{
-			name:    "multi-line tag",
-			input:   "<Card\n  Title={.|",
-			wantNil: false,
-		},
-		{
-			name:    "multiple complete props then incomplete",
-			input:   `<Card Title={.Title} Slug={.S|`,
-			wantNil: false,
-		},
-		{
-			name:    "inside range block",
-			input:   "{{ range .Posts }}<Card Title={.|{{ end }}",
-			wantNil: false,
-		},
-		{
-			name:    "not a component tag (lowercase)",
-			input:   `<div class={.|`,
+			name:    "cursor after closed component call",
+			input:   `{{ render Card (dict "Title" .Title) }}|`,
 			wantNil: true,
 		},
 		{
@@ -644,11 +592,15 @@ func TestDetectPropValueContext(t *testing.T) {
 			input:   `|`,
 			wantNil: true,
 		},
+		{
+			name:    "wrap call with cursor in dict",
+			input:   `{{ wrap Layout (dict "Title" .|`,
+			wantNil: false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Split input at | to get template body and cursor offset
 			idx := strings.LastIndex(tt.input, "|")
 			templateBody := tt.input[:idx] + tt.input[idx+1:]
 			cursorOffset := idx

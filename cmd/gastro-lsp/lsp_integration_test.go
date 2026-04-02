@@ -910,7 +910,7 @@ func TestLSP_ComponentPropDiagnostics(t *testing.T) {
 import Card "components/card.gastro"
 Title := "Hello"
 ---
-<Card Title={.Title} Bogus="bad" />`
+{{ render Card (dict "Title" .Title "Bogus" "bad") }}`
 
 	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
 	client.notify("textDocument/didOpen", map[string]any{
@@ -979,9 +979,9 @@ func TestLSP_ComponentHover(t *testing.T) {
 	client.recv(t, 10*time.Second)
 	client.notify("initialized", map[string]any{})
 
-	// line 3: <Card Title={.Title} />
-	//          ^--- 'C' is at char 1 (0-indexed), 'Card' is chars 1-4
-	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<Card Title={.Title} />"
+	// line 4: {{ render Card (dict "Title" .Title) }}
+	//                   ^--- 'C' is at char 10 (0-indexed), 'Card' is chars 10-13
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n{{ render Card (dict \"Title\" .Title) }}"
 	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
 
 	client.notify("textDocument/didOpen", map[string]any{
@@ -993,10 +993,10 @@ func TestLSP_ComponentHover(t *testing.T) {
 		},
 	})
 
-	// Hover on "Card" (line 4, char 2 — inside the component name)
+	// Hover on "Card" (line 4, char 11 — inside the component name)
 	client.send("textDocument/hover", map[string]any{
 		"textDocument": map[string]any{"uri": fileURI},
-		"position":     map[string]any{"line": 4, "character": 2},
+		"position":     map[string]any{"line": 4, "character": 11},
 	})
 
 	resp := client.recv(t, 10*time.Second)
@@ -1041,8 +1041,8 @@ func TestLSP_ComponentDefinition(t *testing.T) {
 	client.recv(t, 10*time.Second)
 	client.notify("initialized", map[string]any{})
 
-	// line 4: <Card Title={.Title} />
-	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<Card Title={.Title} />"
+	// line 4: {{ render Card (dict "Title" .Title) }}
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n{{ render Card (dict \"Title\" .Title) }}"
 	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
 
 	client.notify("textDocument/didOpen", map[string]any{
@@ -1054,10 +1054,10 @@ func TestLSP_ComponentDefinition(t *testing.T) {
 		},
 	})
 
-	// Go-to-definition on "Card" (line 4, char 2)
+	// Go-to-definition on "Card" (line 4, char 11)
 	client.send("textDocument/definition", map[string]any{
 		"textDocument": map[string]any{"uri": fileURI},
-		"position":     map[string]any{"line": 4, "character": 2},
+		"position":     map[string]any{"line": 4, "character": 11},
 	})
 
 	resp := client.recv(t, 10*time.Second)

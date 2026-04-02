@@ -19,7 +19,7 @@ Title := gastro.Props().Title
         <a href="/blog">Blog</a>
     </nav>
     <main>
-        <slot />
+        {{ .Children }}
     </main>
     <footer><p>Built with Gastro</p></footer>
 </body>

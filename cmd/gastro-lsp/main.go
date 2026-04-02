@@ -172,7 +172,7 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 			"capabilities": map[string]any{
 				"textDocumentSync": 1, // Full sync
 				"completionProvider": map[string]any{
-					"triggerCharacters": []string{".", "<", "|"},
+					"triggerCharacters": []string{".", "{", "|"},
 				},
 				"hoverProvider":      true,
 				"definitionProvider": true,
@@ -885,14 +885,15 @@ func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *
 	}
 }
 
-// componentTagNameRegex matches component tag names with their byte positions.
-var componentTagNameRegex = regexp.MustCompile(`</?([A-Z][a-zA-Z0-9]*)`)
+// componentNameRegex matches component names after render/wrap keywords in {{ }} blocks.
+var componentNameRegex = regexp.MustCompile(`\{\{\s*(?:render|wrap)\s+([A-Z][a-zA-Z0-9]*)`)
 
-// componentHover checks if the cursor is on a component tag name and returns
-// hover information showing the component's Props struct fields.
+// componentHover checks if the cursor is on a component name after render/wrap
+// in a {{ }} block and returns hover information showing the component's Props
+// struct fields.
 func (s *server) componentHover(parsed *parser.File, cursorOffset int) any {
 	body := parsed.TemplateBody
-	for _, idx := range componentTagNameRegex.FindAllStringSubmatchIndex(body, -1) {
+	for _, idx := range componentNameRegex.FindAllStringSubmatchIndex(body, -1) {
 		nameStart, nameEnd := idx[2], idx[3]
 		if cursorOffset < nameStart || cursorOffset > nameEnd {
 			continue
@@ -1030,7 +1031,7 @@ func (s *server) componentDefinition(parsed *parser.File, pos proxy.Position) an
 		return nil
 	}
 
-	for _, idx := range componentTagNameRegex.FindAllStringSubmatchIndex(body, -1) {
+	for _, idx := range componentNameRegex.FindAllStringSubmatchIndex(body, -1) {
 		nameStart, nameEnd := idx[2], idx[3]
 		if offset < nameStart || offset > nameEnd {
 			continue

@@ -56,5 +56,11 @@ func buildStubFuncMap(uses []gastroparser.UseDeclaration) map[string]any {
 	}
 	stubFuncs["__gastro_render_children"] = ""
 
+	// render and wrap are compile-time keywords that appear in untransformed
+	// templates. The LSP parses raw templates, so these must be in the FuncMap
+	// for parsing to succeed.
+	stubFuncs["render"] = ""
+	stubFuncs["wrap"] = ""
+
 	return stubFuncs
 }

@@ -1,0 +1,817 @@
+/* ============================================================
+   Gastro Website Styles
+   ============================================================ */
+
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --color-bg: #ffffff;
+    --color-text: #1a1a2e;
+    --color-text-muted: #64748b;
+    --color-text-subtle: #94a3b8;
+    --color-accent: #f97316;
+    --color-accent-hover: #ea580c;
+    --color-accent-light: #fff7ed;
+    --color-border: #e2e8f0;
+    --color-border-light: #f1f5f9;
+    --color-surface: #f8fafc;
+    --color-code-bg: #1e1e2e;
+    --color-code-text: #cdd6f4;
+    --color-header-bg: #0f172a;
+    --color-header-text: #f8fafc;
+    --color-hero-bg: #0f172a;
+    --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, "SF Mono", monospace;
+    --max-width: 1120px;
+    --radius: 8px;
+    --radius-lg: 12px;
+}
+
+html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: var(--font-sans);
+    line-height: 1.7;
+    color: var(--color-text);
+    background: var(--color-bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+    color: var(--color-accent);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+a:hover {
+    color: var(--color-accent-hover);
+}
+
+code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+}
+
+/* Inline code in prose */
+p code,
+li code,
+td code,
+h1 code,
+h2 code,
+h3 code {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    padding: 0.125em 0.375em;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+/* ============================================================
+   Site Header
+   ============================================================ */
+
+.site-header {
+    background: var(--color-header-bg);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.nav-container {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 2rem;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.nav-logo {
+    display: flex;
+    align-items: center;
+    color: var(--color-header-text);
+}
+
+.nav-logo img {
+    height: 28px;
+}
+
+.nav-links {
+    display: flex;
+    gap: 2rem;
+    align-items: center;
+}
+
+.nav-links a {
+    color: var(--color-text-subtle);
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: color 0.15s ease;
+}
+
+.nav-links a:hover {
+    color: var(--color-header-text);
+}
+
+/* ============================================================
+   Hero Section
+   ============================================================ */
+
+.hero {
+    background: var(--color-hero-bg);
+    padding: 5rem 2rem 6rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4rem;
+    max-width: var(--max-width);
+    margin: 0 auto;
+}
+
+/* Extend the hero background full-width */
+.hero {
+    max-width: none;
+    padding-left: calc((100vw - var(--max-width)) / 2 + 2rem);
+    padding-right: calc((100vw - var(--max-width)) / 2 + 2rem);
+}
+
+.hero-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.hero-title {
+    font-size: 2.75rem;
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--color-header-text);
+    letter-spacing: -0.02em;
+    margin-bottom: 1.25rem;
+}
+
+.hero-accent {
+    color: var(--color-accent);
+}
+
+.hero-subtitle {
+    font-size: 1.15rem;
+    color: var(--color-accent);
+    font-weight: 600;
+    margin-bottom: 1rem;
+    letter-spacing: -0.01em;
+}
+
+.hero-description {
+    font-size: 1.05rem;
+    color: var(--color-text-subtle);
+    line-height: 1.7;
+    margin-bottom: 2rem;
+}
+
+.hero-actions {
+    display: flex;
+    gap: 1rem;
+}
+
+/* ============================================================
+   Buttons
+   ============================================================ */
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.7rem 1.5rem;
+    border-radius: var(--radius);
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border: 2px solid transparent;
+    cursor: pointer;
+}
+
+.btn-primary {
+    background: var(--color-accent);
+    color: white;
+    border-color: var(--color-accent);
+}
+
+.btn-primary:hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+    color: white;
+}
+
+.btn-secondary {
+    background: transparent;
+    color: var(--color-header-text);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-secondary:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+    color: white;
+}
+
+/* ============================================================
+   Code Window (Hero)
+   ============================================================ */
+
+.code-window {
+    background: var(--color-code-bg);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.code-window-bar {
+    display: flex;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    background: rgba(0, 0, 0, 0.3);
+    gap: 0.5rem;
+}
+
+.code-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+}
+
+.code-dot.red { background: #ff5f57; }
+.code-dot.yellow { background: #febc2e; }
+.code-dot.green { background: #28c840; }
+
+.code-window-title {
+    margin-left: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--color-text-subtle);
+    font-family: var(--font-mono);
+}
+
+.code-window pre {
+    margin: 0;
+    padding: 1.25rem;
+    overflow-x: auto;
+}
+
+.code-window pre code {
+    font-size: 0.85rem;
+    line-height: 1.6;
+}
+
+/* Override Prism background inside code-window */
+.code-window pre[class*="language-"],
+.code-window code[class*="language-"] {
+    background: transparent;
+}
+
+/* ============================================================
+   Features Section
+   ============================================================ */
+
+.features-section {
+    padding: 5rem 2rem;
+    max-width: var(--max-width);
+    margin: 0 auto;
+}
+
+.features-section h2 {
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.02em;
+}
+
+.features-section > p {
+    text-align: center;
+    color: var(--color-text-muted);
+    margin-bottom: 3rem;
+    font-size: 1.05rem;
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+}
+
+.feature-card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.feature-card:hover {
+    border-color: var(--color-accent);
+    box-shadow: 0 4px 16px rgba(249, 115, 22, 0.08);
+}
+
+.feature-icon {
+    font-size: 2rem;
+    margin-bottom: 1rem;
+    line-height: 1;
+}
+
+.feature-card h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.feature-card p {
+    color: var(--color-text-muted);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+/* ============================================================
+   Quick Start Section (Landing Page)
+   ============================================================ */
+
+.quickstart-section {
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-border-light);
+    border-bottom: 1px solid var(--color-border-light);
+    padding: 5rem 2rem;
+}
+
+.quickstart-container {
+    max-width: var(--max-width);
+    margin: 0 auto;
+}
+
+.quickstart-section h2 {
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.02em;
+}
+
+.quickstart-section > .quickstart-container > p {
+    text-align: center;
+    color: var(--color-text-muted);
+    margin-bottom: 3rem;
+    font-size: 1.05rem;
+}
+
+.quickstart-steps {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+}
+
+.quickstart-step {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+}
+
+.quickstart-step h3 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 1rem;
+}
+
+/* ============================================================
+   Docs Layout
+   ============================================================ */
+
+.docs-container {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 3rem;
+    min-height: calc(100vh - 60px - 120px);
+}
+
+.docs-sidebar {
+    position: sticky;
+    top: 76px;
+    align-self: start;
+    padding-top: 1rem;
+}
+
+.docs-sidebar h3 {
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text-muted);
+    margin-bottom: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.docs-sidebar h3:first-child {
+    margin-top: 0;
+}
+
+.docs-sidebar ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.docs-sidebar li {
+    margin-bottom: 0.25rem;
+}
+
+.docs-sidebar a {
+    display: block;
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+
+.docs-sidebar a:hover {
+    color: var(--color-text);
+    background: var(--color-surface);
+}
+
+.docs-sidebar a.active {
+    color: var(--color-accent);
+    background: var(--color-accent-light);
+    font-weight: 600;
+}
+
+/* ============================================================
+   Docs Content
+   ============================================================ */
+
+.docs-content {
+    padding-top: 1rem;
+    padding-bottom: 4rem;
+    max-width: 760px;
+}
+
+.docs-content h1 {
+    font-size: 2rem;
+    font-weight: 800;
+    margin-bottom: 0.5rem;
+    letter-spacing: -0.02em;
+}
+
+.docs-content h1 + p {
+    font-size: 1.1rem;
+    color: var(--color-text-muted);
+    margin-bottom: 2rem;
+    line-height: 1.7;
+}
+
+.docs-content h2 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-top: 3rem;
+    margin-bottom: 1rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-border-light);
+    letter-spacing: -0.01em;
+}
+
+.docs-content h2:first-of-type {
+    margin-top: 2rem;
+    border-top: none;
+    padding-top: 0;
+}
+
+.docs-content h3 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+}
+
+.docs-content p {
+    margin-bottom: 1rem;
+    color: var(--color-text);
+}
+
+.docs-content ul,
+.docs-content ol {
+    margin-bottom: 1.25rem;
+    padding-left: 1.5rem;
+}
+
+.docs-content li {
+    margin-bottom: 0.4rem;
+    color: var(--color-text);
+}
+
+.docs-content strong {
+    font-weight: 600;
+}
+
+.docs-content blockquote {
+    border-left: 3px solid var(--color-accent);
+    margin: 1.5rem 0;
+    padding: 0.75rem 1.25rem;
+    background: var(--color-accent-light);
+    border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+.docs-content blockquote p {
+    margin: 0;
+    color: var(--color-text);
+}
+
+/* ============================================================
+   Code Blocks (Docs)
+   ============================================================ */
+
+.code-block {
+    margin: 1.25rem 0;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid rgba(30, 30, 46, 0.1);
+}
+
+.code-block pre {
+    margin: 0;
+    padding: 1.25rem;
+    overflow-x: auto;
+    background: var(--color-code-bg);
+}
+
+.code-block pre code {
+    font-size: 0.85rem;
+    line-height: 1.65;
+    color: var(--color-code-text);
+}
+
+/* Override Prism theme defaults inside code-block */
+.code-block pre[class*="language-"],
+.code-block code[class*="language-"] {
+    background: transparent;
+}
+
+/* ============================================================
+   Tables (Docs)
+   ============================================================ */
+
+.docs-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.25rem 0;
+    font-size: 0.9rem;
+}
+
+.docs-content th {
+    text-align: left;
+    padding: 0.7rem 1rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.docs-content td {
+    padding: 0.6rem 1rem;
+    border: 1px solid var(--color-border);
+    vertical-align: top;
+}
+
+/* ============================================================
+   Live Demo
+   ============================================================ */
+
+.demo-section {
+    text-align: center;
+    padding: 3rem 0;
+}
+
+.demo-container {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 3rem 4rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+}
+
+.demo-count {
+    font-size: 4rem;
+    font-weight: 800;
+    font-family: var(--font-mono);
+    color: var(--color-accent);
+    line-height: 1;
+    min-width: 120px;
+}
+
+.demo-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.7rem 2rem;
+    background: var(--color-accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    font-family: var(--font-sans);
+}
+
+.demo-button:hover {
+    background: var(--color-accent-hover);
+}
+
+.demo-explanation {
+    margin-top: 2rem;
+    text-align: left;
+}
+
+.demo-explanation h3 {
+    margin-bottom: 1rem;
+}
+
+/* ============================================================
+   Next/Prev Navigation (Docs)
+   ============================================================ */
+
+.docs-nav {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--color-border);
+    gap: 1rem;
+}
+
+.docs-nav a {
+    display: block;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    transition: border-color 0.2s ease;
+    min-width: 180px;
+}
+
+.docs-nav a:hover {
+    border-color: var(--color-accent);
+}
+
+.docs-nav-label {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.docs-nav-title {
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.docs-nav .next {
+    text-align: right;
+    margin-left: auto;
+}
+
+/* ============================================================
+   Footer
+   ============================================================ */
+
+.site-footer {
+    border-top: 1px solid var(--color-border);
+    padding: 2.5rem 2rem;
+    background: var(--color-surface);
+}
+
+.footer-container {
+    max-width: var(--max-width);
+    margin: 0 auto;
+    text-align: center;
+}
+
+.site-footer p {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+    margin-bottom: 0.25rem;
+}
+
+.site-footer a {
+    color: var(--color-text-muted);
+    font-weight: 500;
+}
+
+.site-footer a:hover {
+    color: var(--color-accent);
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+
+@media (max-width: 900px) {
+    .hero {
+        grid-template-columns: 1fr;
+        padding: 3rem 1.5rem 4rem;
+        text-align: center;
+    }
+
+    .hero-actions {
+        justify-content: center;
+    }
+
+    .hero-code {
+        max-width: 540px;
+        margin: 0 auto;
+    }
+
+    .features-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .quickstart-steps {
+        grid-template-columns: 1fr;
+    }
+
+    .docs-container {
+        grid-template-columns: 1fr;
+        padding: 1.5rem;
+        gap: 1.5rem;
+    }
+
+    .docs-sidebar {
+        position: static;
+        border-bottom: 1px solid var(--color-border);
+        padding-bottom: 1.5rem;
+    }
+
+    .hero-title {
+        font-size: 2rem;
+    }
+}
+
+@media (max-width: 600px) {
+    .hero-title {
+        font-size: 1.75rem;
+    }
+
+    .hero-actions {
+        flex-direction: column;
+    }
+
+    .demo-container {
+        padding: 2rem;
+    }
+
+    .demo-count {
+        font-size: 3rem;
+    }
+
+    .docs-nav {
+        flex-direction: column;
+    }
+
+    .docs-nav .next {
+        text-align: left;
+    }
+}
+
+/* ============================================================
+   Reduced motion
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
+
+    html {
+        scroll-behavior: auto;
+    }
+}

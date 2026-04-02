@@ -1,0 +1,80 @@
+---
+import (
+    "gastro-website/content"
+
+    DocsLayout "components/docs-layout.gastro"
+    CodeBlock "components/code-block.gastro"
+)
+
+Title := "Components"
+Active := "components"
+Basic := content.ComponentBasic
+Computed := content.ComponentComputed
+ImportUsage := content.ComponentImportUsage
+Slot := content.ComponentSlot
+SlotUsage := content.ComponentSlotUsage
+PropSyntax := content.ComponentPropSyntax
+---
+{{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
+    <h1>Components</h1>
+    <p>Components are reusable <code>.gastro</code> files in the <code>components/</code> directory. They accept typed props and can render children via slots.</p>
+
+    <h2>Defining a Component</h2>
+    <p>A component uses <code>gastro.Props()</code> to declare its props type. The <code>Props</code> struct defines what the component accepts:</p>
+    {{ render CodeBlock (dict "Code" .Basic "Language" "go") }}
+    <p><code>gastro.Props()</code> is a compile-time marker that tells the code generator this file is a component. The <code>Props</code> struct must be defined in the same frontmatter.</p>
+
+    <h2>Computed Values</h2>
+    <p>When you need derived values from multiple props, assign the whole struct first:</p>
+    {{ render CodeBlock (dict "Code" .Computed "Language" "go") }}
+
+    <h2>Importing &amp; Using Components</h2>
+    <p>Import components in the frontmatter with the <code>.gastro</code> file extension. The identifier is the local name used in the template:</p>
+    {{ render CodeBlock (dict "Code" .ImportUsage "Language" "go") }}
+
+    <h2>Prop Syntax</h2>
+    <p>Props are passed as attributes on the component tag:</p>
+    {{ render CodeBlock (dict "Code" .PropSyntax "Language" "markup") }}
+    <table>
+        <thead>
+            <tr><th>Syntax</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>{.Expr}</code></td><td>Go template expression, evaluated in parent's data context</td></tr>
+            <tr><td><code>"literal"</code></td><td>String literal</td></tr>
+            <tr><td><code>{.Val | func "arg"}</code></td><td>Pipe expression</td></tr>
+        </tbody>
+    </table>
+
+    <h2>Type Coercion</h2>
+    <p>Gastro automatically coerces prop values to match struct field types:</p>
+    <table>
+        <thead>
+            <tr><th>Target Type</th><th>Accepted Values</th></tr>
+        </thead>
+        <tbody>
+            <tr><td><code>string</code></td><td>Any value (converted via <code>fmt.Sprintf</code>)</td></tr>
+            <tr><td><code>bool</code></td><td><code>bool</code>, <code>string</code> ("true", "false")</td></tr>
+            <tr><td><code>int</code></td><td><code>int</code>, <code>int64</code>, <code>float64</code>, <code>string</code> (parsed)</td></tr>
+            <tr><td><code>float64</code></td><td><code>float64</code>, <code>float32</code>, <code>int</code>, <code>string</code> (parsed)</td></tr>
+        </tbody>
+    </table>
+
+    <h2>Slots</h2>
+    <p>Slots let a component render content provided by its parent. Place <code>&lt;slot /&gt;</code> where children should appear:</p>
+    {{ render CodeBlock (dict "Code" .Slot "Language" "go") }}
+    <p>The parent passes children by wrapping content in the component tags:</p>
+    {{ render CodeBlock (dict "Code" .SlotUsage "Language" "markup") }}
+    <p>Children are rendered in the <strong>parent's</strong> data context, so they can reference the parent's template data. Only one unnamed slot is supported per component.</p>
+
+    <div class="docs-nav">
+        <a href="/docs/pages">
+            <div class="docs-nav-label">Previous</div>
+            <div class="docs-nav-title">Pages &amp; Routing</div>
+        </a>
+        <a href="/docs/sse" class="next">
+            <div class="docs-nav-label">Next</div>
+            <div class="docs-nav-title">SSE &amp; Datastar</div>
+        </a>
+    </div>
+{{ end }}

@@ -15,7 +15,7 @@ Title := gastro.Props().Title
 </head>
 <body>
     <main>
-        <slot />
+        {{ .Children }}
     </main>
 </body>
 </html>

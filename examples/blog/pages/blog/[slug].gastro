@@ -17,7 +17,7 @@ if err != nil {
 Post := post
 Title := post.Title
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <article>
         <h1>{{ .Post.Title }}</h1>
         <p class="meta">By {{ .Post.Author }} on {{ .Post.CreatedAt | timeFormat "Jan 2, 2006" }}</p>
@@ -26,4 +26,4 @@ Title := post.Title
         </div>
     </article>
     <a href="/blog">Back to all posts</a>
-</Layout>
+{{ end }}

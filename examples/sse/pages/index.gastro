@@ -3,7 +3,7 @@ import Layout "components/layout.gastro"
 
 Title := "SSE + Datastar Example"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <h1>SSE + Datastar Counter</h1>
     <p>Click the button to increment the counter via a server-sent event.</p>
 
@@ -13,4 +13,4 @@ Title := "SSE + Datastar Example"
     <h2>Live Clock</h2>
     <p>This clock updates every second via an SSE stream.</p>
     <div id="clock" data-init="@get('/api/clock')">--:--:--</div>
-</Layout>
+{{ end }}

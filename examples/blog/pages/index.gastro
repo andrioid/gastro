@@ -16,11 +16,11 @@ if err != nil {
 Posts := posts
 Title := "Home"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <h1>Welcome to My Blog</h1>
     <section>
         {{ range .Posts }}
-        <PostCard Slug={.Slug} Title={.Title} Author={.Author} Date={.CreatedAt | timeFormat "Jan 2, 2006"} />
+        {{ render PostCard (dict "Slug" .Slug "Title" .Title "Author" .Author "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
         {{ end }}
     </section>
-</Layout>
+{{ end }}

@@ -1,0 +1,34 @@
+---
+import Layout "components/layout.gastro"
+
+type Props struct {
+    Title  string
+    Active string
+}
+
+p := gastro.Props()
+Title := p.Title
+Active := p.Active
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    <div class="docs-container">
+        <aside class="docs-sidebar">
+            <h3>Documentation</h3>
+            <ul>
+                <li><a href="/docs/getting-started" class="{{ if eq .Active "getting-started" }}active{{ end }}">Getting Started</a></li>
+                <li><a href="/docs/pages" class="{{ if eq .Active "pages" }}active{{ end }}">Pages &amp; Routing</a></li>
+                <li><a href="/docs/components" class="{{ if eq .Active "components" }}active{{ end }}">Components</a></li>
+                <li><a href="/docs/sse" class="{{ if eq .Active "sse" }}active{{ end }}">SSE &amp; Datastar</a></li>
+                <li><a href="/docs/helpers" class="{{ if eq .Active "helpers" }}active{{ end }}">Template Helpers</a></li>
+                <li><a href="/docs/deployment" class="{{ if eq .Active "deployment" }}active{{ end }}">Deployment</a></li>
+            </ul>
+            <h3>Examples</h3>
+            <ul>
+                <li><a href="/docs/demo" class="{{ if eq .Active "demo" }}active{{ end }}">Live Demo</a></li>
+            </ul>
+        </aside>
+        <main class="docs-content">
+            {{ .Children }}
+        </main>
+    </div>
+{{ end }}

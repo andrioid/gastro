@@ -50,16 +50,16 @@ Rows := rows
 
     <text x="40" y="44" fill="var(--color-subtle)" font-size="14" font-weight="600" letter-spacing="0.05em">CALL CENTER</text>
 
-    <KpiCard X={30}  Value={.ActiveCalls} Label="Active Calls" />
-    <KpiCard X={320} Value={.AvgWait}     Label="Avg Wait" />
-    <KpiCard X={610} Value={.CallsToday}  Label="Calls Today" />
-    <KpiCard X={900} Value={.QueueDepth}  Label="Queue Depth" />
+    {{ render KpiCard (dict "X" 30 "Value" .ActiveCalls "Label" "Active Calls") }}
+    {{ render KpiCard (dict "X" 320 "Value" .AvgWait "Label" "Avg Wait") }}
+    {{ render KpiCard (dict "X" 610 "Value" .CallsToday "Label" "Calls Today") }}
+    {{ render KpiCard (dict "X" 900 "Value" .QueueDepth "Label" "Queue Depth") }}
 
     <text x="56" y="200"  font-size="11" font-weight="600" letter-spacing="0.08em" fill="var(--color-subtle)">AGENT</text>
     <text x="500" y="200"  font-size="11" font-weight="600" letter-spacing="0.08em" fill="var(--color-subtle)">STATUS</text>
     <text x="1140" y="200" font-size="11" font-weight="600" letter-spacing="0.08em" text-anchor="end" fill="var(--color-subtle)">DURATION</text>
 
     {{ range .Rows }}
-    <AgentRow Agent={.Agent} Y={.Y} />
+    {{ render AgentRow (dict "Agent" .Agent "Y" .Y) }}
     {{ end }}
 </svg>

@@ -146,10 +146,10 @@ A gastro page with Datastar attributes:
 import Layout "components/layout.gastro"
 Title := "Counter"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <div id="count">0</div>
     <button data-on:click="@get('/api/increment')">+1</button>
-</Layout>
+{{ end }}
 ```
 
 The layout includes the Datastar script:
@@ -165,7 +165,7 @@ Title := gastro.Props().Title
     <title>{{ .Title }}</title>
     <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1/bundles/datastar.js"></script>
 </head>
-<body><slot /></body>
+<body>{{ .Children }}</body>
 </html>
 ```
 

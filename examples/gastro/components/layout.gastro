@@ -1,0 +1,44 @@
+---
+type Props struct {
+    Title string
+}
+
+Title := gastro.Props().Title
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - Gastro</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1/themes/prism-tomorrow.min.css">
+    <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@v1/bundles/datastar.js"></script>
+</head>
+<body>
+    <header class="site-header">
+        <nav class="nav-container">
+            <a href="/" class="nav-logo">
+                <img src="/static/logo.svg" alt="Gastro" height="28">
+            </a>
+            <div class="nav-links">
+                <a href="/docs/getting-started">Docs</a>
+                <a href="/docs/demo">Demo</a>
+                <a href="https://github.com/andrioid/gastro" target="_blank" rel="noopener">GitHub</a>
+            </div>
+        </nav>
+    </header>
+    {{ .Children }}
+    <footer class="site-footer">
+        <div class="footer-container">
+            <p>Built with Gastro &mdash; a file-based component framework for Go.</p>
+            <p><a href="https://github.com/andrioid/gastro">Source on GitHub</a></p>
+        </div>
+    </footer>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1/prism.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-go.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-markup.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-docker.min.js"></script>
+</body>
+</html>

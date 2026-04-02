@@ -1,0 +1,13 @@
+---
+type Props struct {
+    Code     string
+    Language string
+}
+
+p := gastro.Props()
+Code := p.Code
+Language := p.Language
+---
+<div class="code-block">
+    <pre><code class="language-{{ .Language }}">{{ .Code }}</code></pre>
+</div>

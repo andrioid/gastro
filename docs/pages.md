@@ -43,9 +43,9 @@ import Layout "components/layout.gastro"
 
 Title := "About"
 ---
-<Layout Title={.Title}>
+{{ wrap Layout (dict "Title" .Title) }}
     <h1>About Me</h1>
-</Layout>
+{{ end }}
 ```
 
 ## Data flow
@@ -97,11 +97,11 @@ ctx := gastro.Context()
 posts, _ := db.ListPublished()
 Posts := posts
 ---
-<Layout Title="Home">
+{{ wrap Layout (dict "Title" "Home") }}
     {{ range .Posts }}
-    <PostCard Title={.Title} Slug={.Slug} />
+    {{ render PostCard (dict "Title" .Title "Slug" .Slug) }}
     {{ end }}
-</Layout>
+{{ end }}
 ```
 
 See [components.md](components.md) for details on the component system.
