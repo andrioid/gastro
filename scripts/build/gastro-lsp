@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+#MISE description="Build the gastro-lsp binary"
+#MISE sources=["cmd/gastro-lsp/**/*.go", "internal/**/*.go", "pkg/**/*.go"]
+#MISE outputs=["bin/gastro-lsp"]
+
+set -euo pipefail
+
+mkdir -p bin
+go build -o bin/gastro-lsp ./cmd/gastro-lsp/
+echo "Built bin/gastro-lsp"

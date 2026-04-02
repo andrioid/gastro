@@ -1,0 +1,16 @@
+id = "gastro"
+name = "Gastro"
+version = "0.1.0"
+schema_version = 1
+authors = ["Andri Oskarsson <andri@andrioid.net>"]
+description = "Gastro language support: syntax highlighting and LSP integration"
+repository = "https://github.com/andrioid/gastro"
+
+[grammars.gastro]
+repository = "https://github.com/andrioid/gastro"
+path = "tree-sitter-gastro"
+rev = "38ccc35d5f85e89335d4c2967b34a6f2420540e2"
+
+[language_servers.gastro-lsp]
+name = "Gastro Language Server"
+languages = ["Gastro"]

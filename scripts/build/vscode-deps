@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Install VS Code extension npm dependencies"
+
+set -euo pipefail
+
+npm install --prefix editors/vscode

@@ -30,7 +30,7 @@ route, build, serve). Editor support is in progress.
 
 ### Prerequisites
 
-- Go 1.22+
+- Go 1.26+
 - [mise](https://mise.jdx.dev/) (optional, for managed tooling)
 
 ```sh
@@ -228,8 +228,17 @@ Then reload VS Code.
 
 ### Neovim
 
-Copy `editors/neovim/gastro.lua` to `~/.config/nvim/after/plugin/gastro.lua`.
-Requires `nvim-treesitter` for syntax highlighting.
+Copy or symlink `editors/neovim/gastro.lua` to
+`~/.config/nvim/after/plugin/gastro.lua`. The LSP starts automatically for
+`.gastro` files. Requires `nvim-treesitter` for syntax highlighting.
+
+### Zed
+
+A Zed extension is in `editors/zed/`. It auto-downloads `gastro-lsp` from
+GitHub releases on first use. To install as a dev extension:
+
+1. Open Zed's command palette and run "zed: install dev extension"
+2. Select the `editors/zed/` directory
 
 ## Example
 

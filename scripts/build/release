@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#MISE description="Cross-compile gastro and gastro-lsp for all platforms"
+
+set -euo pipefail
+
+OUTDIR="tmp/release"
+BINARIES=("gastro" "gastro-lsp")
+PLATFORMS=(
+  "linux/amd64"
+  "linux/arm64"
+  "darwin/amd64"
+  "darwin/arm64"
+  "windows/amd64"
+  "windows/arm64"
+)
+
+# Allow building a single target via env vars
+if [[ -n "${GOOS:-}" && -n "${GOARCH:-}" ]]; then
+  PLATFORMS=("${GOOS}/${GOARCH}")
+fi
+
+mkdir -p "$OUTDIR"
+
+for platform in "${PLATFORMS[@]}"; do
+  os="${platform%/*}"
+  arch="${platform#*/}"
+
+  for bin in "${BINARIES[@]}"; do
+    output="${OUTDIR}/${bin}-${os}-${arch}"
+    if [[ "$os" == "windows" ]]; then
+      output="${output}.exe"
+    fi
+
+    echo "Building ${bin} for ${os}/${arch}..."
+    GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -o "$output" "./cmd/${bin}/"
+  done
+done
+
+echo "Release binaries written to ${OUTDIR}/"
+ls -lh "$OUTDIR/"

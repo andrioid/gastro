@@ -4,6 +4,9 @@ bin/
 *.exe
 *.dylib
 
+# Temporary files (build artifacts, etc.)
+tmp/
+
 # Generated output
 .gastro/
 examples/blog/.gastro/

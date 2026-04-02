@@ -1,0 +1,5 @@
+name = "Gastro"
+grammar = "gastro"
+path_suffixes = ["gastro"]
+line_comments = ["// "]
+block_comment = ["/* ", " */"]

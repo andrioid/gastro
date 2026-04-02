@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Generate the tree-sitter parser from grammar.js"
+#MISE sources=["tree-sitter-gastro/grammar.js"]
+#MISE outputs=["tree-sitter-gastro/src/parser.c"]
+
+set -euo pipefail
+
+npm install --prefix tree-sitter-gastro
+npx --prefix tree-sitter-gastro tree-sitter generate tree-sitter-gastro/grammar.js
+
+echo "Parser generated at tree-sitter-gastro/src/parser.c"

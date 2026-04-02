@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run Go linter (go vet)"
+
+set -euo pipefail
+
+go vet ./...

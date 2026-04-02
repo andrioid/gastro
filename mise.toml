@@ -1,5 +1,6 @@
 [tools]
 go = "1.26.1"
+node = "lts"
 "go:golang.org/x/tools/gopls" = "latest"
 
 [task_config]

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+#MISE description="Symlink the Neovim plugin for local development"
+
+set -euo pipefail
+
+PLUGIN_DIR="$HOME/.config/nvim/after/plugin"
+TARGET="$PWD/editors/neovim/gastro.lua"
+
+mkdir -p "$PLUGIN_DIR"
+
+if [ -L "$PLUGIN_DIR/gastro.lua" ]; then
+  echo "Symlink already exists: $PLUGIN_DIR/gastro.lua"
+else
+  ln -sfn "$TARGET" "$PLUGIN_DIR/gastro.lua"
+  echo "Linked $TARGET -> $PLUGIN_DIR/gastro.lua"
+fi
+
+echo "Restart Neovim to pick up changes."

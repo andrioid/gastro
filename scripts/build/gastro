@@ -7,3 +7,4 @@ set -euo pipefail
 
 mkdir -p bin
 go build -o bin/gastro ./cmd/gastro/
+echo "Built bin/gastro"

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.22+
+- Go 1.26+
 - [mise](https://mise.jdx.dev/) for managed tooling
 
 ```sh
@@ -148,10 +148,27 @@ Then reload VS Code (`Cmd+Shift+P` > "Developer: Reload Window").
 
 **Neovim plugin (`editors/neovim/`):**
 
-Copy `gastro.lua` to `~/.config/nvim/after/plugin/gastro.lua`. Changes take
-effect on next Neovim restart.
+```sh
+mise run link:neovim
+```
 
-**Both editors require `gastro-lsp` and `gopls` in PATH.** If using mise,
+This symlinks the plugin to `~/.config/nvim/after/plugin/gastro.lua`. The LSP
+starts automatically for `.gastro` files. To customize the LSP command, add
+`require("gastro").setup({ cmd = "/path/to/gastro-lsp" })` to your Neovim
+config. Changes take effect on next Neovim restart.
+
+**Zed extension (`editors/zed/`):**
+
+The Zed extension is a Rust WASM crate that auto-downloads `gastro-lsp` from
+GitHub releases. To install for development:
+
+1. Open Zed's command palette and run "zed: install dev extension"
+2. Select the `editors/zed/` directory
+
+Zed compiles the Rust code to WASM automatically. Use `zed --foreground` to
+see extension logs.
+
+**All editors require `gastro-lsp` and `gopls` in PATH.** If using mise,
 `mise install` in the project root provides both.
 
 ### Working on the LSP

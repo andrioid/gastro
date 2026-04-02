@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#MISE description="Remove all build artifacts"
+
+set -euo pipefail
+
+rm -rf bin/
+rm -rf tmp/
+rm -rf editors/vscode/bin/
+rm -rf editors/zed/target/
+rm -rf tree-sitter-gastro/src/
+rm -rf tree-sitter-gastro/node_modules/
+
+echo "Cleaned all build artifacts."

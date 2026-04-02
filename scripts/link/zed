@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+#MISE description="Print instructions for installing the Zed extension locally"
+
+set -euo pipefail
+
+EXT_DIR="$PWD/editors/zed"
+
+echo "To install the Gastro extension in Zed for development:"
+echo ""
+echo "  1. Open Zed"
+echo "  2. Open the command palette (Cmd+Shift+P / Ctrl+Shift+P)"
+echo "  3. Run 'zed: install dev extension'"
+echo "  4. Select the directory: ${EXT_DIR}"
+echo ""
+echo "Zed will compile the Rust WASM extension automatically."
+echo "Use 'zed --foreground' to see extension logs."
