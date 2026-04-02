@@ -2,6 +2,7 @@
 
 ## Backlog
 
+- [ ] Test with new syntax
 - [ ] Live reload in dev mode: inject JS snippet into HTML responses, SSE endpoint `GET /__gastro/reload`, file-based signal (`.gastro/.reload`) written by CLI after regeneration, browser reconnects with backoff on disconnect
 - [ ] `gastro dev` smart restart: wire `ClassifyChange`/`DetectChangedSection` (already implemented in `internal/watcher/`) into the CLI so template-only changes skip the rebuild+restart cycle (templates already load from disk in dev mode)
 - [ ] `gastro new` scaffold command: generate a minimal project skeleton (pages/, components/, static/, main.go, go.mod)
