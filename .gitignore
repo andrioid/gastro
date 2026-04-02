@@ -27,6 +27,9 @@ node_modules/
 # Tree-sitter generated source
 tree-sitter-gastro/src/
 
+# Playwright CLI artifacts
+.playwright-cli/
+
 # OS
 .DS_Store
 
