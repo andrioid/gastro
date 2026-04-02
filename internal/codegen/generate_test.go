@@ -286,6 +286,55 @@ func TestGenerate_NoExportedVars(t *testing.T) {
 	assertContains(t, output, "Execute")
 }
 
+func TestGenerate_PageHandlerLogsExecuteError(t *testing.T) {
+	file := &parser.File{
+		Filename:     "pages/index.gastro",
+		Frontmatter:  `Title := "Hello"`,
+		TemplateBody: `<h1>{{ .Title }}</h1>`,
+	}
+
+	info := &codegen.FrontmatterInfo{
+		ExportedVars: []codegen.VarInfo{{Name: "Title"}},
+		IsPage:       true,
+	}
+
+	output, err := codegen.GenerateHandler(file, info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Page handlers should log template execution errors
+	assertContains(t, output, `log.Printf`)
+	assertContains(t, output, `template execution failed`)
+}
+
+func TestGenerate_ComponentLogsExecuteError(t *testing.T) {
+	file := &parser.File{
+		Filename: "components/card.gastro",
+		Frontmatter: `type Props struct {
+    Title string
+}
+props := gastro.Props[Props]()
+CSSClass := "card"`,
+		TemplateBody: `<div class="{{ .CSSClass }}">{{ .Children }}</div>`,
+	}
+
+	info := &codegen.FrontmatterInfo{
+		ExportedVars:  []codegen.VarInfo{{Name: "CSSClass"}},
+		PrivateVars:   []codegen.VarInfo{{Name: "props"}},
+		IsComponent:   true,
+		PropsTypeName: "Props",
+	}
+
+	output, err := codegen.GenerateHandler(file, info)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Component render functions should log template execution errors
+	assertContains(t, output, `template execution failed`)
+}
+
 func TestExportedComponentName(t *testing.T) {
 	tests := []struct {
 		input string

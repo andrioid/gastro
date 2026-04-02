@@ -954,9 +954,13 @@ authentication guards).
 
 ## 20. Future Considerations
 
-- **Unify page and component internals.** Pages and components share the same
-  structure (frontmatter + template, exported variables into a data map, template
-  execution). A page is conceptually a component with HTTP request context.
-  Consider refactoring the codegen to use a single internal render mechanism
-  where a page is a thin HTTP adapter that calls it. This would reduce code
-  duplication in the generator templates and simplify the architecture.
+- **Page and component template unification (evaluated, rejected).** Considered
+  merging `handlerTmpl` and `componentTmpl` into a single template with
+  conditionals. Rejected because pages stream directly to `http.ResponseWriter`
+  via `Execute(w, ...)` while components buffer into `bytes.Buffer` and return
+  `template.HTML`. The streaming model is more efficient for HTTP handlers and
+  follows Go's `http.Handler` conventions. The shared code (~10 lines: frontmatter,
+  data map, template execution) is minimal and acceptable duplication (WET). A
+  unified template would force pages to buffer unnecessarily and add conditional
+  complexity without meaningful benefit. Instead, both templates now handle
+  `Execute` errors (previously silently discarded).
