@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/andrioid/gastro/internal/compiler"
+	"github.com/andrioid/gastro/internal/scaffold"
 	"github.com/andrioid/gastro/internal/watcher"
 )
 
@@ -42,6 +43,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "gastro dev: %v\n", err)
 			os.Exit(1)
 		}
+	case "new":
+		if err := runNew(); err != nil {
+			fmt.Fprintf(os.Stderr, "gastro new: %v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -53,6 +59,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Usage: gastro <command>")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands:")
+	fmt.Fprintln(os.Stderr, "  new <name>  Create a new gastro project")
 	fmt.Fprintln(os.Stderr, "  generate    Compile .gastro files to .gastro/ directory")
 	fmt.Fprintln(os.Stderr, "  build       Generate + go build -> single binary")
 	fmt.Fprintln(os.Stderr, "  dev         Watch mode with hot reload (port 4242 or PORT env)")
@@ -85,6 +92,38 @@ func runBuild() error {
 	}
 
 	fmt.Println("gastro: build complete -> ./app")
+	return nil
+}
+
+func runNew() error {
+	if len(os.Args) < 3 {
+		return fmt.Errorf("missing project name\n\nUsage: gastro new <name>")
+	}
+
+	name := os.Args[2]
+	targetDir := name
+
+	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
+		return fmt.Errorf("directory %q already exists", targetDir)
+	}
+
+	fmt.Printf("gastro: creating project %q...\n", name)
+	if err := scaffold.Generate(name, targetDir); err != nil {
+		return err
+	}
+
+	// Run code generation so the project is immediately runnable.
+	projectDir := targetDir
+	outputDir := filepath.Join(projectDir, ".gastro")
+	if err := compiler.Compile(projectDir, outputDir); err != nil {
+		fmt.Fprintf(os.Stderr, "gastro: initial generate failed (run 'gastro generate' in the project dir): %v\n", err)
+	}
+
+	fmt.Println("gastro: done")
+	fmt.Println("")
+	fmt.Printf("  cd %s\n", name)
+	fmt.Println("  gastro dev")
+	fmt.Println("")
 	return nil
 }
 
