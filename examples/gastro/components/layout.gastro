@@ -25,6 +25,7 @@ Title := p.Title
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-docker.min.js"></script>
     <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"></script>
+    <script defer src="https://umami.andri.dk/script.js" data-website-id="db15b36b-eea8-4e25-b7f7-318a0c82c31e"></script>
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
