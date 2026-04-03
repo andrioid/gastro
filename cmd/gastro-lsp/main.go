@@ -22,10 +22,18 @@ import (
 	"github.com/andrioid/gastro/internal/parser"
 )
 
+// Set at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
 // gastro-lsp: a Language Server Protocol server for .gastro files.
 // Communicates via JSON-RPC 2.0 over stdin/stdout.
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "version" || os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println(version)
+		return
+	}
+
 	log.SetOutput(os.Stderr)
 	log.Println("gastro-lsp: starting")
 
@@ -266,7 +274,7 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 			},
 			"serverInfo": map[string]any{
 				"name":    "gastro-lsp",
-				"version": "0.1.0",
+				"version": version,
 			},
 		},
 	}

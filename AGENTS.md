@@ -5,6 +5,7 @@
 - If you encounter a changed file, that you didn't edit. Ask if you should revert it or commit it.
 - Before presenting a plan, identify any ambigious parts of it. Ask questions until none remain.
 - Always run tests with `-race` to test for race-conditions.
+- All new 3rd party dependencies need to be approved. That applies to code, packages and workflows.
 
 ### References
 

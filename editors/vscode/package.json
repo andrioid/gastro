@@ -1,9 +1,19 @@
 {
   "name": "gastro-vscode",
   "displayName": "Gastro",
-  "description": "Language support for Gastro (.gastro) files",
+  "description": "Language support for Gastro (.gastro) files - syntax highlighting, LSP, and completions",
   "version": "0.1.0",
   "publisher": "andrioid",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/andrioid/gastro",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/andrioid/gastro",
+  "bugs": {
+    "url": "https://github.com/andrioid/gastro/issues"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -11,6 +21,7 @@
     "onLanguage:gastro"
   ],
   "categories": ["Programming Languages"],
+  "keywords": ["gastro", "go", "template", "component", "language-server"],
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },

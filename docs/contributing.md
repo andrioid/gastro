@@ -190,6 +190,51 @@ stdin/stdout.
 
 ## Commit Messages
 
-- Summarise the change in 1-2 sentences.
-- Focus on the "why" rather than the "what".
-- Use present tense ("add", "fix", "update", not "added", "fixed").
+This project uses [Conventional Commits](https://www.conventionalcommits.org/)
+to automate versioning and changelog generation via
+[release-please](https://github.com/googleapis/release-please).
+
+### Format
+
+```
+type(scope): short description
+
+Optional body explaining *why*, not *what*.
+```
+
+### Types
+
+| Type | When to use |
+|------|-------------|
+| `feat` | New user-facing functionality |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `refactor` | Code change that neither fixes a bug nor adds a feature |
+| `test` | Adding or updating tests |
+| `chore` | Build, CI, dependency updates |
+| `ci` | CI/CD workflow changes |
+
+### Scope (optional but encouraged)
+
+Use the package or area being changed: `parser`, `codegen`, `lsp`, `router`,
+`cli`, `vscode`, `neovim`, `zed`, `ci`.
+
+### Examples
+
+```
+feat(lsp): add component auto-import on completion
+fix(codegen): handle duplicate child template names
+docs: add SSE guide
+chore(ci): replace softprops action with gh CLI
+refactor(parser): extract backtick tracking into helper
+```
+
+### Breaking changes
+
+Add `!` after the type/scope, or include `BREAKING CHANGE:` in the commit body.
+release-please will bump the minor version (while on v0.x) or the major version
+(v1+).
+
+```
+feat(codegen)!: replace <Component> syntax with template actions
+```

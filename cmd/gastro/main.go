@@ -16,6 +16,9 @@ import (
 	"github.com/andrioid/gastro/internal/watcher"
 )
 
+// Set at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
 const (
 	fileWatchInterval = 500 * time.Millisecond
 	debounceDelay     = 200 * time.Millisecond
@@ -28,6 +31,9 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "version", "--version", "-v":
+		fmt.Println(version)
+		return
 	case "generate":
 		if err := runGenerate(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro generate: %v\n", err)
@@ -56,6 +62,8 @@ func main() {
 }
 
 func printUsage() {
+	fmt.Fprintf(os.Stderr, "gastro %s\n", version)
+	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Usage: gastro <command>")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Commands:")
@@ -63,6 +71,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  generate    Compile .gastro files to .gastro/ directory")
 	fmt.Fprintln(os.Stderr, "  build       Generate + go build -> single binary")
 	fmt.Fprintln(os.Stderr, "  dev         Watch mode with hot reload (port 4242 or PORT env)")
+	fmt.Fprintln(os.Stderr, "  version     Print version")
 }
 
 func runGenerate() error {

@@ -4,5 +4,7 @@
 
 set -euo pipefail
 
-go build -o editors/vscode/bin/gastro-lsp ./cmd/gastro-lsp/
-echo "Built editors/vscode/bin/gastro-lsp"
+VERSION="${GASTRO_VERSION:-dev}"
+
+go build -ldflags "-X main.version=${VERSION}" -o editors/vscode/bin/gastro-lsp ./cmd/gastro-lsp/
+echo "Built editors/vscode/bin/gastro-lsp (${VERSION})"

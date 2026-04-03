@@ -5,6 +5,8 @@
 
 set -euo pipefail
 
+VERSION="${GASTRO_VERSION:-dev}"
+
 mkdir -p bin
-go build -o bin/gastro ./cmd/gastro/
-echo "Built bin/gastro"
+go build -ldflags "-X main.version=${VERSION}" -o bin/gastro ./cmd/gastro/
+echo "Built bin/gastro (${VERSION})"

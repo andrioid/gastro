@@ -1,0 +1,100 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  build:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            vscode_target: linux-x64
+          - goos: linux
+            goarch: arm64
+            vscode_target: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            vscode_target: darwin-x64
+          - goos: darwin
+            goarch: arm64
+            vscode_target: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            vscode_target: win32-x64
+          - goos: windows
+            goarch: arm64
+            vscode_target: win32-arm64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v4
+
+      - name: Build release binaries
+        run: mise run build:release
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GASTRO_VERSION: ${{ needs.release-please.outputs.version }}
+
+      - name: Build VS Code extension
+        run: |
+          npm install --prefix editors/vscode
+          EXT="${{ matrix.goos == 'windows' && '.exe' || '' }}"
+          cp "tmp/release/gastro-lsp-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" "editors/vscode/bin/gastro-lsp${EXT}"
+          npx --prefix editors/vscode @vscode/vsce package --target ${{ matrix.vscode_target }} -o "tmp/release/gastro-vscode-${{ matrix.vscode_target }}.vsix"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: tmp/release/*
+
+  publish:
+    needs: [release-please, build]
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: tmp/release
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Upload binaries to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" tmp/release/*
+
+      - name: Publish to VS Code Marketplace
+        if: ${{ vars.VSCE_PAT != '' }}
+        run: npx @vscode/vsce publish --packagePath tmp/release/*.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        if: ${{ vars.OVSX_PAT != '' }}
+        run: npx ovsx publish tmp/release/*.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
