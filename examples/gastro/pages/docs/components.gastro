@@ -1,19 +1,10 @@
 ---
 import (
-    "gastro-website/content"
-
     DocsLayout "components/docs-layout.gastro"
-    CodeBlock "components/code-block.gastro"
 )
 
 Title := "Components"
 Active := "components"
-Basic := content.ComponentBasic
-Computed := content.ComponentComputed
-ImportUsage := content.ComponentImportUsage
-ChildrenExample := content.ComponentChildren
-ChildrenUsage := content.ComponentChildrenUsage
-PropSyntax := content.ComponentPropSyntax
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Components</h1>
@@ -21,20 +12,85 @@ PropSyntax := content.ComponentPropSyntax
 
     <h2>Defining a Component</h2>
     <p>A component uses <code>gastro.Props()</code> to declare its props type. The <code>Props</code> struct defines what the component accepts:</p>
-    {{ CodeBlock (dict "Code" .Basic "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+type Props struct {
+    Title  string
+    Author string
+}
+
+Title := gastro.Props().Title
+Author := gastro.Props().Author
+---
+<article>
+    <h2>{{ .Title }}</h2>
+    <p>By {{ .Author }}</p>
+</article>
+{{- endraw -}}
+</code></pre>
+    </div>
     <p><code>gastro.Props()</code> is a compile-time marker that tells the code generator this file is a component. The <code>Props</code> struct must be defined in the same frontmatter.</p>
 
     <h2>Computed Values</h2>
     <p>When you need derived values from multiple props, assign the whole struct first:</p>
-    {{ CodeBlock (dict "Code" .Computed "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+import "fmt"
+
+type Props struct {
+    Label string
+    X     int
+}
+
+p := gastro.Props()
+Label := p.Label
+CX := fmt.Sprintf("%d", p.X + 135)
+---
+<text x="{{ .CX }}">{{ .Label }}</text>
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h2>Importing &amp; Using Components</h2>
     <p>Import components in the frontmatter with the <code>.gastro</code> file extension. The identifier is the local name used in the template:</p>
-    {{ CodeBlock (dict "Code" .ImportUsage "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+import (
+    Layout "components/layout.gastro"
+    PostCard "components/post-card.gastro"
+)
+
+ctx := gastro.Context()
+---
+{{ wrap Layout (dict "Title" "Home") }}
+    {{ PostCard (dict "Title" "My Post" "Slug" "my-post") }}
+{{ end }}
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h2>Prop Syntax</h2>
     <p>Props are passed as attributes on the component tag:</p>
-    {{ CodeBlock (dict "Code" .PropSyntax "Language" "markup") }}
+    <div class="code-block">
+        <pre><code class="language-markup">
+{{- raw -}}
+<!-- Template expression -->
+{{ PostCard (dict "Title" .Title "Slug" .Slug) }}
+
+<!-- String literal -->
+{{ Layout (dict "Title" "About") }}
+
+<!-- Pipe expression -->
+{{ PostCard (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
+{{- endraw -}}
+</code></pre>
+    </div>
     <table>
         <thead>
             <tr><th>Syntax</th><th>Meaning</th></tr>
@@ -61,11 +117,42 @@ PropSyntax := content.ComponentPropSyntax
     </table>
 
     <h2>Children</h2>
-    <p>Children let a component render content provided by its parent. Place <code>{{ "{{ .Children }}" }}</code> where children should appear:</p>
-    {{ CodeBlock (dict "Code" .ChildrenExample "Language" "go") }}
+    <p>Children let a component render content provided by its parent. Place <code>{{ raw }}{{ .Children }}{{ endraw }}</code> where children should appear:</p>
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+type Props struct {
+    Title string
+}
+
+Title := gastro.Props().Title
+---
+<html>
+<head><title>{{ .Title }}</title></head>
+<body>
+    <nav>...</nav>
+    <main>
+        {{ .Children }}
+    </main>
+    <footer>...</footer>
+</body>
+</html>
+{{- endraw -}}
+</code></pre>
+    </div>
     <p>The parent passes children by wrapping content in the component tags:</p>
-    {{ CodeBlock (dict "Code" .ChildrenUsage "Language" "markup") }}
-    <p>Children are rendered in the <strong>parent's</strong> data context, so they can reference the parent's template data. Only one <code>{{ "{{ .Children }}" }}</code> is supported per component.</p>
+    <div class="code-block">
+        <pre><code class="language-markup">
+{{- raw -}}
+{{ wrap Layout (dict "Title" "Home") }}
+    <h1>Welcome</h1>
+    <p>This becomes the children content.</p>
+{{ end }}
+{{- endraw -}}
+</code></pre>
+    </div>
+    <p>Children are rendered in the <strong>parent's</strong> data context, so they can reference the parent's template data. Only one <code>{{ raw }}{{ .Children }}{{ endraw }}</code> is supported per component.</p>
 
     <div class="docs-nav">
         <a href="/docs/pages">

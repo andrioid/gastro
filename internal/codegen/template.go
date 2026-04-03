@@ -41,6 +41,7 @@ func restoreComments(body string, comments []string) string {
 }
 
 // TransformTemplate transforms the template body:
+//   - {{ raw }}...{{ endraw }} → escaped content (literal template syntax)
 //   - {{ wrap ComponentName (dict ...) }}...{{ end }} → function call + {{define}} block
 //
 // Leaf components use bare function calls ({{ Card (dict ...) }}) which are already
@@ -61,6 +62,14 @@ func TransformTemplate(body string, uses []parser.UseDeclaration) (string, error
 
 	// Extract comments to prevent regexes from matching inside them
 	body, comments := extractComments(body)
+
+	// Escape raw blocks — after comments so {{ raw }} in comments is ignored,
+	// before wrap transformation so {{ wrap }} inside raw blocks is escaped.
+	var err error
+	body, err = escapeRawBlocks(body)
+	if err != nil {
+		return "", err
+	}
 
 	// Transform {{ wrap X ... }}...{{ end }} blocks (components with children)
 	result := body
@@ -293,4 +302,157 @@ func detectOldSyntax(body string, known map[string]bool) error {
 	}
 
 	return nil
+}
+
+// escapeRawBlocks finds {{ raw }}...{{ endraw }} blocks and escapes all
+// {{ and }} delimiters within them so Go's template engine treats the
+// content as literal text. Markers are removed from the output.
+//
+// Uses a manual scanner (not regex) because the content between markers
+// contains {{ and }} which would confuse regex matching.
+func escapeRawBlocks(body string) (string, error) {
+	var result strings.Builder
+	i := 0
+
+	for i < len(body) {
+		// Look for the next {{ that could be {{ raw }} or {{ endraw }}
+		actionStart := findNextAction(body, i)
+		if actionStart == -1 {
+			result.WriteString(body[i:])
+			break
+		}
+
+		keyword, actionEnd := readActionKeyword(body, actionStart)
+
+		if keyword == "endraw" {
+			line, _ := offsetToLineCol(body, actionStart)
+			return "", fmt.Errorf("unexpected {{ endraw }} without matching {{ raw }} at line %d", line)
+		}
+
+		if keyword != "raw" {
+			// Not a raw block, copy up to and past this action
+			result.WriteString(body[i:actionEnd])
+			i = actionEnd
+			continue
+		}
+
+		// Found {{ raw }} — copy everything before it
+		before := body[i:actionStart]
+
+		// Check for trim dashes on {{ raw }}
+		rawAction := body[actionStart:actionEnd]
+		trimRawLeft := strings.Contains(rawAction, "{{-")
+		trimRawRight := strings.Contains(rawAction, "-}}")
+
+		// {{- raw trims whitespace before the marker in the output
+		if trimRawLeft {
+			before = strings.TrimRight(before, " \t\n\r")
+		}
+		result.WriteString(before)
+
+		// Find the matching {{ endraw }}
+		contentStart := actionEnd
+		endrawStart, endrawEnd, err := findEndraw(body, contentStart)
+		if err != nil {
+			line, _ := offsetToLineCol(body, actionStart)
+			return "", fmt.Errorf("unclosed {{ raw }} block at line %d", line)
+		}
+
+		// Check for trim dashes on {{ endraw }}
+		endrawAction := body[endrawStart:endrawEnd]
+		trimEndrawLeft := strings.Contains(endrawAction, "{{-")
+		trimEndrawRight := strings.Contains(endrawAction, "-}}")
+
+		// Extract and escape the content
+		content := body[contentStart:endrawStart]
+		// raw -}} trims whitespace at the start of the content
+		if trimRawRight {
+			content = strings.TrimLeft(content, " \t\n\r")
+		}
+		// {{- endraw trims whitespace at the end of the content
+		if trimEndrawLeft {
+			content = strings.TrimRight(content, " \t\n\r")
+		}
+
+		result.WriteString(escapeTemplateDelimiters(content))
+
+		// endraw -}} trims whitespace after the marker in the remaining body
+		if trimEndrawRight {
+			// Skip whitespace after {{ endraw -}}
+			j := endrawEnd
+			for j < len(body) && (body[j] == ' ' || body[j] == '\t' || body[j] == '\n' || body[j] == '\r') {
+				j++
+			}
+			i = j
+		} else {
+			i = endrawEnd
+		}
+	}
+
+	return result.String(), nil
+}
+
+// findNextAction finds the next {{ in body starting at pos.
+// Returns -1 if not found.
+func findNextAction(body string, pos int) int {
+	for i := pos; i < len(body)-1; i++ {
+		if body[i] == '{' && body[i+1] == '{' {
+			return i
+		}
+	}
+	return -1
+}
+
+// endrawRegex matches {{ endraw }}, {{- endraw }}, {{ endraw -}}, {{- endraw -}}.
+// Used only inside findEndraw to locate the closing marker in raw block content
+// where {{ and }} appear as literal text.
+var endrawRegex = regexp.MustCompile(`\{\{-?\s*endraw\s*-?\}\}`)
+
+// findEndraw scans from startPos to find the {{ endraw }} that closes
+// a raw block. Uses regex rather than readActionKeyword because the content
+// inside raw blocks contains arbitrary {{ and }} that would confuse the
+// action-aware scanner.
+func findEndraw(body string, startPos int) (int, int, error) {
+	loc := endrawRegex.FindStringIndex(body[startPos:])
+	if loc == nil {
+		return -1, -1, fmt.Errorf("missing {{ endraw }}")
+	}
+	return startPos + loc[0], startPos + loc[1], nil
+}
+
+// escapeTemplateDelimiters escapes {{ and }} in content using a single pass.
+// {{ becomes {{ "{{" }} and }} becomes {{ "}}" }}.
+func escapeTemplateDelimiters(content string) string {
+	var result strings.Builder
+	result.Grow(len(content) * 2) // pre-allocate for typical expansion
+	i := 0
+	for i < len(content) {
+		if i < len(content)-1 && content[i] == '{' && content[i+1] == '{' {
+			result.WriteString(`{{ "{{" }}`)
+			i += 2
+		} else if i < len(content)-1 && content[i] == '}' && content[i+1] == '}' {
+			result.WriteString(`{{ "}}" }}`)
+			i += 2
+		} else {
+			result.WriteByte(content[i])
+			i++
+		}
+	}
+	return result.String()
+}
+
+// offsetToLineCol converts a byte offset to a 1-indexed line number
+// and 1-indexed column. Used for error messages.
+func offsetToLineCol(text string, offset int) (int, int) {
+	line := 1
+	col := 1
+	for i := 0; i < offset && i < len(text); i++ {
+		if text[i] == '\n' {
+			line++
+			col = 1
+		} else {
+			col++
+		}
+	}
+	return line, col
 }

@@ -167,6 +167,10 @@ func OffsetToLineChar(text string, offset int) (int, int) {
 // propsMap maps component names to their Props struct fields for prop
 // validation. Pass nil to skip component prop checks.
 func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.UseDeclaration, typeMap map[string]string, resolver FieldResolver, propsMap map[string][]codegen.StructField) []Diagnostic {
+	// Strip raw blocks — their content is literal text, not template logic.
+	// This prevents false diagnostics for {{ .Var }} inside raw blocks.
+	templateBody = stripRawBlocks(templateBody)
+
 	var diags []Diagnostic
 
 	exportedNames := make(map[string]bool, len(info.ExportedVars))
@@ -652,6 +656,30 @@ func diagnoseComponentPropsRegex(templateBody string, uses []parser.UseDeclarati
 	}
 
 	return diags
+}
+
+// rawBlockRegex matches {{ raw }}...{{ endraw }} blocks including whitespace
+// trim variants. Used to strip raw blocks from the template body before
+// running diagnostics.
+var rawBlockRegex = regexp.MustCompile(`(?s)\{\{-?\s*raw\s*-?\}\}.*?\{\{-?\s*endraw\s*-?\}\}`)
+
+// stripRawBlocks replaces {{ raw }}...{{ endraw }} blocks with spaces,
+// preserving newlines for correct line-number mapping in diagnostics.
+// This prevents false "unknown variable" errors for {{ .Var }} inside
+// raw blocks, which are meant to be literal output.
+func stripRawBlocks(body string) string {
+	return rawBlockRegex.ReplaceAllStringFunc(body, func(match string) string {
+		var result strings.Builder
+		result.Grow(len(match))
+		for _, ch := range match {
+			if ch == '\n' {
+				result.WriteRune('\n')
+			} else {
+				result.WriteRune(' ')
+			}
+		}
+		return result.String()
+	})
 }
 
 // ComponentTagContext is the result of detecting whether the cursor is inside

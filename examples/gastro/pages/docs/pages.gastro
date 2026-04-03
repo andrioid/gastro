@@ -1,21 +1,10 @@
 ---
 import (
-    "gastro-website/content"
-
     DocsLayout "components/docs-layout.gastro"
-    CodeBlock "components/code-block.gastro"
 )
 
 Title := "Pages & Routing"
 Active := "pages"
-BasicPage := content.PagesBasicPage
-StaticPage := content.PagesStaticPage
-DataFlow := content.PagesDataFlow
-Imports := content.PagesImports
-DynamicRoute := content.PagesDynamicRoute
-Redirect := content.PagesContextRedirect
-Query := content.PagesContextQuery
-Header := content.PagesContextHeader
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Pages &amp; Routing</h1>
@@ -23,12 +12,36 @@ Header := content.PagesContextHeader
 
     <h2>File Format</h2>
     <p>A page has two sections separated by <code>---</code> delimiters: Go frontmatter and an HTML template body.</p>
-    {{ CodeBlock (dict "Code" .BasicPage "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+ctx := gastro.Context()
+
+Title := "Hello"
+---
+<h1>{{ .Title }}</h1>
+{{- endraw -}}
+</code></pre>
+    </div>
     <p>Call <code>gastro.Context()</code> in the frontmatter to mark the file as a page and get access to the HTTP request.</p>
 
     <h2>Static Pages</h2>
     <p>Pages that don't need request access can omit <code>gastro.Context()</code>. These are static pages that only use component imports and exported variables:</p>
-    {{ CodeBlock (dict "Code" .StaticPage "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+import Layout "components/layout.gastro"
+
+Title := "About"
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    <h1>About Me</h1>
+{{ end }}
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h2>Data Flow</h2>
     <p>Variables follow Go's export convention:</p>
@@ -36,11 +49,53 @@ Header := content.PagesContextHeader
         <li><strong>Uppercase</strong> variables (<code>Title</code>, <code>Posts</code>) are exported to the template</li>
         <li><strong>Lowercase</strong> variables (<code>err</code>, <code>slug</code>) are private to the frontmatter</li>
     </ul>
-    {{ CodeBlock (dict "Code" .DataFlow "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+ctx := gastro.Context()
+posts, err := db.ListPublished()
+if err != nil {
+    ctx.Error(500, "Failed to load posts")
+    return
+}
+
+Posts := posts
+Title := "Blog"
+---
+<h1>{{ .Title }}</h1>
+{{ range .Posts }}
+<p>{{ .Title }}</p>
+{{ end }}
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h2>Imports</h2>
     <p>Use Go <code>import</code> for both packages and components. Component imports are distinguished by the <code>.gastro</code> file extension:</p>
-    {{ CodeBlock (dict "Code" .Imports "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+import (
+    "myblog/db"
+
+    Layout "components/layout.gastro"
+    PostCard "components/post-card.gastro"
+)
+
+ctx := gastro.Context()
+posts, _ := db.ListPublished()
+Posts := posts
+---
+{{ wrap Layout (dict "Title" "Home") }}
+    {{ range .Posts }}
+    {{ PostCard (dict "Title" .Title "Slug" .Slug) }}
+    {{ end }}
+{{ end }}
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h2>File-Based Routing</h2>
     <p>Page files map to HTTP routes automatically:</p>
@@ -59,20 +114,89 @@ Header := content.PagesContextHeader
 
     <h2>Dynamic Routes</h2>
     <p>Access URL parameters with <code>ctx.Param()</code>:</p>
-    {{ CodeBlock (dict "Code" .DynamicRoute "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+import (
+    "myblog/db"
+    Layout "components/layout.gastro"
+)
+
+ctx := gastro.Context()
+slug := ctx.Param("slug")
+
+post, err := db.GetBySlug(slug)
+if err != nil {
+    ctx.Error(404, "Post not found")
+    return
+}
+
+Post := post
+Title := post.Title
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    <article>
+        <h1>{{ .Post.Title }}</h1>
+        <p class="meta">By {{ .Post.Author }}</p>
+        <div>{{ .Post.Body | safeHTML }}</div>
+    </article>
+{{ end }}
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h2>Context API</h2>
     <p><code>gastro.Context()</code> returns a <code>*Context</code> with methods for request handling:</p>
 
     <h3>Query Parameters</h3>
-    {{ CodeBlock (dict "Code" .Query "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+ctx := gastro.Context()
+Name := ctx.Query("name")
+---
+<p>Hello, {{ .Name }}</p>
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h3>Redirects</h3>
     <p>Always call <code>return</code> after a redirect to prevent the template from rendering:</p>
-    {{ CodeBlock (dict "Code" .Redirect "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+ctx := gastro.Context()
+
+user := getUser(ctx.Request())
+if user == nil {
+    ctx.Redirect("/login", 302)
+    return
+}
+
+Name := user.Name
+---
+<h1>Welcome, {{ .Name }}</h1>
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h3>Response Headers</h3>
-    {{ CodeBlock (dict "Code" .Header "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+ctx := gastro.Context()
+ctx.Header("Cache-Control", "public, max-age=3600")
+
+Title := "Cached Page"
+---
+<h1>{{ .Title }}</h1>
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h2>Error Handling</h2>
     <p>Two layers protect your application:</p>

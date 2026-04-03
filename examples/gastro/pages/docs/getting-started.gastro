@@ -1,19 +1,10 @@
 ---
 import (
-    "gastro-website/content"
-
     DocsLayout "components/docs-layout.gastro"
-    CodeBlock "components/code-block.gastro"
 )
 
 Title := "Getting Started"
 Active := "getting-started"
-Install := content.GettingStartedInstall
-ProjectStructure := content.GettingStartedProjectStructure
-FirstPage := content.GettingStartedFirstPage
-MainGo := content.GettingStartedMainGo
-BuildRun := content.GettingStartedBuildRun
-DevMode := content.GettingStartedDevMode
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Getting Started</h1>
@@ -21,11 +12,25 @@ DevMode := content.GettingStartedDevMode
 
     <h2>Install the CLI</h2>
     <p>Build the <code>gastro</code> CLI from source. If you use <a href="https://mise.jdx.dev/" target="_blank" rel="noopener">mise</a>, it will manage your Go toolchain automatically.</p>
-    {{ CodeBlock (dict "Code" .Install "Language" "bash") }}
+    <div class="code-block">
+        <pre><code class="language-bash"># Build the gastro CLI from source
+go build -o gastro ./cmd/gastro/
+
+# Or with mise (managed tooling)
+mise install</code></pre>
+    </div>
 
     <h2>Project Structure</h2>
     <p>A Gastro project has a simple, opinionated layout:</p>
-    {{ CodeBlock (dict "Code" .ProjectStructure "Language" "bash") }}
+    <div class="code-block">
+        <pre><code class="language-bash">myapp/
+  pages/
+    index.gastro
+  static/
+    styles.css
+  main.go
+  go.mod</code></pre>
+    </div>
     <ul>
         <li><strong>pages/</strong> &mdash; <code>.gastro</code> files that become HTTP routes</li>
         <li><strong>components/</strong> &mdash; reusable <code>.gastro</code> components</li>
@@ -35,21 +40,71 @@ DevMode := content.GettingStartedDevMode
 
     <h2>Your First Page</h2>
     <p>Create <code>pages/index.gastro</code>. The code between <code>---</code> delimiters is Go frontmatter that runs on the server. The HTML below is rendered with Go's <code>html/template</code>.</p>
-    {{ CodeBlock (dict "Code" .FirstPage "Language" "go") }}
-    <p>Uppercase variables like <code>Title</code> and <code>Year</code> are automatically exported to the template as <code>{{ "{{ .Title }}" }}</code> and <code>{{ "{{ .Year }}" }}</code>. Lowercase variables stay private.</p>
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+import "time"
+
+Title := "Hello, Gastro"
+Year := time.Now().Year()
+---
+<!DOCTYPE html>
+<html>
+<head><title>{{ .Title }}</title></head>
+<body>
+    <h1>{{ .Title }}</h1>
+    <p>Copyright {{ .Year }}</p>
+</body>
+</html>
+{{- endraw -}}
+</code></pre>
+    </div>
+    <p>Uppercase variables like <code>Title</code> and <code>Year</code> are automatically exported to the template as <code>{{ raw }}{{ .Title }}{{ endraw }}</code> and <code>{{ raw }}{{ .Year }}{{ endraw }}</code>. Lowercase variables stay private.</p>
 
     <h2>Entry Point</h2>
     <p>Create <code>main.go</code> that imports the generated code and starts the server:</p>
-    {{ CodeBlock (dict "Code" .MainGo "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">package main
+
+import (
+    "fmt"
+    "net/http"
+    "os"
+
+    gastro "myapp/.gastro"
+)
+
+func main() {
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "4242"
+    }
+    fmt.Printf("Listening on http://localhost:%s\n", port)
+    http.ListenAndServe(":"+port, gastro.Routes())
+}</code></pre>
+    </div>
     <p>The <code>.gastro/</code> directory contains generated Go code. Import it as a package with any alias you like.</p>
 
     <h2>Build &amp; Run</h2>
-    {{ CodeBlock (dict "Code" .BuildRun "Language" "bash") }}
+    <div class="code-block">
+        <pre><code class="language-bash"># Generate Go code from .gastro files
+gastro generate
+
+# Build the binary
+go build -o myapp .
+
+# Run
+./myapp</code></pre>
+    </div>
     <p>Open <a href="http://localhost:4242">http://localhost:4242</a> to see your page.</p>
 
     <h2>Development Mode</h2>
     <p>For development, use the <code>gastro dev</code> command. It watches for file changes, regenerates code, and restarts the server automatically. Template changes are hot-reloaded without a restart.</p>
-    {{ CodeBlock (dict "Code" .DevMode "Language" "bash") }}
+    <div class="code-block">
+        <pre><code class="language-bash"># Watches for changes, rebuilds, restarts server
+gastro dev</code></pre>
+    </div>
 
     <div class="docs-nav">
         <div></div>

@@ -353,6 +353,30 @@ Title := "Counter"
 <button data-on:click="@get('/api/increment')">+1</button>
 ```
 
+## Raw Blocks
+
+Use `{{ raw }}...{{ endraw }}` to output literal Go template syntax without escaping. Everything inside is emitted verbatim — the compiler escapes `{{` and `}}` so Go's template engine treats them as text.
+
+```gastro
+{{ raw }}
+<h1>{{ .Greeting }}</h1>
+<p>Hello {{ .Name }}, nice to see you.</p>
+{{ endraw }}
+```
+
+Compiles to:
+
+```
+<h1>{{ "{{" }} .Greeting {{ "}}" }}</h1>
+<p>Hello {{ "{{" }} .Name {{ "}}" }}, nice to see you.</p>
+```
+
+Useful for code examples in documentation pages. Whitespace trim variants are supported: `{{- raw }}`, `{{ raw -}}`, `{{- raw -}}`, and the same for `endraw`.
+
+For short inline mentions, use inline form: `<code>{{ raw }}{{ .Children }}{{ endraw }}</code>`.
+
+Raw blocks cannot nest. The first `{{ endraw }}` always closes the block.
+
 ## Static Assets
 
 - Place files in `static/`
@@ -408,6 +432,6 @@ go build -o myapp .
 5. **Use `p := gastro.Props()` pattern** -- assign to a variable, then extract fields. Avoid `gastro.Props().Field` chains.
 6. **Uppercase = exported, lowercase = private** -- this applies to both frontmatter variables and Props struct fields.
 7. **Component imports use `.gastro` extension** -- this is how the compiler distinguishes them from Go package imports.
-8. **Template expressions in inline code must be escaped** -- if you write template syntax inside a template (e.g. a code example), use `{{ "{{ .Var }}" }}` to output literal `{{ .Var }}`.
+8. **Template expressions in code examples must be escaped** -- use `{{ raw }}...{{ endraw }}` blocks to output literal template syntax. For legacy/simple cases, `{{ "{{ .Var }}" }}` also works.
 9. **Run tests with `-race`** -- always use `go test -race ./...` or `go build -race` to catch data races.
 10. **Business logic belongs in Go packages** -- `.gastro` files are consumers, not providers. Keep models, services, and database code in normal `.go` files.

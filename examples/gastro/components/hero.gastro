@@ -17,7 +17,9 @@
                     <span class="code-dot green"></span>
                     <span class="code-window-title">components/greeting.gastro</span>
                 </div>
-                <pre><code class="language-go">---
+                <pre><code class="language-go">
+{{- raw -}}
+---
 type Props struct {
     Name string
 }
@@ -26,11 +28,15 @@ p := gastro.Props()
 Name := p.Name
 Greeting := "Welcome, " + p.Name
 ---
-&lt;section&gt;
-    &lt;h1&gt;{{ "{{ .Greeting }}" }}&lt;/h1&gt;
-    &lt;p&gt;Hello {{ "{{ .Name }}" }}, nice to see you.&lt;/p&gt;
-&lt;/section&gt;</code></pre>
+<section>
+    <h1>{{ .Greeting }}</h1>
+    <p>Hello {{ .Name }}, nice to see you.</p>
+</section>
+{{- endraw -}}
+                </code></pre>
+                
             </div>
         </div>
     </section>
 </div>
+                

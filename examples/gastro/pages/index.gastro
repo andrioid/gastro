@@ -1,16 +1,10 @@
 ---
 import (
-    "gastro-website/content"
-
     Layout "components/layout.gastro"
     Hero "components/hero.gastro"
-    CodeBlock "components/code-block.gastro"
 )
 
 Title := "Home"
-ComponentCode := content.LandingComponentExample
-DevCode := content.LandingDevExample
-DeployCode := content.LandingDeployExample
 ---
 {{ wrap Layout (dict "Title" .Title) }}
     {{ Hero (dict) }}
@@ -63,15 +57,48 @@ DeployCode := content.LandingDeployExample
                 <div class="quickstart-steps">
                     <div class="quickstart-step">
                         <h3>Write a component</h3>
-                        {{ CodeBlock (dict "Code" .ComponentCode "Language" "go") }}
+                        <div class="code-block">
+                            <pre><code class="language-go">
+{{- raw -}}
+---
+type Props struct {
+    Title  string
+    Author string
+}
+
+p := gastro.Props()
+Title := p.Title
+Author := p.Author
+---
+<article>
+    <h2>{{ .Title }}</h2>
+    <p>By {{ .Author }}</p>
+</article>
+{{- endraw -}}
+</code></pre>
+                        </div>
                     </div>
                     <div class="quickstart-step">
                         <h3>Develop</h3>
-                        {{ CodeBlock (dict "Code" .DevCode "Language" "bash") }}
+                        <div class="code-block">
+                            <pre><code class="language-bash"># Start the dev server
+gastro dev
+
+# Watches for changes, rebuilds,
+# and restarts automatically.
+# Template changes are hot-reloaded.</code></pre>
+                        </div>
                     </div>
                     <div class="quickstart-step">
                         <h3>Deploy</h3>
-                        {{ CodeBlock (dict "Code" .DeployCode "Language" "bash") }}
+                        <div class="code-block">
+                            <pre><code class="language-bash"># Build a single binary
+gastro build
+
+# Templates and static assets are
+# embedded. Ship one file anywhere.
+./app</code></pre>
+                        </div>
                     </div>
                 </div>
             </div>

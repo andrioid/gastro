@@ -1,10 +1,8 @@
 ---
 import (
-    "gastro-website/content"
     "gastro-website/demo"
 
     DocsLayout "components/docs-layout.gastro"
-    CodeBlock "components/code-block.gastro"
     Counter "components/counter.gastro"
 )
 
@@ -14,8 +12,6 @@ _ = ctx
 Title := "Live Demo"
 Active := "demo"
 CurrentCount := demo.Count()
-HandlerCode := content.SSEDatastarHandler
-PageCode := content.SSEDatastarPage
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Live Demo</h1>
@@ -35,11 +31,41 @@ PageCode := content.SSEDatastarPage
 
         <h3>The SSE Handler</h3>
         <p>This Go handler runs on the server. It uses <code>gastro.Render.Counter()</code> to render the component with the new count, then sends it as a Datastar patch event:</p>
-        {{ CodeBlock (dict "Code" .HandlerCode "Language" "go") }}
+        <div class="code-block">
+            <pre><code class="language-go">var count atomic.Int64
+
+func handleIncrement(w http.ResponseWriter, r *http.Request) {
+    n := count.Add(1)
+
+    html, err := gastro.Render.Counter(
+        gastro.CounterProps{Count: int(n)},
+    )
+    if err != nil {
+        http.Error(w, err.Error(), 500)
+        return
+    }
+
+    sse := datastar.NewSSE(w, r)
+    sse.PatchElements(html)
+}</code></pre>
+        </div>
 
         <h3>The Page</h3>
         <p>The page uses Datastar's <code>data-on:click</code> attribute to trigger the SSE request. No custom JavaScript needed:</p>
-        {{ CodeBlock (dict "Code" .PageCode "Language" "go") }}
+        <div class="code-block">
+            <pre><code class="language-go">
+{{- raw -}}
+---
+import Layout "components/layout.gastro"
+Title := "Counter"
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    <div id="count">0</div>
+    <button data-on:click="@get('/api/increment')">+1</button>
+{{ end }}
+{{- endraw -}}
+</code></pre>
+        </div>
 
         <p>This pattern works for any real-time UI: dashboards, notifications, live feeds, collaborative editing, and more. See the <a href="/docs/sse">SSE &amp; Datastar docs</a> for the full API.</p>
     </div>

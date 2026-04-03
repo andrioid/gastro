@@ -350,6 +350,202 @@ func TestTransformTemplate_WrapOutputParseable(t *testing.T) {
 	}
 }
 
+// --- Raw block tests ---
+
+func TestTransformTemplate_RawBlockBasic(t *testing.T) {
+	body := `{{ raw }}{{ .X }}{{ endraw }}`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `{{ "{{" }} .X {{ "}}" }}`
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockMultiLine(t *testing.T) {
+	body := "{{ raw }}\n{{ .A }}\n{{ .B }}\n{{ endraw }}"
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := "\n{{ \"{{\" }} .A {{ \"}}\" }}\n{{ \"{{\" }} .B {{ \"}}\" }}\n"
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockNonTemplateContent(t *testing.T) {
+	body := `{{ raw }}<h1>Hello</h1>{{ endraw }}`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `<h1>Hello</h1>`
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockTrimDashes(t *testing.T) {
+	body := "before {{- raw -}} content {{- endraw -}} after"
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// {{- trims whitespace before marker, -}} trims whitespace after marker
+	// So: "before" + trimmed content + "after"
+	want := "beforecontentafter"
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockTrimDashesPreCode(t *testing.T) {
+	// Simulates the <pre><code> pattern used in examples
+	body := "<pre><code>\n{{- raw -}}\n---\n{{ .Title }}\n{{- endraw -}}\n</code></pre>"
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// {{- raw -}} trims \n after <code> and \n before ---
+	// {{- endraw -}} trims \n after {{ .Title }} and \n before </code>
+	want := `<pre><code>---
+{{ "{{" }} .Title {{ "}}" }}</code></pre>`
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockUnmatchedRaw(t *testing.T) {
+	body := `{{ raw }}no endraw here`
+	_, err := codegen.TransformTemplate(body, nil)
+	if err == nil {
+		t.Fatal("expected error for unclosed raw block")
+	}
+	assertContains(t, err.Error(), "unclosed {{ raw }}")
+}
+
+func TestTransformTemplate_RawBlockOrphanEndraw(t *testing.T) {
+	body := `{{ endraw }}`
+	_, err := codegen.TransformTemplate(body, nil)
+	if err == nil {
+		t.Fatal("expected error for orphan endraw")
+	}
+	assertContains(t, err.Error(), "unexpected {{ endraw }}")
+}
+
+func TestTransformTemplate_RawBlockOutsideUntouched(t *testing.T) {
+	body := `{{ .Title }}{{ raw }}{{ .X }}{{ endraw }}`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `{{ .Title }}{{ "{{" }} .X {{ "}}" }}`
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockWrapInsideIsEscaped(t *testing.T) {
+	body := `{{ raw }}{{ wrap Layout (dict) }}{{ endraw }}`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// The {{ wrap ... }} inside raw should be escaped, not transformed
+	assertContains(t, result, `{{ "{{" }} wrap Layout (dict) {{ "}}" }}`)
+}
+
+func TestTransformTemplate_RawBlockMultipleBlocks(t *testing.T) {
+	body := `A{{ raw }}{{ .X }}{{ endraw }}B{{ raw }}{{ .Y }}{{ endraw }}C`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `A{{ "{{" }} .X {{ "}}" }}B{{ "{{" }} .Y {{ "}}" }}C`
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockEmpty(t *testing.T) {
+	body := `{{ raw }}{{ endraw }}`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "" {
+		t.Errorf("empty raw block should produce empty output, got: %q", result)
+	}
+}
+
+func TestTransformTemplate_RawBlockAtFileStart(t *testing.T) {
+	body := `{{ raw }}{{ .X }}{{ endraw }}rest`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `{{ "{{" }} .X {{ "}}" }}rest`
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockAdjacentDelimiters(t *testing.T) {
+	body := `{{ raw }}}}{{{{ endraw }}`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := `{{ "}}" }}{{ "{{" }}`
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawInsideWrap(t *testing.T) {
+	body := `{{ wrap Layout (dict "Title" "Test") }}{{ raw }}{{ .X }}{{ endraw }}{{ end }}`
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+	result, err := codegen.TransformTemplate(body, uses)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Raw content should be escaped, wrap should be transformed
+	assertContains(t, result, `{{ "{{" }} .X {{ "}}" }}`)
+	assertContains(t, result, `{{ Layout`)
+}
+
+func TestTransformTemplate_RawBlockOutputParseable(t *testing.T) {
+	body := `<h1>{{ .Title }}</h1>
+{{ raw }}
+<code>{{ .Example }}</code>
+{{ endraw }}
+<p>Footer</p>`
+
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("TransformTemplate error: %v", err)
+	}
+
+	stubFuncs := make(map[string]any)
+	for name := range gastro.DefaultFuncs() {
+		stubFuncs[name] = ""
+	}
+	stubFuncs["__gastro_render_children"] = ""
+
+	trees, err := parse.Parse("test", result, "{{", "}}", stubFuncs)
+	if err != nil {
+		t.Fatalf("output not parseable: %v\noutput:\n%s", err, result)
+	}
+	if trees["test"] == nil {
+		t.Fatal("expected parse tree for 'test', got nil")
+	}
+}
+
 func TestTransformTemplate_DuplicateWrapParseable(t *testing.T) {
 	body := `{{ wrap Layout (dict "Title" "A") }}<p>One</p>{{ end }}
 {{ wrap Layout (dict "Title" "B") }}<p>Two</p>{{ end }}

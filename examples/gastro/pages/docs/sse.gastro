@@ -1,19 +1,10 @@
 ---
 import (
-    "gastro-website/content"
-
     DocsLayout "components/docs-layout.gastro"
-    CodeBlock "components/code-block.gastro"
 )
 
 Title := "SSE & Datastar"
 Active := "sse"
-BasicHandler := content.SSEBasicHandler
-DatastarHandler := content.SSEDatastarHandler
-DatastarPage := content.SSEDatastarPage
-MainGo := content.SSEMainGo
-RenderTyped := content.SSERenderTyped
-PatchOptions := content.SSEPatchOptions
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>SSE &amp; Datastar</h1>
@@ -29,7 +20,24 @@ PatchOptions := content.SSEPatchOptions
 
     <h2>Generic SSE</h2>
     <p>The core SSE helper in <code>pkg/gastro</code> is framework-agnostic. It works with any client that consumes <code>text/event-stream</code>:</p>
-    {{ CodeBlock (dict "Code" .BasicHandler "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">func handleUpdates(w http.ResponseWriter, r *http.Request) {
+    sse := gastro.NewSSE(w, r)
+
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+
+    for {
+        select {
+        case <-sse.Context().Done():
+            return
+        case <-ticker.C:
+            now := time.Now().Format("15:04:05")
+            sse.Send("time", now)
+        }
+    }
+}</code></pre>
+    </div>
     <p>Methods available on the SSE helper:</p>
     <ul>
         <li><strong><code>Send(eventType, data ...string)</code></strong> &mdash; writes and flushes a single SSE event</li>
@@ -39,23 +47,91 @@ PatchOptions := content.SSEPatchOptions
 
     <h2>Datastar Integration</h2>
     <p>The <code>pkg/gastro/datastar</code> subpackage formats events using Datastar's SSE protocol:</p>
-    {{ CodeBlock (dict "Code" .DatastarHandler "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">var count atomic.Int64
+
+func handleIncrement(w http.ResponseWriter, r *http.Request) {
+    n := count.Add(1)
+
+    html, err := gastro.Render.Counter(
+        gastro.CounterProps{Count: int(n)},
+    )
+    if err != nil {
+        http.Error(w, err.Error(), 500)
+        return
+    }
+
+    sse := datastar.NewSSE(w, r)
+    sse.PatchElements(html)
+}</code></pre>
+    </div>
 
     <h3>Datastar Page</h3>
     <p>Add Datastar attributes to your <code>.gastro</code> pages to trigger SSE connections:</p>
-    {{ CodeBlock (dict "Code" .DatastarPage "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">
+{{- raw -}}
+---
+import Layout "components/layout.gastro"
+Title := "Counter"
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    <div id="count">0</div>
+    <button data-on:click="@get('/api/increment')">+1</button>
+{{ end }}
+{{- endraw -}}
+</code></pre>
+    </div>
 
     <h3>Patch Options</h3>
     <p>Datastar supports selectors, patch modes, and signal patching:</p>
-    {{ CodeBlock (dict "Code" .PatchOptions "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">sse.PatchElements(html,
+    datastar.WithSelector("#dashboard"),
+    datastar.WithMode(datastar.ModeInner),
+)
+
+sse.PatchSignals(map[string]any{
+    "count": 42, "loading": false,
+})
+
+sse.RemoveElement("#toast-1")</code></pre>
+    </div>
 
     <h2>Wiring It Up</h2>
     <p>Create a top-level <code>http.ServeMux</code> and mount both API routes and Gastro page routes:</p>
-    {{ CodeBlock (dict "Code" .MainGo "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">func main() {
+    mux := http.NewServeMux()
+
+    // API/SSE endpoints first
+    mux.HandleFunc("GET /api/increment", handleIncrement)
+    mux.HandleFunc("GET /api/clock", handleClock)
+
+    // Gastro page routes (catch-all)
+    mux.Handle("/", gastro.Routes())
+
+    http.ListenAndServe(":4242", mux)
+}</code></pre>
+    </div>
 
     <h2>Type-Safe Rendering</h2>
     <p>The compiler generates a <code>Render</code> API for calling Gastro components from SSE handlers with full type safety:</p>
-    {{ CodeBlock (dict "Code" .RenderTyped "Language" "go") }}
+    <div class="code-block">
+        <pre><code class="language-go">// Each component gets a typed Render method
+html, err := gastro.Render.Counter(
+    gastro.CounterProps{Count: 42},
+)
+
+// Components that accept children
+inner, _ := gastro.Render.Counter(
+    gastro.CounterProps{Count: 42},
+)
+full, _ := gastro.Render.Layout(
+    gastro.LayoutProps{Title: "Dashboard"},
+    template.HTML(inner),
+)</code></pre>
+    </div>
     <table>
         <thead>
             <tr><th>What</th><th>Safety</th></tr>
