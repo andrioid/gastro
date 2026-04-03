@@ -60,11 +60,12 @@ jobs:
 
       - name: Build VS Code extension
         run: |
-          npm install --prefix editors/vscode
-          mkdir -p editors/vscode/bin
+          npm install
+          mkdir -p bin
           EXT="${{ matrix.goos == 'windows' && '.exe' || '' }}"
-          cp "tmp/release/gastro-lsp-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" "editors/vscode/bin/gastro-lsp${EXT}"
-          npx --prefix editors/vscode @vscode/vsce package --target ${{ matrix.vscode_target }} -o "tmp/release/gastro-vscode-${{ matrix.vscode_target }}.vsix"
+          cp "$GITHUB_WORKSPACE/tmp/release/gastro-lsp-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" "bin/gastro-lsp${EXT}"
+          npx @vscode/vsce package --target ${{ matrix.vscode_target }} -o "$GITHUB_WORKSPACE/tmp/release/gastro-vscode-${{ matrix.vscode_target }}.vsix"
+        working-directory: editors/vscode
 
       - uses: actions/upload-artifact@v4
         with:
