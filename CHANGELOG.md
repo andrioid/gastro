@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.1](https://github.com/andrioid/gastro/compare/v0.1.0...v0.1.1) (2026-04-03)
+
+
+### Features
+
+* add compile-time {{ raw }}...{{ endraw }} blocks ([71a4be8](https://github.com/andrioid/gastro/commit/71a4be8385c80d3c0e0920c4788863e13cf98272))
+* allow .gastro files without frontmatter ([fa660fa](https://github.com/andrioid/gastro/commit/fa660fad31682166d70b57c0f890fb1f9a9e988f))
+* **examples:** add comparison page for Gastro vs Templ, gomponents, htmgo, and html/template ([3ae8c4a](https://github.com/andrioid/gastro/commit/3ae8c4a1838b57fba75c303dca2727851992bb9d))
+* **examples:** guestbook demos, bug fixes, and security hardening ([2a9f26d](https://github.com/andrioid/gastro/commit/2a9f26d807a8f7d37ad99f9f63fa7482db4ed87a))
+
+
+### Bug Fixes
+
+* escape HTML in raw blocks and restore readActionKeyword dash support ([db51ae6](https://github.com/andrioid/gastro/commit/db51ae657ce9f8277b4ea57460c992c42308a692))
+
+
+### Refactoring
+
+* simplify raw blocks to always trim whitespace ([8f31236](https://github.com/andrioid/gastro/commit/8f31236b87e65c3fb239b73eb48dbf82ac4124bb))
+
+
+### Miscellaneous
+
+* **ci:** remove bootstrap-sha and release-as after v0.1.0 ([f62bd40](https://github.com/andrioid/gastro/commit/f62bd4044f833cc92e908293956edc259ac47d14))
+
 ## 0.1.0 (2026-04-03)
 
 
