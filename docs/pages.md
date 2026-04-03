@@ -220,6 +220,23 @@ There are two layers of error handling:
 
 For custom error pages, wrap `gastro.Routes()` with middleware in your `main.go`.
 
+## Raw blocks
+
+Use `{{ raw }}...{{ endraw }}` to display literal code (including template
+syntax and HTML tags) as visible text. Useful for code examples:
+
+```gastro
+<pre><code>
+{{ raw }}
+<h1>{{ .Title }}</h1>
+{{ endraw }}
+</code></pre>
+```
+
+The compiler escapes template delimiters (`{{`/`}}`) and HTML characters
+(`<`, `>`, `&`) so the content renders as plain text. Whitespace around
+the markers is always trimmed.
+
 ## Template functions
 
 Pages have access to all built-in template functions. See the

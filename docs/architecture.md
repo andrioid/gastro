@@ -92,11 +92,17 @@ The `gastro.Props()` marker is stripped (component generation is TODO).
 
 **Key function:** `TransformTemplate(body, uses) (string, error)`
 
-Transforms the template body:
-- `{{ ComponentName (dict "Prop" .expr) }}` — bare function calls pass through unchanged
-- `{{ wrap ComponentName (dict ...) }}...{{ end }}` becomes a function call + `{{define}}` block
-- `{{ .Children }}` passes through unchanged
-- Standard `{{ }}` expressions pass through unchanged
+Transforms the template body in this order:
+
+1. Extract comments (`{{/* ... */}}`) to protect them from subsequent transforms
+2. Escape `{{ raw }}...{{ endraw }}` blocks — content inside is escaped for literal display (template delimiters `{{`/`}}` and HTML characters `<`, `>`, `&`). Whitespace around markers is always trimmed.
+3. Transform `{{ wrap ComponentName (dict ...) }}...{{ end }}` into a function call + `{{define}}` block
+4. Restore comments
+
+Other syntax passes through unchanged:
+- `{{ ComponentName (dict "Prop" .expr) }}` — bare function calls
+- `{{ .Children }}` — children placeholder
+- Standard `{{ }}` expressions
 
 Uses iterative string processing with regex for `wrap` action matching.
 Leaf component calls require no transformation — they are already valid Go

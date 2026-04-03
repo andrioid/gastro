@@ -250,8 +250,8 @@ func findMatchingEnd(body string, startPos int) (int, int, error) {
 func readActionKeyword(body string, pos int) (string, int) {
 	i := pos + 2 // skip {{
 
-	// Skip whitespace after {{
-	for i < len(body) && (body[i] == ' ' || body[i] == '\t' || body[i] == '\n' || body[i] == '\r') {
+	// Skip whitespace and optional leading dash ({{- ...) after {{
+	for i < len(body) && (body[i] == ' ' || body[i] == '\t' || body[i] == '\n' || body[i] == '\r' || body[i] == '-') {
 		i++
 	}
 
@@ -352,9 +352,9 @@ func escapeRawBlocks(body string) (string, error) {
 			return "", fmt.Errorf("unclosed {{ raw }} block at line %d", line)
 		}
 
-		// Extract content, trim surrounding whitespace, and escape delimiters
+		// Extract content, trim surrounding whitespace, and escape for literal display
 		content := strings.TrimSpace(body[contentStart:endrawStart])
-		result.WriteString(escapeTemplateDelimiters(content))
+		result.WriteString(escapeRawContent(content))
 
 		// Skip whitespace after {{ endraw }}
 		i = endrawEnd
@@ -394,9 +394,16 @@ func findEndraw(body string, startPos int) (int, int, error) {
 	return startPos + loc[0], startPos + loc[1], nil
 }
 
-// escapeTemplateDelimiters escapes {{ and }} in content using a single pass.
-// {{ becomes {{ "{{" }} and }} becomes {{ "}}" }}.
-func escapeTemplateDelimiters(content string) string {
+// escapeRawContent escapes raw block content for literal display in a single
+// pass. Template delimiters and HTML special characters are escaped so that
+// Go's template engine and the browser both treat the content as plain text.
+//
+//   - {{ → {{ "{{" }}
+//   - }} → {{ "}}" }}
+//   - &  → &amp;
+//   - <  → &lt;
+//   - >  → &gt;
+func escapeRawContent(content string) string {
 	var result strings.Builder
 	result.Grow(len(content) * 2) // pre-allocate for typical expansion
 	i := 0
@@ -407,6 +414,15 @@ func escapeTemplateDelimiters(content string) string {
 		} else if i < len(content)-1 && content[i] == '}' && content[i+1] == '}' {
 			result.WriteString(`{{ "}}" }}`)
 			i += 2
+		} else if content[i] == '&' {
+			result.WriteString("&amp;")
+			i++
+		} else if content[i] == '<' {
+			result.WriteString("&lt;")
+			i++
+		} else if content[i] == '>' {
+			result.WriteString("&gt;")
+			i++
 		} else {
 			result.WriteByte(content[i])
 			i++

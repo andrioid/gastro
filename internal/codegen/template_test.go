@@ -383,7 +383,8 @@ func TestTransformTemplate_RawBlockNonTemplateContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := `<h1>Hello</h1>`
+	// HTML tags are escaped inside raw blocks
+	want := `&lt;h1&gt;Hello&lt;/h1&gt;`
 	if result != want {
 		t.Errorf("got:  %q\nwant: %q", result, want)
 	}
@@ -404,13 +405,25 @@ func TestTransformTemplate_RawBlockTrimsByDefault(t *testing.T) {
 
 func TestTransformTemplate_RawBlockPreCode(t *testing.T) {
 	// Simulates the <pre><code> pattern used in examples
-	body := "<pre><code>\n{{ raw }}\n---\n{{ .Title }}\n{{ endraw }}\n</code></pre>"
+	body := "<pre><code>\n{{ raw }}\n---\n<h1>{{ .Title }}</h1>\n{{ endraw }}\n</code></pre>"
 	result, err := codegen.TransformTemplate(body, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := `<pre><code>---
-{{ "{{" }} .Title {{ "}}" }}</code></pre>`
+	want := "<pre><code>---\n&lt;h1&gt;{{ \"{{\" }} .Title {{ \"}}\" }}&lt;/h1&gt;</code></pre>"
+	if result != want {
+		t.Errorf("got:  %q\nwant: %q", result, want)
+	}
+}
+
+func TestTransformTemplate_RawBlockHTMLEscaping(t *testing.T) {
+	body := `{{ raw }}<div class="test">&amp; more</div>{{ endraw }}`
+	result, err := codegen.TransformTemplate(body, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// <, >, and & are all escaped
+	want := `&lt;div class="test"&gt;&amp;amp; more&lt;/div&gt;`
 	if result != want {
 		t.Errorf("got:  %q\nwant: %q", result, want)
 	}
@@ -518,7 +531,7 @@ func TestTransformTemplate_RawInsideWrap(t *testing.T) {
 }
 
 func TestTransformTemplate_RawBlockOutputParseable(t *testing.T) {
-	body := "<h1>{{ .Title }}</h1>\n{{ raw }}\n<code>{{ .Example }}</code>\n{{ endraw }}\n<p>Footer</p>"
+	body := "<h1>{{ .Title }}</h1>\n{{ raw }}\nHello {{ .Example }}\n{{ endraw }}\n<p>Footer</p>"
 
 	result, err := codegen.TransformTemplate(body, nil)
 	if err != nil {

@@ -355,23 +355,26 @@ Title := "Counter"
 
 ## Raw Blocks
 
-Use `{{ raw }}...{{ endraw }}` to output literal Go template syntax without escaping. Everything inside is emitted verbatim — the compiler escapes `{{` and `}}` so Go's template engine treats them as text.
+Use `{{ raw }}...{{ endraw }}` to display literal template syntax and HTML as visible text. The compiler escapes both template delimiters (`{{`/`}}`) and HTML special characters (`<`, `>`, `&`) so the content is rendered as plain text in the browser.
 
 ```gastro
+<pre><code>
 {{ raw }}
 <h1>{{ .Greeting }}</h1>
 <p>Hello {{ .Name }}, nice to see you.</p>
 {{ endraw }}
+</code></pre>
 ```
 
-Compiles to:
+The author writes plain code inside `{{ raw }}...{{ endraw }}` and it displays exactly as written. The compiler handles all escaping:
 
-```
-<h1>{{ "{{" }} .Greeting {{ "}}" }}</h1>
-<p>Hello {{ "{{" }} .Name {{ "}}" }}, nice to see you.</p>
-```
+- `{{` → `{{ "{{" }}` (template delimiter escaping)
+- `}}` → `{{ "}}" }}` (template delimiter escaping)
+- `<` → `&lt;` (HTML entity escaping)
+- `>` → `&gt;` (HTML entity escaping)
+- `&` → `&amp;` (HTML entity escaping)
 
-Useful for code examples in documentation pages. Whitespace around `{{ raw }}` and `{{ endraw }}` markers is always trimmed, so raw blocks integrate cleanly into `<pre><code>` without extra blank lines.
+Whitespace around `{{ raw }}` and `{{ endraw }}` markers is always trimmed, so raw blocks integrate cleanly into `<pre><code>` without extra blank lines.
 
 For short inline mentions, use inline form: `<code>{{ raw }}{{ .Children }}{{ endraw }}</code>`.
 
