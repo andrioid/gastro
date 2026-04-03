@@ -13,6 +13,6 @@
   - [x] Generic SSE runtime helper (`pkg/gastro/sse.go`)
   - [x] Datastar sugar subpackage (`pkg/gastro/datastar/`)
   - [x] Documentation (`docs/sse.md`) and example app (`examples/sse/`)
-- [x] Component composition -- components can now use other components via `use` declarations
+- [x] Component composition -- components can now use other components via `import` declarations
 
 ## Done

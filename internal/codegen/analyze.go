@@ -27,7 +27,7 @@ type FrontmatterInfo struct {
 const wrapperSuffix = "\n}"
 
 // AnalyzeFrontmatter parses the frontmatter Go code and extracts variable
-// declarations, gastro.Context() calls, and gastro.Props[T]() calls.
+// declarations, gastro.Context() calls, and gastro.Props() calls.
 func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 	if strings.TrimSpace(frontmatter) == "" {
 		return &FrontmatterInfo{}, nil
@@ -159,64 +159,36 @@ func isExported(name string) bool {
 }
 
 // detectGastroMarkers checks if a call expression is gastro.Context() or
-// gastro.Props() and updates info accordingly. Supports both the new
-// gastro.Props() syntax and the legacy gastro.Props[T]() syntax.
+// gastro.Props() and updates info accordingly.
 func detectGastroMarkers(info *FrontmatterInfo, call *ast.CallExpr) {
-	switch fn := call.Fun.(type) {
-	case *ast.SelectorExpr:
-		ident, ok := fn.X.(*ast.Ident)
-		if !ok {
-			// Could be gastro.Props().Field — check if X is a CallExpr
-			// wrapping gastro.Props()
-			return
-		}
-		if ident.Name != "gastro" {
-			return
-		}
-		switch fn.Sel.Name {
-		case "Context":
-			info.IsPage = true
-		case "Props":
-			// gastro.Props() — new syntax without generic type parameter
-			info.IsComponent = true
-			info.PropsTypeName = "Props"
-		}
-
-	case *ast.IndexExpr:
-		// gastro.Props[T]() — legacy syntax with generic type parameter
-		sel, ok := fn.X.(*ast.SelectorExpr)
-		if !ok {
-			return
-		}
-		ident, ok := sel.X.(*ast.Ident)
-		if !ok {
-			return
-		}
-		if ident.Name == "gastro" && sel.Sel.Name == "Props" {
-			info.IsComponent = true
-			if typeIdent, ok := fn.Index.(*ast.Ident); ok {
-				info.PropsTypeName = typeIdent.Name
-			}
-		}
+	fn, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+	ident, ok := fn.X.(*ast.Ident)
+	if !ok {
+		return
+	}
+	if ident.Name != "gastro" {
+		return
+	}
+	switch fn.Sel.Name {
+	case "Context":
+		info.IsPage = true
+	case "Props":
+		info.IsComponent = true
+		info.PropsTypeName = "Props"
 	}
 }
 
-// isGastroPropsCall returns true if the call expression is gastro.Props() or
-// gastro.Props[T]().
+// isGastroPropsCall returns true if the call expression is gastro.Props().
 func isGastroPropsCall(call *ast.CallExpr) bool {
-	switch fn := call.Fun.(type) {
-	case *ast.SelectorExpr:
-		ident, ok := fn.X.(*ast.Ident)
-		return ok && ident.Name == "gastro" && fn.Sel.Name == "Props"
-	case *ast.IndexExpr:
-		sel, ok := fn.X.(*ast.SelectorExpr)
-		if !ok {
-			return false
-		}
-		ident, ok := sel.X.(*ast.Ident)
-		return ok && ident.Name == "gastro" && sel.Sel.Name == "Props"
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
 	}
-	return false
+	ident, ok := sel.X.(*ast.Ident)
+	return ok && ident.Name == "gastro" && sel.Sel.Name == "Props"
 }
 
 // HoistTypeDeclarations extracts `type ... struct { ... }` declarations from

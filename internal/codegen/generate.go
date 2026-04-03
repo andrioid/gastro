@@ -82,7 +82,7 @@ type generateData struct {
 	TemplateBody  string
 	IsPage        bool
 	IsComponent   bool
-	PropsTypeName string    // e.g. "Props" — the T in gastro.Props[T]()
+	PropsTypeName string    // e.g. "Props" — from type Props struct in the frontmatter
 	HoistedTypes  string    // e.g. "type Props struct { Title string }"
 	Uses          []UseInfo // component imports used by this page
 }
@@ -207,7 +207,7 @@ type markerKind int
 
 const (
 	markerContext   markerKind = iota // gastro.Context() — strip the line
-	markerPropsCall                   // gastro.Props[T]() or gastro.Props() — rewrite to __props
+	markerPropsCall                   // gastro.Props() — rewrite to __props
 )
 
 // markerLine records an AST-detected gastro marker with its frontmatter line
@@ -264,8 +264,8 @@ func detectMarkerLines(frontmatter string) []markerLine {
 }
 
 // hasGastroPropsCall returns true if the frontmatter contains a gastro.Props()
-// or gastro.Props[T]() call, as detected by the AST. Used to confirm that
-// string-based replacement is safe.
+// call, as detected by the AST. Used to confirm that string-based replacement
+// is safe.
 func hasGastroPropsCall(frontmatter string) bool {
 	prefix := "package __gastro\nfunc __handler() {\n"
 	src := prefix + frontmatter + "\n}"
@@ -295,14 +295,13 @@ func hasGastroPropsCall(frontmatter string) bool {
 	return found
 }
 
-// rewriteGastroProps replaces gastro.Props() and gastro.Props[T]() calls
-// with __props in the frontmatter string. The AST is used first to confirm
-// that a real call exists (not just the text in a comment/string), then
-// string replacement handles the actual rewrite to preserve formatting.
+// rewriteGastroProps replaces gastro.Props() calls with __props in the
+// frontmatter string. The AST is used first to confirm that a real call
+// exists (not just the text in a comment/string), then string replacement
+// handles the actual rewrite to preserve formatting.
 //
 // Handles:
 //   - p := gastro.Props()          → p := __props
-//   - p := gastro.Props[Props]()   → p := __props
 //   - Title := gastro.Props().Title → Title := __props.Title
 //   - fmt.Sprintf("%d", gastro.Props().X + 1) → fmt.Sprintf("%d", __props.X + 1)
 func rewriteGastroProps(frontmatter string) string {
@@ -364,7 +363,7 @@ func rewriteGastroProps(frontmatter string) string {
 
 // rewriteFrontmatter transforms code-gen markers in the frontmatter:
 // - gastro.Context() lines are stripped (the handler template generates ctx)
-// - gastro.Props() / gastro.Props[T]() calls are replaced with __props
+// - gastro.Props() calls are replaced with __props
 // - Type declarations are stripped for components (hoisted to package level)
 //
 // Marker detection uses go/ast for precision (no false positives on strings,
@@ -381,7 +380,7 @@ func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo) string {
 		}
 	}
 
-	// Rewrite gastro.Props() / gastro.Props[T]() calls to __props
+	// Rewrite gastro.Props() calls to __props
 	frontmatter = rewriteGastroProps(frontmatter)
 
 	lines := strings.Split(frontmatter, "\n")

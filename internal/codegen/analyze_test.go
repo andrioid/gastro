@@ -101,7 +101,7 @@ func TestAnalyze_DetectsPropsCall(t *testing.T) {
 	Urgent bool
 }
 
-props := gastro.Props[Props]()`
+props := gastro.Props()`
 
 	info, err := codegen.AnalyzeFrontmatter(frontmatter)
 	if err != nil {
@@ -205,7 +205,7 @@ func TestAnalyze_RejectsContextAndPropsTogether(t *testing.T) {
 	Title string
 }
 ctx := gastro.Context()
-props := gastro.Props[Props]()`
+props := gastro.Props()`
 
 	_, err := codegen.AnalyzeFrontmatter(frontmatter)
 	if err == nil {
@@ -214,7 +214,7 @@ props := gastro.Props[Props]()`
 }
 
 func TestAnalyze_RejectsMissingPropsStruct(t *testing.T) {
-	frontmatter := `props := gastro.Props[Props]()`
+	frontmatter := `props := gastro.Props()`
 
 	_, err := codegen.AnalyzeFrontmatter(frontmatter)
 	if err == nil {
@@ -239,7 +239,7 @@ type Props struct {
 
 func TestAnalyze_PropsInCommentNotDetected(t *testing.T) {
 	// gastro.Props inside a comment should NOT trigger IsComponent
-	frontmatter := `// TODO: gastro.Props[Props]() should be called here
+	frontmatter := `// TODO: gastro.Props() should be called here
 Title := "Hello"`
 
 	info, err := codegen.AnalyzeFrontmatter(frontmatter)
@@ -254,7 +254,7 @@ Title := "Hello"`
 
 func TestAnalyze_PropsInStringNotDetected(t *testing.T) {
 	// gastro.Props inside a string literal should NOT trigger IsComponent
-	frontmatter := `msg := "Call gastro.Props[Props]() to get props"
+	frontmatter := `msg := "Call gastro.Props() to get props"
 Title := "Hello"`
 
 	info, err := codegen.AnalyzeFrontmatter(frontmatter)

@@ -53,7 +53,7 @@ func TestGenerate_ComponentRenderFunc(t *testing.T) {
 		Frontmatter: `type Props struct {
     Title string
 }
-props := gastro.Props[Props]()
+props := gastro.Props()
 CSSClass := "card"`,
 		TemplateBody: `<div class="{{ .CSSClass }}">{{ .Children }}</div>`,
 		Uses:         []parser.UseDeclaration{},
@@ -83,7 +83,7 @@ CSSClass := "card"`,
 	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
 
 	// Should alias the props variable
-	assertContains(t, output, `props := __props`)
+	assertContains(t, output, `props := __props`) // gastro.Props() is rewritten to __props by codegen
 
 	// Should contain the data map with exported vars
 	assertContains(t, output, `"CSSClass": CSSClass`)
@@ -109,7 +109,7 @@ func TestGenerate_ComponentWithUses(t *testing.T) {
     Title string
     Tag   string
 }
-props := gastro.Props[Props]()
+props := gastro.Props()
 Title := props.Title
 Tag := props.Tag`,
 		TemplateBody: `<div class="card"><h2>{{ .Title }}</h2>{{ __gastro_Badge (dict "Label" .Tag) }}</div>`,
@@ -314,7 +314,7 @@ func TestGenerate_ComponentLogsExecuteError(t *testing.T) {
 		Frontmatter: `type Props struct {
     Title string
 }
-props := gastro.Props[Props]()
+props := gastro.Props()
 CSSClass := "card"`,
 		TemplateBody: `<div class="{{ .CSSClass }}">{{ .Children }}</div>`,
 	}
