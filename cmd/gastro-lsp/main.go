@@ -39,34 +39,122 @@ type componentInfo struct {
 	Path string // relative path (e.g., "components/post-card.gastro")
 }
 
-type server struct {
-	documents           map[string]string // URI -> content
+// projectInstance groups a shadow workspace, gopls proxy, and component index
+// for a single project root (directory containing go.mod).
+type projectInstance struct {
+	root                string
 	workspace           *shadow.Workspace
 	gopls               *proxy.GoplsProxy
-	projectDir          string
-	goplsOpenFiles      map[string]int                                 // virtual URI -> version (tracks files opened in gopls)
-	writeMu             sync.Mutex                                     // protects stdout writes from concurrent goroutines
-	dataMu              sync.RWMutex                                   // protects diagnostic and document maps from concurrent access
-	goplsDiags          map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
-	templateDiags       map[string][]map[string]any                    // URI -> template diagnostics (body)
-	typeCache           map[string]map[string]string                   // URI -> varName -> type string
-	fieldCache          map[string]map[string][]fieldInfo              // URI -> varName -> fields
-	typeFieldCache      map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
-	componentPropsCache map[string][]codegen.StructField               // componentPath -> Props struct fields (nil = no props)
-	componentIndex      []componentInfo                                // all discovered components in the project
+	components          []componentInfo
+	componentPropsCache map[string][]codegen.StructField // componentPath -> Props struct fields
+	goplsOpenFiles      map[string]int                   // virtualURI -> version
+}
+
+type server struct {
+	documents      map[string]string                              // URI -> content
+	projectDir     string                                         // global root from editor (fallback)
+	instances      map[string]*projectInstance                    // projectRoot -> instance
+	writeMu        sync.Mutex                                     // protects stdout writes from concurrent goroutines
+	dataMu         sync.RWMutex                                   // protects diagnostic and document maps from concurrent access
+	goplsDiags     map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
+	templateDiags  map[string][]map[string]any                    // URI -> template diagnostics (body)
+	typeCache      map[string]map[string]string                   // URI -> varName -> type string
+	fieldCache     map[string]map[string][]fieldInfo              // URI -> varName -> fields
+	typeFieldCache map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
 }
 
 func newServer() *server {
 	return &server{
-		documents:           make(map[string]string),
-		goplsOpenFiles:      make(map[string]int),
-		goplsDiags:          make(map[string][]map[string]any),
-		templateDiags:       make(map[string][]map[string]any),
-		typeCache:           make(map[string]map[string]string),
-		fieldCache:          make(map[string]map[string][]fieldInfo),
-		typeFieldCache:      make(map[string]map[string][]lsptemplate.FieldEntry),
-		componentPropsCache: make(map[string][]codegen.StructField),
+		documents:      make(map[string]string),
+		instances:      make(map[string]*projectInstance),
+		goplsDiags:     make(map[string][]map[string]any),
+		templateDiags:  make(map[string][]map[string]any),
+		typeCache:      make(map[string]map[string]string),
+		fieldCache:     make(map[string]map[string][]fieldInfo),
+		typeFieldCache: make(map[string]map[string][]lsptemplate.FieldEntry),
 	}
+}
+
+// findProjectRoot walks up from filePath to find the nearest directory
+// containing go.mod. Returns fallback if no go.mod is found.
+func findProjectRoot(filePath, fallback string) string {
+	resolved, err := filepath.EvalSymlinks(filePath)
+	if err != nil {
+		resolved = filePath
+	}
+	dir := filepath.Dir(resolved)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return fallback
+		}
+		dir = parent
+	}
+}
+
+// instanceForURI returns the project instance for a given file URI, creating
+// one lazily if needed. Uses double-checked locking for thread safety.
+func (s *server) instanceForURI(uri string) *projectInstance {
+	filePath := uriToPath(uri)
+	if filePath == "" {
+		return nil
+	}
+	root := findProjectRoot(filePath, s.projectDir)
+
+	// Fast path: read lock
+	s.dataMu.RLock()
+	inst, ok := s.instances[root]
+	s.dataMu.RUnlock()
+	if ok {
+		return inst
+	}
+
+	// Slow path: write lock
+	s.dataMu.Lock()
+	defer s.dataMu.Unlock()
+
+	// Check again (another goroutine may have created it)
+	if inst, ok := s.instances[root]; ok {
+		return inst
+	}
+
+	inst = &projectInstance{
+		root:                root,
+		componentPropsCache: make(map[string][]codegen.StructField),
+		goplsOpenFiles:      make(map[string]int),
+	}
+	if err := s.initInstance(inst); err != nil {
+		log.Printf("failed to init instance for %s: %v", root, err)
+		return nil
+	}
+	s.instances[root] = inst
+	return inst
+}
+
+// initInstance creates the shadow workspace, starts gopls, and discovers
+// components for a project instance.
+func (s *server) initInstance(inst *projectInstance) error {
+	var err error
+	inst.workspace, err = shadow.NewWorkspace(inst.root)
+	if err != nil {
+		return fmt.Errorf("creating shadow workspace: %w", err)
+	}
+
+	inst.gopls, err = proxy.NewGoplsProxy(inst.workspace.Dir(), func(method string, params json.RawMessage) {
+		s.handleGoplsNotification(method, params, inst)
+	})
+	if err != nil {
+		inst.workspace.Close()
+		inst.workspace = nil
+		return fmt.Errorf("starting gopls: %w", err)
+	}
+
+	inst.components = discoverComponentsIn(inst.root)
+	log.Printf("initialized instance for %s (%d components)", inst.root, len(inst.components))
+	return nil
 }
 
 func (s *server) run() {
@@ -160,10 +248,9 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 	if s.projectDir == "" {
 		s.projectDir, _ = os.Getwd()
 	}
-	log.Printf("project dir: %s", s.projectDir)
+	log.Printf("project dir (fallback root): %s", s.projectDir)
 
-	// Set up shadow workspace and gopls proxy
-	s.initGopls()
+	// Instances are created lazily when files are opened (see instanceForURI)
 
 	return &jsonRPCMessage{
 		JSONRPC: "2.0",
@@ -185,38 +272,14 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 	}
 }
 
-func (s *server) initGopls() {
-	var err error
-	s.workspace, err = shadow.NewWorkspace(s.projectDir)
-	if err != nil {
-		log.Printf("warning: could not create shadow workspace: %v", err)
-		return
-	}
-
-	s.gopls, err = proxy.NewGoplsProxy(s.workspace.Dir(), func(method string, params json.RawMessage) {
-		s.handleGoplsNotification(method, params)
-	})
-	if err != nil {
-		log.Printf("warning: could not start gopls: %v", err)
-		s.workspace.Close()
-		s.workspace = nil
-		return
-	}
-
-	log.Println("gopls proxy initialized")
-
-	// Discover available components for auto-import completions
-	s.discoverComponents()
-}
-
-// discoverComponents scans the components/ directory for .gastro files and
-// builds an index of available components. This enables auto-import completions
-// when the user types `<ComponentName` for a component that isn't yet imported.
-func (s *server) discoverComponents() {
-	componentsDir := filepath.Join(s.projectDir, "components")
+// discoverComponentsIn scans the components/ directory under a project root
+// for .gastro files. This enables auto-import completions when the user types
+// a component name for a component that isn't yet imported.
+func discoverComponentsIn(projectRoot string) []componentInfo {
+	componentsDir := filepath.Join(projectRoot, "components")
 	entries, err := os.ReadDir(componentsDir)
 	if err != nil {
-		return
+		return nil
 	}
 
 	var components []componentInfo
@@ -243,13 +306,12 @@ func (s *server) discoverComponents() {
 		})
 	}
 
-	s.componentIndex = components
-	log.Printf("discovered %d components", len(components))
+	return components
 }
 
 // handleGoplsNotification processes async notifications from gopls
 // (e.g., publishDiagnostics) and forwards them to the editor with mapped positions.
-func (s *server) handleGoplsNotification(method string, params json.RawMessage) {
+func (s *server) handleGoplsNotification(method string, params json.RawMessage, inst *projectInstance) {
 	log.Printf("gopls notification: %s", method)
 	if method != "textDocument/publishDiagnostics" {
 		return
@@ -278,13 +340,13 @@ func (s *server) handleGoplsNotification(method string, params json.RawMessage) 
 
 	// Find which .gastro file this virtual file corresponds to
 	log.Printf("gopls diagnostic: uri=%s diags=%d", diagParams.URI, len(diagParams.Diagnostics))
-	gastroURI := s.findGastroURIForVirtualURI(diagParams.URI)
+	gastroURI := s.findGastroURIForVirtualURI(diagParams.URI, inst)
 	if gastroURI == "" {
 		log.Printf("gopls diagnostic: no matching .gastro file for %s", diagParams.URI)
 		return
 	}
 
-	vf := s.findVirtualFileForURI(gastroURI)
+	vf := s.findVirtualFileForURI(gastroURI, inst)
 	if vf == nil {
 		return
 	}
@@ -442,15 +504,16 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 	// Build type map and field resolver for scope-aware diagnostics.
 	// These may be nil if gopls is not available yet.
 	types := s.queryVariableTypes(uri)
+	inst := s.instanceForURI(uri)
 	var resolver lsptemplate.FieldResolver
-	if s.gopls != nil && s.workspace != nil {
+	if inst != nil && inst.gopls != nil {
 		resolver = func(typeName string, chainExpr string) []lsptemplate.FieldEntry {
 			return s.resolveFieldsViaChain(uri, typeName, chainExpr)
 		}
 	}
 
 	// Resolve component Props structs for prop validation
-	propsMap := s.resolveAllComponentProps(parsed.Uses)
+	propsMap := s.resolveAllComponentProps(parsed.Uses, inst)
 
 	templateDiags := lsptemplate.Diagnose(parsed.TemplateBody, info, parsed.Uses, types, resolver, propsMap)
 
@@ -482,27 +545,27 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 
 // resolveAllComponentProps builds a map from component name to its Props
 // struct fields, using the cache where possible.
-func (s *server) resolveAllComponentProps(uses []parser.UseDeclaration) map[string][]codegen.StructField {
-	if s.projectDir == "" || len(uses) == 0 {
+func (s *server) resolveAllComponentProps(uses []parser.UseDeclaration, inst *projectInstance) map[string][]codegen.StructField {
+	if inst == nil || len(uses) == 0 {
 		return nil
 	}
 
 	result := make(map[string][]codegen.StructField, len(uses))
 	for _, u := range uses {
-		if cached, ok := s.componentPropsCache[u.Path]; ok {
+		if cached, ok := inst.componentPropsCache[u.Path]; ok {
 			if cached != nil {
 				result[u.Name] = cached
 			}
 			continue
 		}
 
-		fields, err := lsptemplate.ResolveComponentProps(s.projectDir, u.Path, s.documents)
+		fields, err := lsptemplate.ResolveComponentProps(inst.root, u.Path, s.documents)
 		if err != nil {
 			log.Printf("resolving component props for %s: %v", u.Path, err)
 			continue
 		}
 
-		s.componentPropsCache[u.Path] = fields
+		inst.componentPropsCache[u.Path] = fields
 		if fields != nil {
 			result[u.Name] = fields
 		}
@@ -515,14 +578,18 @@ func (s *server) resolveAllComponentProps(uses []parser.UseDeclaration) map[stri
 // when it changes. The URI is a file:// URI for the changed document.
 func (s *server) invalidateComponentPropsCache(uri string) {
 	filePath := uriToPath(uri)
-	if s.projectDir == "" || filePath == "" {
+	if filePath == "" {
 		return
 	}
-	relPath, err := filepath.Rel(s.projectDir, filePath)
+	inst := s.instanceForURI(uri)
+	if inst == nil {
+		return
+	}
+	relPath, err := filepath.Rel(inst.root, filePath)
 	if err != nil {
 		return
 	}
-	delete(s.componentPropsCache, relPath)
+	delete(inst.componentPropsCache, relPath)
 }
 
 // queryVariableTypes queries gopls for the types of exported frontmatter
@@ -535,22 +602,23 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 		return cached
 	}
 
-	if s.gopls == nil || s.workspace == nil {
+	inst := s.instanceForURI(gastroURI)
+	if inst == nil {
 		return nil
 	}
 
 	gastroPath := uriToPath(gastroURI)
-	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	relPath, err := filepath.Rel(inst.root, gastroPath)
 	if err != nil {
 		return nil
 	}
 
-	vf := s.workspace.GetFile(relPath)
+	vf := inst.workspace.GetFile(relPath)
 	if vf == nil {
 		return nil
 	}
 
-	virtualPath := s.workspace.VirtualFilePath(relPath)
+	virtualPath := inst.workspace.VirtualFilePath(relPath)
 	virtualURI := "file://" + virtualPath
 
 	types := make(map[string]string)
@@ -573,7 +641,7 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 			"position":     map[string]any{"line": lineIdx, "character": charOffset},
 		}
 
-		result, err := s.gopls.Request("textDocument/hover", hoverParams)
+		result, err := inst.gopls.Request("textDocument/hover", hoverParams)
 		if err != nil {
 			log.Printf("gopls hover error for %s: %v", varName, err)
 			continue
@@ -644,34 +712,35 @@ func elementTypeFromContainer(typeStr string) string {
 // notifies gopls about the change. Sends didOpen on first sync for a file,
 // didChange on subsequent syncs.
 func (s *server) syncToGopls(gastroURI, content string) {
-	if s.workspace == nil || s.gopls == nil {
+	inst := s.instanceForURI(gastroURI)
+	if inst == nil {
 		return
 	}
 
 	// Convert URI to relative path for the workspace
 	gastroPath := uriToPath(gastroURI)
-	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	relPath, err := filepath.Rel(inst.root, gastroPath)
 	if err != nil {
 		log.Printf("cannot compute relative path: %v", err)
 		return
 	}
 
-	vf, err := s.workspace.UpdateFile(relPath, content)
+	vf, err := inst.workspace.UpdateFile(relPath, content)
 	if err != nil {
 		log.Printf("updating virtual file: %v", err)
 		return
 	}
 
-	virtualPath := s.workspace.VirtualFilePath(relPath)
+	virtualPath := inst.workspace.VirtualFilePath(relPath)
 	virtualURI := "file://" + virtualPath
 	log.Printf("syncToGopls: gastro=%s virtual=%s", relPath, virtualURI)
 
-	version, alreadyOpen := s.goplsOpenFiles[virtualURI]
+	version, alreadyOpen := inst.goplsOpenFiles[virtualURI]
 	if !alreadyOpen {
 		// First time: send didOpen
 		version = 1
-		s.goplsOpenFiles[virtualURI] = version
-		if err := s.gopls.Notify("textDocument/didOpen", map[string]any{
+		inst.goplsOpenFiles[virtualURI] = version
+		if err := inst.gopls.Notify("textDocument/didOpen", map[string]any{
 			"textDocument": map[string]any{
 				"uri":        virtualURI,
 				"languageId": "go",
@@ -684,8 +753,8 @@ func (s *server) syncToGopls(gastroURI, content string) {
 	} else {
 		// Subsequent: send didChange with incremented version
 		version++
-		s.goplsOpenFiles[virtualURI] = version
-		if err := s.gopls.Notify("textDocument/didChange", map[string]any{
+		inst.goplsOpenFiles[virtualURI] = version
+		if err := inst.gopls.Notify("textDocument/didChange", map[string]any{
 			"textDocument": map[string]any{
 				"uri":     virtualURI,
 				"version": version,
@@ -730,7 +799,8 @@ func (s *server) handleCompletion(msg *jsonRPCMessage) *jsonRPCMessage {
 		}
 		// Remap textEdit ranges from virtual .go coordinates to .gastro coordinates
 		if raw, ok := result.(json.RawMessage); ok {
-			vf := s.findVirtualFileForURI(params.TextDocument.URI)
+			compInst := s.instanceForURI(params.TextDocument.URI)
+			vf := s.findVirtualFileForURI(params.TextDocument.URI, compInst)
 			if vf != nil {
 				result = proxy.RemapCompletionPositions(raw, vf.SourceMap)
 			}
@@ -766,7 +836,8 @@ func (s *server) handleHover(msg *jsonRPCMessage) *jsonRPCMessage {
 		if result != nil {
 			// Remap range from virtual .go coordinates to .gastro coordinates
 			if raw, ok := result.(json.RawMessage); ok {
-				vf := s.findVirtualFileForURI(params.TextDocument.URI)
+				hInst := s.instanceForURI(params.TextDocument.URI)
+				vf := s.findVirtualFileForURI(params.TextDocument.URI, hInst)
 				if vf != nil {
 					result = proxy.RemapHoverRange(raw, vf.SourceMap)
 				}
@@ -792,7 +863,7 @@ func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *
 	// Check if cursor is on a component tag name before trying AST-based hover.
 	// Component tags are raw text to the Go template parser, so NodeAtCursor
 	// won't find them.
-	if result := s.componentHover(parsed, cursorOffset); result != nil {
+	if result := s.componentHover(uri, parsed, cursorOffset); result != nil {
 		return result
 	}
 
@@ -891,7 +962,7 @@ var componentNameRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9
 
 // componentHover checks if the cursor is on a component name in a {{ }} block
 // and returns hover information showing the component's Props struct fields.
-func (s *server) componentHover(parsed *parser.File, cursorOffset int) any {
+func (s *server) componentHover(uri string, parsed *parser.File, cursorOffset int) any {
 	body := parsed.TemplateBody
 	for _, idx := range componentNameRegex.FindAllStringSubmatchIndex(body, -1) {
 		nameStart, nameEnd := idx[2], idx[3]
@@ -913,7 +984,8 @@ func (s *server) componentHover(parsed *parser.File, cursorOffset int) any {
 			continue
 		}
 
-		propsMap := s.resolveAllComponentProps(parsed.Uses)
+		hoverInst := s.instanceForURI(uri)
+		propsMap := s.resolveAllComponentProps(parsed.Uses, hoverInst)
 		fields := propsMap[compName]
 
 		bodyLineOffset := parsed.TemplateBodyLine - 1
@@ -977,7 +1049,7 @@ func (s *server) handleDefinition(msg *jsonRPCMessage) *jsonRPCMessage {
 	}
 
 	// Template body: check for component tag go-to-definition
-	if loc := s.componentDefinition(parsed, params.Position); loc != nil {
+	if loc := s.componentDefinition(params.TextDocument.URI, parsed, params.Position); loc != nil {
 		return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: loc}
 	}
 
@@ -988,31 +1060,31 @@ func (s *server) handleDefinition(msg *jsonRPCMessage) *jsonRPCMessage {
 // in the shadow workspace back to their .gastro source URIs.
 func (s *server) virtualURIChecker(requestingGastroURI string) proxy.URIChecker {
 	return func(virtualURI string) (string, *sourcemap.SourceMap) {
-		if s.workspace == nil {
-			return "", nil
-		}
-
 		virtualPath := uriToPath(virtualURI)
 
-		// Check if this virtual path belongs to our shadow workspace
-		gastroRelPath := s.workspace.FindGastroFileForVirtualPath(virtualPath)
-		if gastroRelPath == "" {
-			return "", nil
+		s.dataMu.RLock()
+		defer s.dataMu.RUnlock()
+
+		for _, inst := range s.instances {
+			gastroRelPath := inst.workspace.FindGastroFileForVirtualPath(virtualPath)
+			if gastroRelPath == "" {
+				continue
+			}
+			vf := inst.workspace.GetFile(gastroRelPath)
+			if vf == nil {
+				continue
+			}
+			gastroAbsPath := filepath.Join(inst.root, gastroRelPath)
+			return "file://" + gastroAbsPath, vf.SourceMap
 		}
 
-		vf := s.workspace.GetFile(gastroRelPath)
-		if vf == nil {
-			return "", nil
-		}
-
-		gastroAbsPath := filepath.Join(s.projectDir, gastroRelPath)
-		return "file://" + gastroAbsPath, vf.SourceMap
+		return "", nil
 	}
 }
 
 // componentDefinition returns an LSP Location for the component file when
 // the cursor is on a component tag name in the template body.
-func (s *server) componentDefinition(parsed *parser.File, pos proxy.Position) any {
+func (s *server) componentDefinition(gastroURI string, parsed *parser.File, pos proxy.Position) any {
 	body := parsed.TemplateBody
 	bodyStartLine := parsed.TemplateBodyLine - 1 // 0-indexed
 	if pos.Line < bodyStartLine {
@@ -1040,7 +1112,12 @@ func (s *server) componentDefinition(parsed *parser.File, pos proxy.Position) an
 		compName := body[nameStart:nameEnd]
 		for _, u := range parsed.Uses {
 			if u.Name == compName {
-				absPath := filepath.Join(s.projectDir, u.Path)
+				defInst := s.instanceForURI(gastroURI)
+				root := s.projectDir
+				if defInst != nil {
+					root = defInst.root
+				}
+				absPath := filepath.Join(root, u.Path)
 				return map[string]any{
 					"uri": "file://" + absPath,
 					"range": map[string]any{
@@ -1058,17 +1135,18 @@ func (s *server) componentDefinition(parsed *parser.File, pos proxy.Position) an
 // forwardToGopls sends a request to gopls with mapped positions and returns
 // the result with positions mapped back.
 func (s *server) forwardToGopls(gastroURI, method string, pos proxy.Position) any {
-	if s.gopls == nil || s.workspace == nil {
+	inst := s.instanceForURI(gastroURI)
+	if inst == nil {
 		return nil
 	}
 
 	gastroPath := uriToPath(gastroURI)
-	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	relPath, err := filepath.Rel(inst.root, gastroPath)
 	if err != nil {
 		return nil
 	}
 
-	vf := s.workspace.GetFile(relPath)
+	vf := inst.workspace.GetFile(relPath)
 	if vf == nil {
 		return nil
 	}
@@ -1076,7 +1154,7 @@ func (s *server) forwardToGopls(gastroURI, method string, pos proxy.Position) an
 	// Map position to virtual file coordinates
 	virtualPos := proxy.MapPositionToVirtual(pos, vf.SourceMap)
 	log.Printf("forwardToGopls: %s gastro pos=%+v -> virtual pos=%+v", method, pos, virtualPos)
-	virtualPath := s.workspace.VirtualFilePath(relPath)
+	virtualPath := inst.workspace.VirtualFilePath(relPath)
 	virtualURI := "file://" + virtualPath
 
 	goplsParams := map[string]any{
@@ -1086,7 +1164,7 @@ func (s *server) forwardToGopls(gastroURI, method string, pos proxy.Position) an
 		"position": virtualPos,
 	}
 
-	result, err := s.gopls.Request(method, goplsParams)
+	result, err := inst.gopls.Request(method, goplsParams)
 	if err != nil {
 		log.Printf("gopls %s error: %v", method, err)
 		return nil
@@ -1181,7 +1259,12 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 			}
 		}
 		if compPath != "" {
-			fields, err := lsptemplate.ResolveComponentProps(s.projectDir, compPath, s.documents)
+			compInst := s.instanceForURI(uri)
+			compRoot := s.projectDir
+			if compInst != nil {
+				compRoot = compInst.root
+			}
+			fields, err := lsptemplate.ResolveComponentProps(compRoot, compPath, s.documents)
 			if err == nil && len(fields) > 0 {
 				for _, c := range lsptemplate.ComponentPropCompletions(fields, tagCtx.ExistingProps) {
 					items = append(items, map[string]any{
@@ -1239,7 +1322,12 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	}
 
 	// Un-imported component completions (with auto-import edit)
-	for _, comp := range s.componentIndex {
+	tcInst := s.instanceForURI(uri)
+	var tcComponents []componentInfo
+	if tcInst != nil {
+		tcComponents = tcInst.components
+	}
+	for _, comp := range tcComponents {
 		if importedNames[comp.Name] {
 			continue
 		}
@@ -1437,11 +1525,12 @@ func (s *server) resolveFieldsViaChain(uri, typeName, chainExpr string) []lsptem
 		}
 	}
 
-	if s.gopls == nil || s.workspace == nil || chainExpr == "" {
+	rfInst := s.instanceForURI(uri)
+	if rfInst == nil || chainExpr == "" {
 		return nil
 	}
 
-	fields := s.probeFieldsViaChain(uri, chainExpr)
+	fields := s.probeFieldsViaChain(uri, chainExpr, rfInst)
 	if fields == nil {
 		return nil
 	}
@@ -1460,19 +1549,19 @@ func (s *server) resolveFieldsViaChain(uri, typeName, chainExpr string) []lsptem
 
 // probeFieldsViaChain queries gopls for fields by injecting a probe line
 // with the given chain expression (e.g. "Posts[0]" or "Posts[0].Comments[0]").
-func (s *server) probeFieldsViaChain(uri, chainExpr string) []fieldInfo {
+func (s *server) probeFieldsViaChain(uri, chainExpr string, inst *projectInstance) []fieldInfo {
 	gastroPath := uriToPath(uri)
-	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	relPath, err := filepath.Rel(inst.root, gastroPath)
 	if err != nil {
 		return nil
 	}
 
-	vf := s.workspace.GetFile(relPath)
+	vf := inst.workspace.GetFile(relPath)
 	if vf == nil {
 		return nil
 	}
 
-	virtualPath := s.workspace.VirtualFilePath(relPath)
+	virtualPath := inst.workspace.VirtualFilePath(relPath)
 	virtualURI := "file://" + virtualPath
 
 	goLines := strings.Split(vf.GoSource, "\n")
@@ -1505,9 +1594,9 @@ func (s *server) probeFieldsViaChain(uri, chainExpr string) []fieldInfo {
 		return nil
 	}
 
-	version := s.goplsOpenFiles[virtualURI] + 1
-	s.goplsOpenFiles[virtualURI] = version
-	s.gopls.Notify("textDocument/didChange", map[string]any{
+	version := inst.goplsOpenFiles[virtualURI] + 1
+	inst.goplsOpenFiles[virtualURI] = version
+	inst.gopls.Notify("textDocument/didChange", map[string]any{
 		"textDocument": map[string]any{
 			"uri":     virtualURI,
 			"version": version,
@@ -1522,15 +1611,15 @@ func (s *server) probeFieldsViaChain(uri, chainExpr string) []fieldInfo {
 		"position":     map[string]any{"line": probeLine, "character": len(probeText)},
 	}
 
-	result, err := s.gopls.Request("textDocument/completion", completionParams)
+	result, err := inst.gopls.Request("textDocument/completion", completionParams)
 	if err != nil {
 		log.Printf("gopls completion for chain probe error: %v", err)
-		s.restoreVirtualFile(virtualPath, vf, virtualURI)
+		s.restoreVirtualFile(virtualPath, vf, virtualURI, inst)
 		return nil
 	}
 
 	fields := parseFieldCompletions(result)
-	s.restoreVirtualFile(virtualPath, vf, virtualURI)
+	s.restoreVirtualFile(virtualPath, vf, virtualURI, inst)
 	return fields
 }
 
@@ -1543,22 +1632,23 @@ type fieldInfo struct {
 // queryFieldsFromGopls queries gopls for fields of the given type by
 // temporarily injecting a probe line into the virtual file.
 func (s *server) queryFieldsFromGopls(gastroURI, varName, typeName string) []fieldInfo {
-	if s.gopls == nil || s.workspace == nil {
+	inst := s.instanceForURI(gastroURI)
+	if inst == nil {
 		return nil
 	}
 
 	gastroPath := uriToPath(gastroURI)
-	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	relPath, err := filepath.Rel(inst.root, gastroPath)
 	if err != nil {
 		return nil
 	}
 
-	vf := s.workspace.GetFile(relPath)
+	vf := inst.workspace.GetFile(relPath)
 	if vf == nil {
 		return nil
 	}
 
-	virtualPath := s.workspace.VirtualFilePath(relPath)
+	virtualPath := inst.workspace.VirtualFilePath(relPath)
 	virtualURI := "file://" + virtualPath
 
 	// Find the `_ = VarName` line and inject a probe line after it.
@@ -1591,9 +1681,9 @@ func (s *server) queryFieldsFromGopls(gastroURI, varName, typeName string) []fie
 	}
 
 	// Sync the change to gopls
-	version := s.goplsOpenFiles[virtualURI] + 1
-	s.goplsOpenFiles[virtualURI] = version
-	s.gopls.Notify("textDocument/didChange", map[string]any{
+	version := inst.goplsOpenFiles[virtualURI] + 1
+	inst.goplsOpenFiles[virtualURI] = version
+	inst.gopls.Notify("textDocument/didChange", map[string]any{
 		"textDocument": map[string]any{
 			"uri":     virtualURI,
 			"version": version,
@@ -1609,10 +1699,10 @@ func (s *server) queryFieldsFromGopls(gastroURI, varName, typeName string) []fie
 		"position":     map[string]any{"line": probeLine, "character": len(probeText)},
 	}
 
-	result, err := s.gopls.Request("textDocument/completion", completionParams)
+	result, err := inst.gopls.Request("textDocument/completion", completionParams)
 	if err != nil {
 		log.Printf("gopls completion for fields error: %v", err)
-		s.restoreVirtualFile(virtualPath, vf, virtualURI)
+		s.restoreVirtualFile(virtualPath, vf, virtualURI, inst)
 		return nil
 	}
 
@@ -1620,17 +1710,17 @@ func (s *server) queryFieldsFromGopls(gastroURI, varName, typeName string) []fie
 	fields := parseFieldCompletions(result)
 
 	// Restore the original virtual file
-	s.restoreVirtualFile(virtualPath, vf, virtualURI)
+	s.restoreVirtualFile(virtualPath, vf, virtualURI, inst)
 
 	return fields
 }
 
 // restoreVirtualFile writes back the original virtual file content and syncs to gopls.
-func (s *server) restoreVirtualFile(virtualPath string, vf *shadow.VirtualFile, virtualURI string) {
+func (s *server) restoreVirtualFile(virtualPath string, vf *shadow.VirtualFile, virtualURI string, inst *projectInstance) {
 	os.WriteFile(virtualPath, []byte(vf.GoSource), 0o644)
-	version := s.goplsOpenFiles[virtualURI] + 1
-	s.goplsOpenFiles[virtualURI] = version
-	s.gopls.Notify("textDocument/didChange", map[string]any{
+	version := inst.goplsOpenFiles[virtualURI] + 1
+	inst.goplsOpenFiles[virtualURI] = version
+	inst.gopls.Notify("textDocument/didChange", map[string]any{
 		"textDocument": map[string]any{
 			"uri":     virtualURI,
 			"version": version,
@@ -1682,46 +1772,48 @@ func parseFieldCompletions(raw json.RawMessage) []fieldInfo {
 }
 
 func (s *server) shutdown() {
-	if s.gopls != nil {
-		s.gopls.Close()
-	}
-	if s.workspace != nil {
-		s.workspace.Close()
+	for _, inst := range s.instances {
+		if inst.gopls != nil {
+			inst.gopls.Close()
+		}
+		if inst.workspace != nil {
+			inst.workspace.Close()
+		}
 	}
 }
 
 // findGastroURIForVirtualURI looks up which .gastro file corresponds to a
 // virtual .go file URI from the shadow workspace.
-func (s *server) findGastroURIForVirtualURI(virtualURI string) string {
+func (s *server) findGastroURIForVirtualURI(virtualURI string, inst *projectInstance) string {
 	virtualPath := uriToPath(virtualURI)
-	if s.workspace == nil {
+	if inst == nil || inst.workspace == nil {
 		return ""
 	}
 
-	// Check each tracked document
+	// Check each tracked document that belongs to this instance
 	for gastroURI := range s.documents {
 		gastroPath := uriToPath(gastroURI)
-		relPath, err := filepath.Rel(s.projectDir, gastroPath)
-		if err != nil {
+		relPath, err := filepath.Rel(inst.root, gastroPath)
+		if err != nil || strings.HasPrefix(relPath, "..") {
 			continue
 		}
-		if s.workspace.VirtualFilePath(relPath) == virtualPath {
+		if inst.workspace.VirtualFilePath(relPath) == virtualPath {
 			return gastroURI
 		}
 	}
 	return ""
 }
 
-func (s *server) findVirtualFileForURI(gastroURI string) *shadow.VirtualFile {
-	if s.workspace == nil {
+func (s *server) findVirtualFileForURI(gastroURI string, inst *projectInstance) *shadow.VirtualFile {
+	if inst == nil || inst.workspace == nil {
 		return nil
 	}
 	gastroPath := uriToPath(gastroURI)
-	relPath, err := filepath.Rel(s.projectDir, gastroPath)
+	relPath, err := filepath.Rel(inst.root, gastroPath)
 	if err != nil {
 		return nil
 	}
-	return s.workspace.GetFile(relPath)
+	return inst.workspace.GetFile(relPath)
 }
 
 // uriToPath converts a file:// URI to a local filesystem path.
