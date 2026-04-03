@@ -51,51 +51,62 @@ func Parse(filename, content string) (*File, error) {
 }
 
 // splitSections splits content at --- delimiters into frontmatter and template
-// body. A delimiter is only recognised when it appears on its own line (trimmed)
-// and is NOT inside a string literal.
+// body. Frontmatter is only recognised when the first non-whitespace line in
+// the file is ---. Any --- appearing later in the file (e.g. inside a code
+// example) is treated as plain template text.
 func splitSections(content string) (frontmatter, body string, fmLine, bodyLine int, err error) {
 	lines := strings.Split(content, "\n")
 
-	openDelim := -1
+	// Find the first non-whitespace line.
+	firstContentLine := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			firstContentLine = i
+			break
+		}
+	}
+
+	// Empty/whitespace-only file or first content isn't ---: no frontmatter.
+	// The entire content is the template body.
+	if firstContentLine == -1 || strings.TrimSpace(lines[firstContentLine]) != delimiter {
+		return "", content, 0, 1, nil
+	}
+
+	openDelim := firstContentLine
+
+	// Scan for the closing delimiter, skipping lines inside backtick strings.
+	// Go raw string literals (backtick) can span multiple lines and may
+	// contain --- that should not be treated as a delimiter.
 	closeDelim := -1
 	inString := false
-
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Track whether we're inside a multi-line string (backtick).
-		// For regular quoted strings on a single line, the delimiter
-		// can only appear inside the quotes so trimmed == "---" won't
-		// match. We only need to worry about raw string literals.
+	for i := openDelim + 1; i < len(lines); i++ {
 		if !inString {
-			inString = hasUnclosedBacktick(line)
+			inString = hasUnclosedBacktick(lines[i])
 		} else {
-			if hasUnclosedBacktick(line) {
+			if hasUnclosedBacktick(lines[i]) {
 				inString = false
 			}
 			continue
 		}
 
-		if trimmed == delimiter {
-			if openDelim == -1 {
-				openDelim = i
-			} else {
-				closeDelim = i
-				break
-			}
+		if strings.TrimSpace(lines[i]) == delimiter {
+			closeDelim = i
+			break
 		}
 	}
 
-	if openDelim == -1 {
-		return "", "", 0, 0, fmt.Errorf("missing opening --- delimiter")
-	}
 	if closeDelim == -1 {
-		return "", "", 0, 0, fmt.Errorf("missing closing --- delimiter")
+		return "", "", 0, 0, fmt.Errorf("missing closing --- delimiter (frontmatter must be enclosed by two --- lines)")
 	}
 
 	// Frontmatter is the lines between the two delimiters
 	fmLines := lines[openDelim+1 : closeDelim]
 	frontmatter = strings.Join(fmLines, "\n")
+
+	// Reject empty frontmatter blocks (---\n---).
+	if strings.TrimSpace(frontmatter) == "" {
+		return "", "", 0, 0, fmt.Errorf("empty frontmatter block (either add code between --- delimiters or remove them)")
+	}
 
 	// Template body is everything after the closing delimiter
 	if closeDelim+1 < len(lines) {
@@ -103,7 +114,7 @@ func splitSections(content string) (frontmatter, body string, fmLine, bodyLine i
 		body = strings.Join(bodyLines, "\n")
 	}
 
-	// 1-indexed line numbers
+	// 1-indexed line numbers; fmLine is 0 when there is no frontmatter
 	fmLine = openDelim + 2    // line after first ---
 	bodyLine = closeDelim + 2 // line after second ---
 

@@ -167,9 +167,16 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 		return compileResult{}, err
 	}
 
+	// Determine component status: explicit gastro.Props() call, or
+	// directory-based inference for frontmatter-less files.
+	isComponent := info.IsComponent
+	if strings.HasPrefix(relPath, "components/") && !info.IsComponent {
+		isComponent = true
+	}
+
 	// Generate handler Go code
 	file.TemplateBody = transformedBody
-	handlerCode, err := codegen.GenerateHandler(file, info)
+	handlerCode, err := codegen.GenerateHandler(file, info, isComponent)
 	if err != nil {
 		return compileResult{}, err
 	}
@@ -203,7 +210,7 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 	}
 
 	// Pages have no component metadata
-	if !info.IsComponent {
+	if !isComponent {
 		return compileResult{template: tmplMeta}, nil
 	}
 

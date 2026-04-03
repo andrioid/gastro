@@ -369,6 +369,32 @@ func TestWorkspace_FrontmatterEndLine(t *testing.T) {
 	}
 }
 
+func TestWorkspace_NoFrontmatter(t *testing.T) {
+	projectDir := createTestProject(t)
+	ws, err := shadow.NewWorkspace(projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer ws.Close()
+
+	vf, err := ws.UpdateFile("components/divider.gastro", "<hr class=\"divider\" />")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(vf.GoSource, "package main") {
+		t.Error("no-frontmatter file should produce a valid Go file")
+	}
+
+	if vf.FrontmatterEndLine != 0 {
+		t.Errorf("FrontmatterEndLine = %d, want 0", vf.FrontmatterEndLine)
+	}
+
+	if vf.SourceMap == nil {
+		t.Fatal("source map should not be nil")
+	}
+}
+
 func TestWorkspace_PropsCallPreserved(t *testing.T) {
 	projectDir := createTestProject(t)
 	ws, err := shadow.NewWorkspace(projectDir)

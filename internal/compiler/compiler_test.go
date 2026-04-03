@@ -337,6 +337,81 @@ func TestCompile_NoStaticDirWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestCompile_ComponentWithoutFrontmatter(t *testing.T) {
+	projectDir := filepath.Join("testdata", "basic")
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should generate the component Go file
+	goContent, err := os.ReadFile(filepath.Join(outputDir, "components_divider.go"))
+	if err != nil {
+		t.Fatalf("components_divider.go was not generated: %v", err)
+	}
+	s := string(goContent)
+
+	// Should use the component template (returns template.HTML, not an HTTP handler)
+	assertStringContains(t, s, "func componentDivider(propsMap map[string]any) template.HTML")
+
+	// Should NOT have MapToStruct (no Props struct)
+	if contains(s, "MapToStruct") {
+		t.Error("component without props should not call MapToStruct")
+	}
+
+	// Should NOT have http.ResponseWriter (it's a component, not a page)
+	if contains(s, "http.ResponseWriter") {
+		t.Error("component without frontmatter should not be an HTTP handler")
+	}
+
+	// Should generate the template file
+	if _, err := os.Stat(filepath.Join(outputDir, "templates", "components_divider.html")); os.IsNotExist(err) {
+		t.Fatal("template file was not generated for frontmatter-less component")
+	}
+
+	// Should appear in render.go
+	renderContent, err := os.ReadFile(filepath.Join(outputDir, "render.go"))
+	if err != nil {
+		t.Fatalf("render.go was not generated: %v", err)
+	}
+	rs := string(renderContent)
+
+	// Prop-less component should have a no-argument Render method
+	assertStringContains(t, rs, "func (r *renderAPI) Divider()")
+	assertStringContains(t, rs, "componentDivider(propsMap)")
+}
+
+func TestCompile_PageWithoutFrontmatter(t *testing.T) {
+	projectDir := t.TempDir()
+	pagesDir := filepath.Join(projectDir, "pages")
+	os.MkdirAll(pagesDir, 0o755)
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte("<h1>Hello World</h1>"), 0o644)
+
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should generate the page handler file
+	goContent, err := os.ReadFile(filepath.Join(outputDir, "pages_index.go"))
+	if err != nil {
+		t.Fatalf("pages_index.go was not generated: %v", err)
+	}
+	s := string(goContent)
+
+	// Should be an HTTP handler (page), not a component
+	assertStringContains(t, s, "func pageIndex(w http.ResponseWriter, r *http.Request)")
+
+	// Should generate the template file
+	if _, err := os.Stat(filepath.Join(outputDir, "templates", "pages_index.html")); os.IsNotExist(err) {
+		t.Fatal("template file was not generated for frontmatter-less page")
+	}
+}
+
 func assertStringContains(t *testing.T, s, substr string) {
 	t.Helper()
 	if !contains(s, substr) {

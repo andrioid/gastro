@@ -67,17 +67,36 @@ Title := "Hello"
 	}
 }
 
-func TestGenerateVirtualFile_EmptyFrontmatter(t *testing.T) {
+func TestGenerateVirtualFile_EmptyFrontmatterReturnsError(t *testing.T) {
 	gastroContent := `---
 ---
 <h1>Hello</h1>`
 
-	vf, err := shadow.GenerateVirtualFile("pages/index.gastro", gastroContent)
+	_, err := shadow.GenerateVirtualFile("pages/index.gastro", gastroContent)
+	if err == nil {
+		t.Fatal("expected an error for empty frontmatter block, got nil")
+	}
+}
+
+func TestGenerateVirtualFile_NoFrontmatter(t *testing.T) {
+	gastroContent := `<h1>Hello</h1>
+<p>No frontmatter here</p>`
+
+	vf, err := shadow.GenerateVirtualFile("components/divider.gastro", gastroContent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if !strings.Contains(vf.GoSource, "package") {
-		t.Error("even empty frontmatter should produce a valid Go file")
+		t.Error("no-frontmatter file should produce a valid Go file")
+	}
+
+	if vf.SourceMap == nil {
+		t.Fatal("source map should not be nil")
+	}
+
+	// Should not contain function wrapper or frontmatter code
+	if strings.Contains(vf.GoSource, "__handler") {
+		t.Error("no-frontmatter file should not have __handler function wrapper")
 	}
 }

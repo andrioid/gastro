@@ -276,10 +276,22 @@ Title := "Hello"
 	}
 }
 
-func TestParse_EmptyFrontmatter(t *testing.T) {
+func TestParse_EmptyFrontmatterReturnsError(t *testing.T) {
 	input := `---
 ---
 <h1>Hello</h1>`
+
+	_, err := parser.Parse("test.gastro", input)
+	if err == nil {
+		t.Fatal("expected an error for empty frontmatter block, got nil")
+	}
+	if !strings.Contains(err.Error(), "empty frontmatter block") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestParse_NoDelimitersReturnsTemplateOnly(t *testing.T) {
+	input := `<h1>Hello</h1>`
 
 	result, err := parser.Parse("test.gastro", input)
 	if err != nil {
@@ -289,18 +301,94 @@ func TestParse_EmptyFrontmatter(t *testing.T) {
 	if result.Frontmatter != "" {
 		t.Errorf("expected empty frontmatter, got: %q", result.Frontmatter)
 	}
-
 	if result.TemplateBody != "<h1>Hello</h1>" {
 		t.Errorf("template body: got %q, want %q", result.TemplateBody, "<h1>Hello</h1>")
 	}
+	if result.FrontmatterLine != 0 {
+		t.Errorf("expected FrontmatterLine=0, got %d", result.FrontmatterLine)
+	}
+	if result.TemplateBodyLine != 1 {
+		t.Errorf("expected TemplateBodyLine=1, got %d", result.TemplateBodyLine)
+	}
 }
 
-func TestParse_MissingDelimitersReturnsError(t *testing.T) {
-	input := `<h1>Hello</h1>`
+func TestParse_NoDelimitersMultiline(t *testing.T) {
+	input := "<h1>Hello</h1>\n<p>World</p>"
 
-	_, err := parser.Parse("test.gastro", input)
-	if err == nil {
-		t.Fatal("expected an error for missing --- delimiters, got nil")
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Frontmatter != "" {
+		t.Errorf("expected empty frontmatter, got: %q", result.Frontmatter)
+	}
+	if result.TemplateBody != input {
+		t.Errorf("template body: got %q, want %q", result.TemplateBody, input)
+	}
+}
+
+func TestParse_WhitespaceOnlyFile(t *testing.T) {
+	input := "   \n  \n"
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Frontmatter != "" {
+		t.Errorf("expected empty frontmatter, got: %q", result.Frontmatter)
+	}
+	if result.TemplateBody != input {
+		t.Errorf("template body: got %q, want %q", result.TemplateBody, input)
+	}
+}
+
+func TestParse_DelimiterNotAtTopIsTemplateOnly(t *testing.T) {
+	input := "<h1>Hello</h1>\n---\nTitle := \"Hi\"\n---\n<p>World</p>"
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Frontmatter != "" {
+		t.Errorf("expected empty frontmatter, got: %q", result.Frontmatter)
+	}
+	if result.TemplateBody != input {
+		t.Errorf("template body: got %q, want entire input", result.TemplateBody)
+	}
+}
+
+func TestParse_DelimiterInTemplateBody(t *testing.T) {
+	input := "<div>\n<pre>---\ncode\n---\n</pre></div>"
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Frontmatter != "" {
+		t.Errorf("expected empty frontmatter, got: %q", result.Frontmatter)
+	}
+	if result.TemplateBody != input {
+		t.Errorf("template body: got %q, want entire input", result.TemplateBody)
+	}
+}
+
+func TestParse_WhitespaceBeforeDelimitersIsAllowed(t *testing.T) {
+	input := "\n  \n---\nTitle := \"Hi\"\n---\n<p>World</p>"
+
+	result, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(result.Frontmatter, "Title") {
+		t.Errorf("expected frontmatter to contain Title, got: %q", result.Frontmatter)
+	}
+	if result.TemplateBody != "<p>World</p>" {
+		t.Errorf("template body: got %q, want %q", result.TemplateBody, "<p>World</p>")
 	}
 }
 
@@ -312,6 +400,9 @@ Title := "Hello"
 	_, err := parser.Parse("test.gastro", input)
 	if err == nil {
 		t.Fatal("expected an error for missing closing --- delimiter, got nil")
+	}
+	if !strings.Contains(err.Error(), "missing closing --- delimiter") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 
@@ -332,8 +423,9 @@ Title := "Hello"
 
 func TestParse_RecordsFilename(t *testing.T) {
 	input := `---
+Title := "Hello"
 ---
-<h1>Hello</h1>`
+<h1>{{ .Title }}</h1>`
 
 	result, err := parser.Parse("pages/index.gastro", input)
 	if err != nil {

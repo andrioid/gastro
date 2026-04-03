@@ -1148,3 +1148,115 @@ func TestLSP_ComponentDefinition(t *testing.T) {
 		t.Errorf("expected definition at line 0, char 0, got line=%v char=%v", start["line"], start["character"])
 	}
 }
+
+func TestLSP_SingleDelimiterDiagnostic(t *testing.T) {
+	projectDir := setupTestProject(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// A file with a single --- delimiter is a parse error
+	gastroContent := "---\n<h1>Hello</h1>"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Wait for a diagnostic about the missing closing delimiter
+	var found bool
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		notification := client.recvNotification(t, "textDocument/publishDiagnostics", 2*time.Second)
+		if notification == nil {
+			continue
+		}
+
+		params, _ := notification["params"].(map[string]any)
+		diags, _ := params["diagnostics"].([]any)
+
+		for _, d := range diags {
+			dm, _ := d.(map[string]any)
+			msg, _ := dm["message"].(string)
+			if strings.Contains(msg, "missing closing --- delimiter") {
+				found = true
+				// Should be an error (severity 1)
+				if sev, ok := dm["severity"].(float64); !ok || sev != 1 {
+					t.Errorf("expected severity=1 (Error), got %v", dm["severity"])
+				}
+				// Should come from gastro source
+				if dm["source"] != "gastro" {
+					t.Errorf("expected source='gastro', got %v", dm["source"])
+				}
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		t.Fatal("expected diagnostic for missing closing --- delimiter, got none within deadline")
+	}
+}
+
+func TestLSP_NoFrontmatterNoDiagnostics(t *testing.T) {
+	projectDir := setupTestProject(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// A file with no frontmatter should not produce parse errors
+	gastroContent := "<h1>Hello World</h1>"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Collect diagnostics — should have none (or only empty arrays)
+	var errorDiags []string
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		notification := client.recvNotification(t, "textDocument/publishDiagnostics", 2*time.Second)
+		if notification == nil {
+			break
+		}
+
+		params, _ := notification["params"].(map[string]any)
+		diags, _ := params["diagnostics"].([]any)
+
+		for _, d := range diags {
+			dm, _ := d.(map[string]any)
+			msg, _ := dm["message"].(string)
+			if sev, ok := dm["severity"].(float64); ok && sev == 1 {
+				errorDiags = append(errorDiags, msg)
+			}
+		}
+	}
+
+	if len(errorDiags) > 0 {
+		t.Errorf("expected no error diagnostics for no-frontmatter file, got: %v", errorDiags)
+	}
+}

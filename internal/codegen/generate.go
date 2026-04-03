@@ -19,15 +19,18 @@ type UseInfo struct {
 
 // GenerateHandler produces Go source code for a page handler or component
 // render function from a parsed .gastro file and its frontmatter analysis.
-func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo) (string, error) {
+// isComponent indicates whether this file should generate a component render
+// function. This is typically info.IsComponent, but the compiler may override
+// it for files in components/ that have no frontmatter.
+func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent bool) (string, error) {
 	funcName := HandlerFuncName(file.Filename)
-	frontmatter := rewriteFrontmatter(file.Frontmatter, info)
+	frontmatter := rewriteFrontmatter(file.Frontmatter, info, isComponent)
 
 	// Extract hoisted type declarations for components.
 	// Rename the type to avoid collisions between components in the same package.
 	var hoistedTypes string
 	propsTypeName := info.PropsTypeName
-	if info.IsComponent && propsTypeName != "" {
+	if isComponent && propsTypeName != "" {
 		_, hoistedTypes = HoistTypeDeclarations(file.Frontmatter)
 		hoistedTypes = strings.TrimSpace(hoistedTypes)
 		uniqueName := funcName + strings.ToUpper(propsTypeName[:1]) + propsTypeName[1:]
@@ -54,13 +57,13 @@ func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo) (string, er
 		TemplateBody:  file.TemplateBody,
 		IsPage:        info.IsPage,
 		PropsTypeName: propsTypeName,
-		IsComponent:   info.IsComponent,
+		IsComponent:   isComponent,
 		HoistedTypes:  hoistedTypes,
 		Uses:          uses,
 	}
 
 	tmpl := handlerTmpl
-	if info.IsComponent {
+	if isComponent {
 		tmpl = componentTmpl
 	}
 
@@ -369,7 +372,7 @@ func rewriteGastroProps(frontmatter string) string {
 // Marker detection uses go/ast for precision (no false positives on strings,
 // comments, or similar identifiers). Type stripping uses line-based brace
 // tracking which is correct for Go type declarations.
-func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo) string {
+func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo, isComponent bool) string {
 	contextMarkers := detectMarkerLines(frontmatter)
 
 	// Build a set of context marker lines for O(1) lookup
@@ -392,7 +395,7 @@ func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo) string {
 		lineNum := i + 1 // 1-indexed
 
 		// For components, skip type declarations (hoisted to package level)
-		if info.IsComponent {
+		if isComponent {
 			trimmed := strings.TrimSpace(line)
 			if !inType && strings.HasPrefix(trimmed, "type ") {
 				inType = true

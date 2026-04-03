@@ -495,17 +495,58 @@ func (s *server) publishMergedDiagnostics(uri string) {
 	s.writeToClient(notification)
 }
 
+// publishParseDiagnostic surfaces a parse-level error as an LSP diagnostic.
+// It highlights the given line (0-indexed) and publishes the diagnostic.
+// The caller must NOT hold s.dataMu.
+func (s *server) publishParseDiagnostic(uri, content, message string, line int) {
+	lineLen := 0
+	if lines := strings.SplitN(content, "\n", line+2); line < len(lines) {
+		lineLen = len(lines[line])
+	}
+
+	s.dataMu.Lock()
+	s.templateDiags[uri] = []map[string]any{{
+		"range": map[string]any{
+			"start": map[string]any{"line": line, "character": 0},
+			"end":   map[string]any{"line": line, "character": lineLen},
+		},
+		"severity": 1,
+		"message":  message,
+		"source":   "gastro",
+	}}
+	s.publishMergedDiagnostics(uri)
+	s.dataMu.Unlock()
+}
+
+// findDelimiterLine returns the 0-indexed line number of the first --- delimiter
+// in content, or 0 if not found.
+func findDelimiterLine(content string) int {
+	for i, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == "---" {
+			return i
+		}
+	}
+	return 0
+}
+
 // runTemplateDiagnostics parses the document, runs template-body diagnostics
 // (unknown variables, invalid syntax, unknown components), caches the results,
 // and publishes the merged diagnostic set.
 func (s *server) runTemplateDiagnostics(uri, content string) {
 	parsed, err := parser.Parse("virtual.gastro", content)
 	if err != nil {
+		s.publishParseDiagnostic(uri, content, err.Error(), findDelimiterLine(content))
 		return
 	}
 
 	info, err := codegen.AnalyzeFrontmatter(parsed.Frontmatter)
 	if err != nil {
+		// Position on the frontmatter start line (1-indexed to 0-indexed)
+		errLine := 0
+		if parsed.FrontmatterLine > 0 {
+			errLine = parsed.FrontmatterLine - 1
+		}
+		s.publishParseDiagnostic(uri, content, err.Error(), errLine)
 		return
 	}
 

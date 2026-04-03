@@ -77,6 +77,12 @@ func (ws *Workspace) UpdateFile(gastroFile, content string) (*VirtualFile, error
 		return nil, fmt.Errorf("parsing %s: %w", gastroFile, err)
 	}
 
+	// No frontmatter means no Go code for gopls to analyze.
+	// Generate a minimal virtual file so stale diagnostics are cleared.
+	if parsed.FrontmatterLine == 0 {
+		return ws.writeEmptyVirtualFile(gastroFile)
+	}
+
 	rawFrontmatter := extractRawFrontmatter(content)
 	processedFM := commentOutImports(rawFrontmatter)
 
@@ -172,6 +178,31 @@ var gastro = __gastroLib{}
 	}
 
 	// Write to disk (each shadow file lives in its own subdirectory)
+	virtualPath := ws.VirtualFilePath(gastroFile)
+	if err := os.MkdirAll(filepath.Dir(virtualPath), 0o755); err != nil {
+		return nil, fmt.Errorf("creating virtual file dir: %w", err)
+	}
+	if err := os.WriteFile(virtualPath, []byte(vf.GoSource), 0o644); err != nil {
+		return nil, fmt.Errorf("writing virtual file: %w", err)
+	}
+
+	ws.files[gastroFile] = vf
+	return vf, nil
+}
+
+// writeEmptyVirtualFile generates a minimal virtual .go file for .gastro files
+// without frontmatter. This ensures stale diagnostics are cleared when a file
+// transitions from having frontmatter to not having it.
+func (ws *Workspace) writeEmptyVirtualFile(gastroFile string) (*VirtualFile, error) {
+	src := "package main\n\nfunc main() {}\n"
+
+	vf := &VirtualFile{
+		GoSource:           src,
+		SourceMap:          sourcemap.New(1, 1),
+		Filename:           gastroFile,
+		FrontmatterEndLine: 0,
+	}
+
 	virtualPath := ws.VirtualFilePath(gastroFile)
 	if err := os.MkdirAll(filepath.Dir(virtualPath), 0o755); err != nil {
 		return nil, fmt.Errorf("creating virtual file dir: %w", err)

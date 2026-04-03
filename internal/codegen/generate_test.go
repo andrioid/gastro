@@ -23,7 +23,7 @@ Title := "Hello"`,
 		IsPage:       true,
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -66,7 +66,7 @@ CSSClass := "card"`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +125,7 @@ Tag := props.Tag`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -164,7 +164,7 @@ CSSClass := "card"`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -199,7 +199,7 @@ CX := fmt.Sprintf("%d", p.X+135)`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -230,7 +230,7 @@ Summary := fmt.Sprintf("%s (%d)", gastro.Props().Label, gastro.Props().Count)`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestGenerate_MultipleExportedVars(t *testing.T) {
 		IsPage: true,
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestGenerate_NoExportedVars(t *testing.T) {
 		IsPage:      true,
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestGenerate_PageHandlerLogsExecuteError(t *testing.T) {
 		IsPage:       true,
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -326,7 +326,7 @@ CSSClass := "card"`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -19,10 +19,20 @@ type VirtualFile struct {
 // GenerateVirtualFile creates a virtual .go file from a .gastro file's content.
 // The frontmatter is wrapped in a valid Go function so gopls can analyze it.
 // Import declarations are converted to comments to preserve line numbers.
+// For files without frontmatter, returns a minimal valid Go file.
 func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 	parsed, err := parser.Parse(filename, gastroContent)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", filename, err)
+	}
+
+	// No frontmatter means no Go code for gopls to analyze.
+	if parsed.FrontmatterLine == 0 {
+		return &VirtualFile{
+			GoSource:  "package __gastro_virtual\n",
+			SourceMap: sourcemap.New(1, 1),
+			Filename:  filename,
+		}, nil
 	}
 
 	// Reconstruct the raw frontmatter (before stripping) by getting lines
