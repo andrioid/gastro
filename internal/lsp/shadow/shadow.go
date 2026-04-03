@@ -18,7 +18,7 @@ type VirtualFile struct {
 
 // GenerateVirtualFile creates a virtual .go file from a .gastro file's content.
 // The frontmatter is wrapped in a valid Go function so gopls can analyze it.
-// Use declarations are converted to comments to preserve line numbers.
+// Import declarations are converted to comments to preserve line numbers.
 func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 	parsed, err := parser.Parse(filename, gastroContent)
 	if err != nil {
@@ -26,12 +26,12 @@ func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 	}
 
 	// Reconstruct the raw frontmatter (before stripping) by getting lines
-	// between the delimiters. We need the original lines including use/import
+	// between the delimiters. We need the original lines including import
 	// statements to preserve line numbers.
 	rawFrontmatter := extractRawFrontmatter(gastroContent)
 
-	// Comment out import and use lines to preserve line numbers
-	processedFrontmatter := commentOutImportsAndUses(rawFrontmatter)
+	// Comment out import lines to preserve line numbers
+	processedFrontmatter := commentOutImports(rawFrontmatter)
 
 	// Build the virtual .go file
 	var sb strings.Builder
@@ -55,7 +55,7 @@ func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 	sb.WriteString("\nfunc __handler() {\n")
 	virtualFMStart := strings.Count(sb.String(), "\n") + 1
 
-	// Frontmatter content (with use lines commented out)
+	// Frontmatter content (with import lines commented out)
 	sb.WriteString(processedFrontmatter)
 	sb.WriteString("\n}\n")
 

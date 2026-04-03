@@ -4,19 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/lsp/sourcemap"
 	"github.com/andrioid/gastro/internal/parser"
 )
-
-// propsCallRegex matches legacy "varname := gastro.Props[TypeName]()" syntax.
-var propsCallRegex = regexp.MustCompile(`^(\w+)\s*:=\s*gastro\.Props\[(\w+)\]\(\)$`)
-
-// newPropsCallRegex matches "varname := gastro.Props()" syntax (no generics).
-var newPropsCallRegex = regexp.MustCompile(`^(\w+)\s*:=\s*gastro\.Props\(\)$`)
 
 // Workspace manages a temporary directory containing virtual .go files
 // generated from .gastro frontmatter. gopls analyzes these files to provide
@@ -71,9 +64,9 @@ func (ws *Workspace) VirtualFilePath(gastroFile string) string {
 	name = strings.ReplaceAll(name, "/", "_")
 	name = strings.ReplaceAll(name, "[", "")
 	name = strings.ReplaceAll(name, "]", "")
-	// Go's build system ignores files whose names start with "_" or ".".
-	// Using "gastro_" prefix instead of "__gastro_" so gopls can see them.
-	return filepath.Join(ws.dir, "gastro_"+name+".go")
+	// Each shadow file lives in its own subdirectory so type declarations
+	// (e.g. type Props struct) don't collide across components.
+	return filepath.Join(ws.dir, "gastro_"+name, "main.go")
 }
 
 // UpdateFile regenerates the virtual .go file for a .gastro file and writes
@@ -85,10 +78,18 @@ func (ws *Workspace) UpdateFile(gastroFile, content string) (*VirtualFile, error
 	}
 
 	rawFrontmatter := extractRawFrontmatter(content)
-	processedFM := commentOutImportsAndUses(rawFrontmatter)
+	processedFM := commentOutImports(rawFrontmatter)
 
 	// Analyze frontmatter early so we can configure the gastro stubs correctly
 	info, _ := codegen.AnalyzeFrontmatter(parsed.Frontmatter)
+
+	// For components, hoist type declarations (e.g. type Props struct) to
+	// package level so the Props() stub return type resolves. The types are
+	// commented out in the function body to preserve line count.
+	var hoistedTypes string
+	if info != nil && info.IsComponent {
+		processedFM, hoistedTypes = hoistTypes(processedFM)
+	}
 
 	var sb strings.Builder
 
@@ -103,6 +104,13 @@ func (ws *Workspace) UpdateFile(gastroFile, content string) (*VirtualFile, error
 			sb.WriteString(fmt.Sprintf("\t%q\n", imp))
 		}
 		sb.WriteString(")\n")
+	}
+
+	// Hoisted type declarations (must precede stubs so *Props resolves)
+	if hoistedTypes != "" {
+		sb.WriteString("\n")
+		sb.WriteString(hoistedTypes)
+		sb.WriteString("\n")
 	}
 
 	// Build Props() return type stub based on whether the file has a Props struct.
@@ -163,8 +171,11 @@ var gastro = __gastroLib{}
 		FrontmatterEndLine: parsed.TemplateBodyLine - 1,
 	}
 
-	// Write to disk
+	// Write to disk (each shadow file lives in its own subdirectory)
 	virtualPath := ws.VirtualFilePath(gastroFile)
+	if err := os.MkdirAll(filepath.Dir(virtualPath), 0o755); err != nil {
+		return nil, fmt.Errorf("creating virtual file dir: %w", err)
+	}
 	if err := os.WriteFile(virtualPath, []byte(vf.GoSource), 0o644); err != nil {
 		return nil, fmt.Errorf("writing virtual file: %w", err)
 	}
@@ -207,6 +218,10 @@ func (ws *Workspace) symlinkProject() error {
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
+		// Skip directories matching shadow file naming to avoid collisions
+		if strings.HasPrefix(name, "gastro_") {
+			continue
+		}
 
 		src := filepath.Join(ws.projectDir, name)
 		dst := filepath.Join(ws.dir, name)
@@ -219,20 +234,13 @@ func (ws *Workspace) symlinkProject() error {
 	return nil
 }
 
-// commentOutImportsAndUses replaces `import` lines with comments,
-// and rewrites `gastro.Props()` / `gastro.Props[T]()` calls for gopls.
-// These transformations ensure the virtual file is valid Go while preserving
-// line numbers for source map accuracy.
-func commentOutImportsAndUses(frontmatter string) string {
+// commentOutImports replaces `import` lines with comments to preserve line
+// numbers for source map accuracy. All other frontmatter code (including
+// gastro.Props() calls) passes through unchanged — the shadow file stubs
+// provide real method signatures that gopls can analyze directly.
+func commentOutImports(frontmatter string) string {
 	var lines []string
 	inGroupedImport := false
-
-	// Track whether we've injected the __props declaration
-	propsInjected := false
-
-	// First pass: check if Props struct is defined to get the type name
-	propsTypeName := "Props" // default — the struct must be named "Props"
-	hasPropsStruct := strings.Contains(frontmatter, "type Props struct")
 
 	for _, line := range strings.Split(frontmatter, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -258,42 +266,43 @@ func commentOutImportsAndUses(frontmatter string) string {
 			continue
 		}
 
-		// Legacy: use declarations — still comment out for backward compat
-		if strings.HasPrefix(trimmed, "use ") {
-			lines = append(lines, "// "+trimmed)
-			continue
-		}
-
-		// Legacy: gastro.Props[T]() -> var varname T
-		if m := propsCallRegex.FindStringSubmatch(trimmed); m != nil {
-			varName := m[1]
-			typeName := m[2]
-			lines = append(lines, fmt.Sprintf("var %s %s", varName, typeName))
-			continue
-		}
-
-		// New: varname := gastro.Props() -> var varname Props
-		if m := newPropsCallRegex.FindStringSubmatch(trimmed); m != nil {
-			varName := m[1]
-			lines = append(lines, fmt.Sprintf("var %s %s", varName, propsTypeName))
-			continue
-		}
-
-		// New: gastro.Props().Field in expressions -> __props.Field
-		// We need to inject `var __props Props` before the first usage
-		if strings.Contains(trimmed, "gastro.Props()") {
-			if !propsInjected && hasPropsStruct {
-				lines = append(lines, fmt.Sprintf("var __props %s", propsTypeName))
-				propsInjected = true
-			}
-			rewritten := strings.ReplaceAll(line, "gastro.Props()", "__props")
-			lines = append(lines, rewritten)
-			continue
-		}
-
 		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// hoistTypes extracts type declarations from frontmatter for package-level
+// emission, and comments them out in the body to preserve line count. This is
+// needed because the __gastroLib.Props() stub returns *Props, which must be
+// resolvable at package level.
+func hoistTypes(frontmatter string) (body string, typeDecls string) {
+	lines := strings.Split(frontmatter, "\n")
+	var bodyLines []string
+	var typeLines []string
+	inType := false
+	braceDepth := 0
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if !inType && strings.HasPrefix(trimmed, "type ") {
+			inType = true
+			braceDepth = 0
+		}
+
+		if inType {
+			typeLines = append(typeLines, line)
+			bodyLines = append(bodyLines, "// "+trimmed)
+			braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
+			if braceDepth <= 0 {
+				inType = false
+			}
+		} else {
+			bodyLines = append(bodyLines, line)
+		}
+	}
+
+	return strings.Join(bodyLines, "\n"), strings.Join(typeLines, "\n")
 }
 
 // uniqueFuncName generates a unique Go function name from a .gastro file path.

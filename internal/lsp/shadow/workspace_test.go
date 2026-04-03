@@ -369,7 +369,7 @@ func TestWorkspace_FrontmatterEndLine(t *testing.T) {
 	}
 }
 
-func TestWorkspace_PropsCallRewritten(t *testing.T) {
+func TestWorkspace_PropsCallPreserved(t *testing.T) {
 	projectDir := createTestProject(t)
 	ws, err := shadow.NewWorkspace(projectDir)
 	if err != nil {
@@ -393,14 +393,72 @@ Title := gastro.Props().Title
 
 	src := vf.GoSource
 
-	// gastro.Props() should be rewritten — no raw gastro.Props calls in output
-	if strings.Contains(src, "gastro.Props") {
-		t.Errorf("virtual file should not contain gastro.Props call, got:\n%s", src)
+	// gastro.Props() should be preserved in the shadow file (not rewritten)
+	if !strings.Contains(src, "gastro.Props()") {
+		t.Errorf("expected gastro.Props() to be preserved in shadow file, got:\n%s", src)
 	}
 
-	// The rewrite should produce __props references
-	if !strings.Contains(src, "__props") {
-		t.Errorf("expected __props in virtual file, got:\n%s", src)
+	// No __props injection should occur
+	if strings.Contains(src, "__props") {
+		t.Errorf("shadow file should not contain __props (no rewriting), got:\n%s", src)
+	}
+
+	// Type Props should be hoisted to package level (outside function body)
+	funcIdx := strings.Index(src, "func __gastro_handler_")
+	if funcIdx == -1 {
+		t.Fatal("expected func __gastro_handler_* in virtual file")
+	}
+	beforeFunc := src[:funcIdx]
+	afterFunc := src[funcIdx:]
+
+	if !strings.Contains(beforeFunc, "type Props struct") {
+		t.Error("type Props struct should be hoisted to package level (before function)")
+	}
+
+	// Inside the function body, type should be commented out
+	if strings.Contains(afterFunc, "\ntype Props struct") {
+		t.Error("type Props struct should be commented out inside function body")
+	}
+	if !strings.Contains(afterFunc, "// type Props struct") {
+		t.Error("expected commented-out type declaration inside function body")
+	}
+}
+
+// TestWorkspace_SourceMapAccuracy_Component verifies that gastro.Props() calls
+// are preserved in the shadow file, ensuring source map accuracy. Before this
+// change, Props rewrites injected extra lines and broke line mappings.
+func TestWorkspace_SourceMapAccuracy_Component(t *testing.T) {
+	projectDir := createTestProject(t)
+	ws, err := shadow.NewWorkspace(projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer ws.Close()
+
+	gastroContent := `---
+type Props struct {
+    Title string
+}
+
+Title := gastro.Props().Title
+---
+<h1>{{ .Title }}</h1>`
+
+	vf, err := ws.UpdateFile("components/card.gastro", gastroContent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	virtualLines := strings.Split(vf.GoSource, "\n")
+
+	// Gastro line 6 is "Title := gastro.Props().Title"
+	vLine6 := vf.SourceMap.GastroToVirtual(6)
+	if vLine6 < 1 || vLine6 > len(virtualLines) {
+		t.Fatalf("gastro line 6 mapped to out-of-bounds virtual line %d", vLine6)
+	}
+	got := virtualLines[vLine6-1]
+	if !strings.Contains(got, "gastro.Props().Title") {
+		t.Errorf("gastro line 6 should map to gastro.Props().Title line, got: %q", got)
 	}
 }
 
@@ -417,4 +475,97 @@ func createTestProject(t *testing.T) string {
 	os.MkdirAll(filepath.Join(dir, "pages"), 0o755)
 
 	return dir
+}
+
+// TestWorkspace_DocsLayout reproduces the exact docs-layout.gastro scenario:
+// a component with an aliased import, a Props struct with two fields (Title
+// and Active), and `p := gastro.Props()` followed by field accesses. This
+// verifies that hoistTypes preserves all struct fields and that
+// commentOutImports handles aliased component imports.
+func TestWorkspace_DocsLayout(t *testing.T) {
+	projectDir := createTestProject(t)
+	ws, err := shadow.NewWorkspace(projectDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer ws.Close()
+
+	gastroContent := `---
+import Layout "components/layout.gastro"
+
+type Props struct {
+    Title  string
+    Active string
+}
+
+p := gastro.Props()
+Title := p.Title
+Active := p.Active
+---
+<h1>{{ .Title }}</h1>`
+
+	vf, err := ws.UpdateFile("components/docs-layout.gastro", gastroContent)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	src := vf.GoSource
+	t.Log("=== Full shadow file content ===")
+	t.Log(vf.GoSource)
+	t.Log("=== End shadow file content ===")
+
+	// --- Check 1: hoisted type at package level has BOTH fields ---
+	funcIdx := strings.Index(src, "func __gastro_handler_")
+	if funcIdx == -1 {
+		t.Fatal("expected func __gastro_handler_* in virtual file")
+	}
+	beforeFunc := src[:funcIdx]
+
+	if !strings.Contains(beforeFunc, "type Props struct") {
+		t.Fatal("type Props struct should be hoisted to package level (before function)")
+	}
+	if !strings.Contains(beforeFunc, "Title  string") {
+		t.Error("hoisted Props struct should contain Title field")
+	}
+	if !strings.Contains(beforeFunc, "Active string") {
+		t.Error("hoisted Props struct should contain Active field")
+	}
+
+	// --- Check 2: gastro.Props() is preserved in the function body ---
+	afterFunc := src[funcIdx:]
+	if !strings.Contains(afterFunc, "gastro.Props()") {
+		t.Errorf("expected gastro.Props() to be preserved in function body, got:\n%s", afterFunc)
+	}
+
+	// --- Check 3: Props() stub returns *Props ---
+	if !strings.Contains(src, "func (__gastroLib) Props() *Props") {
+		t.Error("expected Props() stub to return *Props for component")
+	}
+
+	// --- Check 4: field accesses are preserved ---
+	if !strings.Contains(afterFunc, "p.Title") {
+		t.Error("expected p.Title field access in function body")
+	}
+	if !strings.Contains(afterFunc, "p.Active") {
+		t.Error("expected p.Active field access in function body")
+	}
+
+	// --- Check 5: type is commented out inside function body ---
+	if strings.Contains(afterFunc, "\ntype Props struct") {
+		t.Error("type Props struct should be commented out inside function body")
+	}
+	if !strings.Contains(afterFunc, "// type Props struct") {
+		t.Error("expected commented-out type declaration inside function body")
+	}
+
+	// --- Check 6: import line is commented out inside function body ---
+	for _, line := range strings.Split(afterFunc, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "import ") || trimmed == "import (" {
+			t.Errorf("function body contains uncommented import: %q", trimmed)
+		}
+	}
 }
