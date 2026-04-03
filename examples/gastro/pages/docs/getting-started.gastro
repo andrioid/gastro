@@ -42,7 +42,7 @@ mise install</code></pre>
     <p>Create <code>pages/index.gastro</code>. The code between <code>---</code> delimiters is Go frontmatter that runs on the server. The HTML below is rendered with Go's <code>html/template</code>.</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 import "time"
 
@@ -57,7 +57,7 @@ Year := time.Now().Year()
     <p>Copyright {{ .Year }}</p>
 </body>
 </html>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <p>Uppercase variables like <code>Title</code> and <code>Year</code> are automatically exported to the template as <code>{{ raw }}{{ .Title }}{{ endraw }}</code> and <code>{{ raw }}{{ .Year }}{{ endraw }}</code>. Lowercase variables stay private.</p>

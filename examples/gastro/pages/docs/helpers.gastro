@@ -13,12 +13,12 @@ Active := "helpers"
     <h2>String Functions</h2>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 {{ .Name | upper }}        // "ALICE"
 {{ .Name | lower }}        // "alice"
 {{ .Bio | trim }}          // trims whitespace
 {{ .Tags | join ", " }}    // "go, web, ssr"
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <table>
@@ -40,7 +40,7 @@ Active := "helpers"
     <p>These functions mark content as safe for specific contexts, bypassing <code>html/template</code>'s automatic escaping. Use them only with trusted content:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 // Render trusted HTML
 {{ .Body | safeHTML }}
 
@@ -55,7 +55,7 @@ Active := "helpers"
 
 // Safe JS
 <script>var x = {{ .Data | safeJS }}</script>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <table>
@@ -74,7 +74,7 @@ Active := "helpers"
     <h2>Utility Functions</h2>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 // Default values
 {{ .Name | default "Anonymous" }}
 
@@ -92,7 +92,7 @@ Active := "helpers"
 {{ split .Tags "," }}
 {{ contains .Title "Go" }}
 {{ replace .Text "old" "new" }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <table>

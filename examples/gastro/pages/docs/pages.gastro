@@ -14,14 +14,14 @@ Active := "pages"
     <p>A page has two sections separated by <code>---</code> delimiters: Go frontmatter and an HTML template body.</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 ctx := gastro.Context()
 
 Title := "Hello"
 ---
 <h1>{{ .Title }}</h1>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <p>Call <code>gastro.Context()</code> in the frontmatter to mark the file as a page and get access to the HTTP request.</p>
@@ -30,7 +30,7 @@ Title := "Hello"
     <p>Pages that don't need request access can omit <code>gastro.Context()</code>. These are static pages that only use component imports and exported variables:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 import Layout "components/layout.gastro"
 
@@ -39,7 +39,7 @@ Title := "About"
 {{ wrap Layout (dict "Title" .Title) }}
     <h1>About Me</h1>
 {{ end }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 
@@ -51,7 +51,7 @@ Title := "About"
     </ul>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 ctx := gastro.Context()
 posts, err := db.ListPublished()
@@ -67,7 +67,7 @@ Title := "Blog"
 {{ range .Posts }}
 <p>{{ .Title }}</p>
 {{ end }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 
@@ -75,7 +75,7 @@ Title := "Blog"
     <p>Use Go <code>import</code> for both packages and components. Component imports are distinguished by the <code>.gastro</code> file extension:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 import (
     "myblog/db"
@@ -93,7 +93,7 @@ Posts := posts
     {{ PostCard (dict "Title" .Title "Slug" .Slug) }}
     {{ end }}
 {{ end }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 
@@ -116,7 +116,7 @@ Posts := posts
     <p>Access URL parameters with <code>ctx.Param()</code>:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 import (
     "myblog/db"
@@ -142,7 +142,7 @@ Title := post.Title
         <div>{{ .Post.Body | safeHTML }}</div>
     </article>
 {{ end }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 
@@ -152,13 +152,13 @@ Title := post.Title
     <h3>Query Parameters</h3>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 ctx := gastro.Context()
 Name := ctx.Query("name")
 ---
 <p>Hello, {{ .Name }}</p>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 
@@ -166,7 +166,7 @@ Name := ctx.Query("name")
     <p>Always call <code>return</code> after a redirect to prevent the template from rendering:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 ctx := gastro.Context()
 
@@ -179,14 +179,14 @@ if user == nil {
 Name := user.Name
 ---
 <h1>Welcome, {{ .Name }}</h1>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 
     <h3>Response Headers</h3>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 ctx := gastro.Context()
 ctx.Header("Cache-Control", "public, max-age=3600")
@@ -194,7 +194,7 @@ ctx.Header("Cache-Control", "public, max-age=3600")
 Title := "Cached Page"
 ---
 <h1>{{ .Title }}</h1>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 

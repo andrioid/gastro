@@ -371,7 +371,7 @@ Compiles to:
 <p>Hello {{ "{{" }} .Name {{ "}}" }}, nice to see you.</p>
 ```
 
-Useful for code examples in documentation pages. Whitespace trim variants are supported: `{{- raw }}`, `{{ raw -}}`, `{{- raw -}}`, and the same for `endraw`.
+Useful for code examples in documentation pages. Whitespace around `{{ raw }}` and `{{ endraw }}` markers is always trimmed, so raw blocks integrate cleanly into `<pre><code>` without extra blank lines.
 
 For short inline mentions, use inline form: `<code>{{ raw }}{{ .Children }}{{ endraw }}</code>`.
 

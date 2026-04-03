@@ -18,7 +18,7 @@
                     <span class="code-window-title">components/greeting.gastro</span>
                 </div>
                 <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 type Props struct {
     Name string
@@ -32,7 +32,7 @@ Greeting := "Welcome, " + p.Name
     <h1>{{ .Greeting }}</h1>
     <p>Hello {{ .Name }}, nice to see you.</p>
 </section>
-{{- endraw -}}
+{{ endraw }}
                 </code></pre>
                 
             </div>

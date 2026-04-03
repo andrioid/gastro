@@ -54,7 +54,7 @@ func handleIncrement(w http.ResponseWriter, r *http.Request) {
         <p>The page uses Datastar's <code>data-on:click</code> attribute to trigger the SSE request. No custom JavaScript needed:</p>
         <div class="code-block">
             <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 import Layout "components/layout.gastro"
 Title := "Counter"
@@ -63,7 +63,7 @@ Title := "Counter"
     <div id="count">0</div>
     <button data-on:click="@get('/api/increment')">+1</button>
 {{ end }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
         </div>
 

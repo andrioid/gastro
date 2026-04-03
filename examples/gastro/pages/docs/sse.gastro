@@ -70,7 +70,7 @@ func handleIncrement(w http.ResponseWriter, r *http.Request) {
     <p>Add Datastar attributes to your <code>.gastro</code> pages to trigger SSE connections:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 import Layout "components/layout.gastro"
 Title := "Counter"
@@ -79,7 +79,7 @@ Title := "Counter"
     <div id="count">0</div>
     <button data-on:click="@get('/api/increment')">+1</button>
 {{ end }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 

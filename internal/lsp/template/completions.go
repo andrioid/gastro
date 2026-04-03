@@ -658,10 +658,9 @@ func diagnoseComponentPropsRegex(templateBody string, uses []parser.UseDeclarati
 	return diags
 }
 
-// rawBlockRegex matches {{ raw }}...{{ endraw }} blocks including whitespace
-// trim variants. Used to strip raw blocks from the template body before
-// running diagnostics.
-var rawBlockRegex = regexp.MustCompile(`(?s)\{\{-?\s*raw\s*-?\}\}.*?\{\{-?\s*endraw\s*-?\}\}`)
+// rawBlockRegex matches {{ raw }}...{{ endraw }} blocks. Used to strip
+// raw blocks from the template body before running diagnostics.
+var rawBlockRegex = regexp.MustCompile(`(?s)\{\{\s*raw\s*\}\}.*?\{\{\s*endraw\s*\}\}`)
 
 // stripRawBlocks replaces {{ raw }}...{{ endraw }} blocks with spaces,
 // preserving newlines for correct line-number mapping in diagnostics.

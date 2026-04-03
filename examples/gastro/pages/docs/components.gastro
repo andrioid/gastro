@@ -14,7 +14,7 @@ Active := "components"
     <p>A component uses <code>gastro.Props()</code> to declare its props type. The <code>Props</code> struct defines what the component accepts:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 type Props struct {
     Title  string
@@ -28,7 +28,7 @@ Author := gastro.Props().Author
     <h2>{{ .Title }}</h2>
     <p>By {{ .Author }}</p>
 </article>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <p><code>gastro.Props()</code> is a compile-time marker that tells the code generator this file is a component. The <code>Props</code> struct must be defined in the same frontmatter.</p>
@@ -37,7 +37,7 @@ Author := gastro.Props().Author
     <p>When you need derived values from multiple props, assign the whole struct first:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 import "fmt"
 
@@ -51,7 +51,7 @@ Label := p.Label
 CX := fmt.Sprintf("%d", p.X + 135)
 ---
 <text x="{{ .CX }}">{{ .Label }}</text>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 
@@ -59,7 +59,7 @@ CX := fmt.Sprintf("%d", p.X + 135)
     <p>Import components in the frontmatter with the <code>.gastro</code> file extension. The identifier is the local name used in the template:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 import (
     Layout "components/layout.gastro"
@@ -71,7 +71,7 @@ ctx := gastro.Context()
 {{ wrap Layout (dict "Title" "Home") }}
     {{ PostCard (dict "Title" "My Post" "Slug" "my-post") }}
 {{ end }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
 
@@ -79,7 +79,7 @@ ctx := gastro.Context()
     <p>Props are passed as attributes on the component tag:</p>
     <div class="code-block">
         <pre><code class="language-markup">
-{{- raw -}}
+{{ raw }}
 <!-- Template expression -->
 {{ PostCard (dict "Title" .Title "Slug" .Slug) }}
 
@@ -88,7 +88,7 @@ ctx := gastro.Context()
 
 <!-- Pipe expression -->
 {{ PostCard (dict "Date" (.CreatedAt | timeFormat "Jan 2, 2006")) }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <table>
@@ -120,7 +120,7 @@ ctx := gastro.Context()
     <p>Children let a component render content provided by its parent. Place <code>{{ raw }}{{ .Children }}{{ endraw }}</code> where children should appear:</p>
     <div class="code-block">
         <pre><code class="language-go">
-{{- raw -}}
+{{ raw }}
 ---
 type Props struct {
     Title string
@@ -138,18 +138,18 @@ Title := gastro.Props().Title
     <footer>...</footer>
 </body>
 </html>
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <p>The parent passes children by wrapping content in the component tags:</p>
     <div class="code-block">
         <pre><code class="language-markup">
-{{- raw -}}
+{{ raw }}
 {{ wrap Layout (dict "Title" "Home") }}
     <h1>Welcome</h1>
     <p>This becomes the children content.</p>
 {{ end }}
-{{- endraw -}}
+{{ endraw }}
 </code></pre>
     </div>
     <p>Children are rendered in the <strong>parent's</strong> data context, so they can reference the parent's template data. Only one <code>{{ raw }}{{ .Children }}{{ endraw }}</code> is supported per component.</p>

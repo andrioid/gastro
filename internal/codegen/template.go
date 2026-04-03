@@ -250,8 +250,8 @@ func findMatchingEnd(body string, startPos int) (int, int, error) {
 func readActionKeyword(body string, pos int) (string, int) {
 	i := pos + 2 // skip {{
 
-	// Skip whitespace and optional leading dash ({{- ...)
-	for i < len(body) && (body[i] == ' ' || body[i] == '\t' || body[i] == '\n' || body[i] == '\r' || body[i] == '-') {
+	// Skip whitespace after {{
+	for i < len(body) && (body[i] == ' ' || body[i] == '\t' || body[i] == '\n' || body[i] == '\r') {
 		i++
 	}
 
@@ -308,6 +308,10 @@ func detectOldSyntax(body string, known map[string]bool) error {
 // {{ and }} delimiters within them so Go's template engine treats the
 // content as literal text. Markers are removed from the output.
 //
+// Whitespace is always trimmed: before {{ raw }}, at the start and end
+// of the content, and after {{ endraw }}. This ensures raw blocks
+// integrate cleanly into <pre><code> blocks without extra blank lines.
+//
 // Uses a manual scanner (not regex) because the content between markers
 // contains {{ and }} which would confuse regex matching.
 func escapeRawBlocks(body string) (string, error) {
@@ -336,18 +340,8 @@ func escapeRawBlocks(body string) (string, error) {
 			continue
 		}
 
-		// Found {{ raw }} — copy everything before it
-		before := body[i:actionStart]
-
-		// Check for trim dashes on {{ raw }}
-		rawAction := body[actionStart:actionEnd]
-		trimRawLeft := strings.Contains(rawAction, "{{-")
-		trimRawRight := strings.Contains(rawAction, "-}}")
-
-		// {{- raw trims whitespace before the marker in the output
-		if trimRawLeft {
-			before = strings.TrimRight(before, " \t\n\r")
-		}
+		// Found {{ raw }} — copy everything before it, trimming trailing whitespace
+		before := strings.TrimRight(body[i:actionStart], " \t\n\r")
 		result.WriteString(before)
 
 		// Find the matching {{ endraw }}
@@ -358,34 +352,14 @@ func escapeRawBlocks(body string) (string, error) {
 			return "", fmt.Errorf("unclosed {{ raw }} block at line %d", line)
 		}
 
-		// Check for trim dashes on {{ endraw }}
-		endrawAction := body[endrawStart:endrawEnd]
-		trimEndrawLeft := strings.Contains(endrawAction, "{{-")
-		trimEndrawRight := strings.Contains(endrawAction, "-}}")
-
-		// Extract and escape the content
-		content := body[contentStart:endrawStart]
-		// raw -}} trims whitespace at the start of the content
-		if trimRawRight {
-			content = strings.TrimLeft(content, " \t\n\r")
-		}
-		// {{- endraw trims whitespace at the end of the content
-		if trimEndrawLeft {
-			content = strings.TrimRight(content, " \t\n\r")
-		}
-
+		// Extract content, trim surrounding whitespace, and escape delimiters
+		content := strings.TrimSpace(body[contentStart:endrawStart])
 		result.WriteString(escapeTemplateDelimiters(content))
 
-		// endraw -}} trims whitespace after the marker in the remaining body
-		if trimEndrawRight {
-			// Skip whitespace after {{ endraw -}}
-			j := endrawEnd
-			for j < len(body) && (body[j] == ' ' || body[j] == '\t' || body[j] == '\n' || body[j] == '\r') {
-				j++
-			}
-			i = j
-		} else {
-			i = endrawEnd
+		// Skip whitespace after {{ endraw }}
+		i = endrawEnd
+		for i < len(body) && (body[i] == ' ' || body[i] == '\t' || body[i] == '\n' || body[i] == '\r') {
+			i++
 		}
 	}
 
@@ -403,10 +377,10 @@ func findNextAction(body string, pos int) int {
 	return -1
 }
 
-// endrawRegex matches {{ endraw }}, {{- endraw }}, {{ endraw -}}, {{- endraw -}}.
+// endrawRegex matches {{ endraw }} (with optional whitespace).
 // Used only inside findEndraw to locate the closing marker in raw block content
 // where {{ and }} appear as literal text.
-var endrawRegex = regexp.MustCompile(`\{\{-?\s*endraw\s*-?\}\}`)
+var endrawRegex = regexp.MustCompile(`\{\{\s*endraw\s*\}\}`)
 
 // findEndraw scans from startPos to find the {{ endraw }} that closes
 // a raw block. Uses regex rather than readActionKeyword because the content

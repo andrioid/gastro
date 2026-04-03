@@ -370,7 +370,8 @@ func TestTransformTemplate_RawBlockMultiLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := "\n{{ \"{{\" }} .A {{ \"}}\" }}\n{{ \"{{\" }} .B {{ \"}}\" }}\n"
+	// Raw blocks trim by default, so leading/trailing \n are removed
+	want := "{{ \"{{\" }} .A {{ \"}}\" }}\n{{ \"{{\" }} .B {{ \"}}\" }}"
 	if result != want {
 		t.Errorf("got:  %q\nwant: %q", result, want)
 	}
@@ -388,29 +389,26 @@ func TestTransformTemplate_RawBlockNonTemplateContent(t *testing.T) {
 	}
 }
 
-func TestTransformTemplate_RawBlockTrimDashes(t *testing.T) {
-	body := "before {{- raw -}} content {{- endraw -}} after"
+func TestTransformTemplate_RawBlockTrimsByDefault(t *testing.T) {
+	body := "before {{ raw }} content {{ endraw }} after"
 	result, err := codegen.TransformTemplate(body, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// {{- trims whitespace before marker, -}} trims whitespace after marker
-	// So: "before" + trimmed content + "after"
+	// Raw blocks always trim whitespace around markers and content
 	want := "beforecontentafter"
 	if result != want {
 		t.Errorf("got:  %q\nwant: %q", result, want)
 	}
 }
 
-func TestTransformTemplate_RawBlockTrimDashesPreCode(t *testing.T) {
+func TestTransformTemplate_RawBlockPreCode(t *testing.T) {
 	// Simulates the <pre><code> pattern used in examples
-	body := "<pre><code>\n{{- raw -}}\n---\n{{ .Title }}\n{{- endraw -}}\n</code></pre>"
+	body := "<pre><code>\n{{ raw }}\n---\n{{ .Title }}\n{{ endraw }}\n</code></pre>"
 	result, err := codegen.TransformTemplate(body, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// {{- raw -}} trims \n after <code> and \n before ---
-	// {{- endraw -}} trims \n after {{ .Title }} and \n before </code>
 	want := `<pre><code>---
 {{ "{{" }} .Title {{ "}}" }}</code></pre>`
 	if result != want {
@@ -520,11 +518,7 @@ func TestTransformTemplate_RawInsideWrap(t *testing.T) {
 }
 
 func TestTransformTemplate_RawBlockOutputParseable(t *testing.T) {
-	body := `<h1>{{ .Title }}</h1>
-{{ raw }}
-<code>{{ .Example }}</code>
-{{ endraw }}
-<p>Footer</p>`
+	body := "<h1>{{ .Title }}</h1>\n{{ raw }}\n<code>{{ .Example }}</code>\n{{ endraw }}\n<p>Footer</p>"
 
 	result, err := codegen.TransformTemplate(body, nil)
 	if err != nil {
