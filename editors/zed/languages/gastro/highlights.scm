@@ -18,5 +18,3 @@
 (prop_expression) @embedded
 (prop_string) @string
 
-; Slot
-(slot_tag) @tag.builtin

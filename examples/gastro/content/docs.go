@@ -245,7 +245,7 @@ ctx := gastro.Context()
     {{ PostCard (dict "Title" "My Post" "Slug" "my-post") }}
 {{ end }}`
 
-const ComponentSlot = `---
+const ComponentChildren = `---
 type Props struct {
     Title string
 }
@@ -263,9 +263,9 @@ Title := gastro.Props().Title
 </body>
 </html>`
 
-const ComponentSlotUsage = `{{ wrap Layout (dict "Title" "Home") }}
+const ComponentChildrenUsage = `{{ wrap Layout (dict "Title" "Home") }}
     <h1>Welcome</h1>
-    <p>This replaces the slot.</p>
+    <p>This becomes the children content.</p>
 {{ end }}`
 
 const ComponentPropSyntax = `<!-- Template expression -->
@@ -340,7 +340,7 @@ html, err := gastro.Render.Counter(
     gastro.CounterProps{Count: 42},
 )
 
-// Components with slots accept optional children
+// Components that accept children
 inner, _ := gastro.Render.Counter(
     gastro.CounterProps{Count: 42},
 )

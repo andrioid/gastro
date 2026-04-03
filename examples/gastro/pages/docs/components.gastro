@@ -11,13 +11,13 @@ Active := "components"
 Basic := content.ComponentBasic
 Computed := content.ComponentComputed
 ImportUsage := content.ComponentImportUsage
-Slot := content.ComponentSlot
-SlotUsage := content.ComponentSlotUsage
+ChildrenExample := content.ComponentChildren
+ChildrenUsage := content.ComponentChildrenUsage
 PropSyntax := content.ComponentPropSyntax
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Components</h1>
-    <p>Components are reusable <code>.gastro</code> files in the <code>components/</code> directory. They accept typed props and can render children via slots.</p>
+    <p>Components are reusable <code>.gastro</code> files in the <code>components/</code> directory. They accept typed props and can render children.</p>
 
     <h2>Defining a Component</h2>
     <p>A component uses <code>gastro.Props()</code> to declare its props type. The <code>Props</code> struct defines what the component accepts:</p>
@@ -60,12 +60,12 @@ PropSyntax := content.ComponentPropSyntax
         </tbody>
     </table>
 
-    <h2>Slots</h2>
-    <p>Slots let a component render content provided by its parent. Place <code>&lt;slot /&gt;</code> where children should appear:</p>
-    {{ CodeBlock (dict "Code" .Slot "Language" "go") }}
+    <h2>Children</h2>
+    <p>Children let a component render content provided by its parent. Place <code>{{ "{{ .Children }}" }}</code> where children should appear:</p>
+    {{ CodeBlock (dict "Code" .ChildrenExample "Language" "go") }}
     <p>The parent passes children by wrapping content in the component tags:</p>
-    {{ CodeBlock (dict "Code" .SlotUsage "Language" "markup") }}
-    <p>Children are rendered in the <strong>parent's</strong> data context, so they can reference the parent's template data. Only one unnamed slot is supported per component.</p>
+    {{ CodeBlock (dict "Code" .ChildrenUsage "Language" "markup") }}
+    <p>Children are rendered in the <strong>parent's</strong> data context, so they can reference the parent's template data. Only one <code>{{ "{{ .Children }}" }}</code> is supported per component.</p>
 
     <div class="docs-nav">
         <a href="/docs/pages">

@@ -31,7 +31,6 @@ module.exports = grammar({
           $.component_self_closing,
           $.component_open_tag,
           $.component_close_tag,
-          $.slot_tag,
           $.html_content,
         ),
       ),
@@ -64,9 +63,6 @@ module.exports = grammar({
         $.component_name,
         ">",
       ),
-
-    // <slot />
-    slot_tag: (_) => /<slot\s*\/>/,
 
     // PascalCase identifier (starts with uppercase)
     component_name: (_) => /[A-Z][a-zA-Z0-9]*/,

@@ -132,7 +132,7 @@ Two layers:
 
 ## Components
 
-Components are reusable `.gastro` files in `components/`. They accept typed props and can render children via slots.
+Components are reusable `.gastro` files in `components/`. They accept typed props and can render children.
 
 ### Defining a component
 
@@ -199,7 +199,7 @@ Posts := posts
 {{ end }}
 ```
 
-### Leaf vs slot components
+### Leaf vs wrapper components
 
 **Leaf** components (no children) use bare function calls:
 
@@ -207,18 +207,18 @@ Posts := posts
 {{ PostCard (dict "Title" .Title "Slug" .Slug) }}
 ```
 
-**Slot** components (accept children) use `wrap` ... `{{ end }}`:
+**Wrapper** components (accept children) use `wrap` ... `{{ end }}`:
 
 ```
 {{ wrap Layout (dict "Title" .Title) }}
     <h1>Hello</h1>
-    <p>This goes into the slot.</p>
+    <p>This becomes the children content.</p>
 {{ end }}
 ```
 
-### Slots
+### Children
 
-Place `{{ .Children }}` where children should render. Only one unnamed slot per component:
+Place `{{ .Children }}` where children should render. Only one `{{ .Children }}` per component:
 
 ```gastro
 ---

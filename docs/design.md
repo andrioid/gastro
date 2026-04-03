@@ -16,7 +16,7 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 | 1. Parser | Done | 14 tests. Splits frontmatter/body, extracts imports and component imports. |
 | 2. Frontmatter codegen | Done | 9 tests. Go AST analysis, variable extraction, gastro marker detection. |
 | 3. Template codegen | Done | 12 tests. `{{ Component ... }}` (bare call) / `{{ wrap Component ... }}` to internal template calls, prop parsing, pipe expressions in props, child content extraction into `{{define}}` blocks. |
-| 4. Component system | Done | 8 tests. `MapToStruct[T]` with type coercion, component render functions (`func(map[string]any) template.HTML`), per-page init with component FuncMap, `__gastro_render_children` closure for slot content. |
+| 4. Component system | Done | 8 tests. `MapToStruct[T]` with type coercion, component render functions (`func(map[string]any) template.HTML`), per-page init with component FuncMap, `__gastro_render_children` closure for children content. |
 | 5. File router | Done | 10 tests. Directory-to-route mapping, `[param]` patterns, func name derivation. |
 | 6. Runtime library | Done | 13 tests. Context, DefaultFuncs (18 helpers), Recover. |
 | 7. Embedding | Done | `//go:embed` generation wired. Template registry in `routes.go`. Dev/prod FS switching via `GASTRO_DEV`. `WithFuncs` wired. Static assets embedded via copy (Go embed does not follow directory symlinks). |
@@ -99,7 +99,7 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 3. [Pages and Components](#3-pages-and-components)
 4. [Variable Visibility](#4-variable-visibility)
 5. [Component Imports and Invocation](#5-component-imports-and-invocation)
-6. [Slots](#6-slots)
+6. [Children](#6-children)
 7. [Template Helpers (FuncMap)](#7-template-helpers-funcmap)
 8. [Named Templates](#8-named-templates)
 9. [Runtime API](#9-runtime-api)
@@ -357,7 +357,7 @@ PascalCase name (`"Card"`).
 
 ---
 
-## 6. Slots
+## 6. Children
 
 Components accept children via `{{ .Children }}`. Child content is pre-rendered to
 `template.HTML` in the **parent's** data context, then passed to the component
@@ -401,10 +401,10 @@ Where `__gastro_render_children` executes a sub-template with the parent's data
 context and returns rendered HTML. Inside the component, `{{ .Children }}`
 outputs the rendered HTML (`template.HTML`, safe, not escaped).
 
-**Implication:** Slot content is opaque HTML. The child component cannot inspect
+**Implication:** Children content is opaque HTML. The child component cannot inspect
 or manipulate it -- it can only place it. This matches Astro's behavior.
 
-Only unnamed slots are supported for v1. Named slots may be added later.
+Only unnamed children are supported for v1. Named children may be added later.
 
 ---
 
@@ -825,7 +825,7 @@ virtual `.go` line numbers.
 | 6  | Expression syntax         | `{{ }}` only, no shorthand sugar                                         |
 | 7  | Prop expression type      | Go template expressions via `(dict "Key" .Value ...)` syntax            |
 | 8  | Component resolution      | Explicit `import` with `.gastro` paths in frontmatter                    |
-| 9  | Slots                     | `{{ .Children }}` unnamed only (v1). Pre-rendered to `template.HTML`     |
+| 9  | Children                  | `{{ .Children }}` unnamed only (v1). Pre-rendered to `template.HTML`     |
 | 10 | Package declaration       | None. Code generator handles it                                          |
 | 11 | Frontmatter validity      | Code-gen markers (not independently compilable Go)                       |
 | 12 | Prop type coercion        | Runtime reflection via `mapToStruct[T]()`                                |
@@ -853,7 +853,7 @@ virtual `.go` line numbers.
 | 1     | **Parser**                     | `.gastro` file parser: split frontmatter from template body. Handle `---` delimiters, component import declarations, edge cases.                     |
 | 2     | **Frontmatter codegen**        | Go AST analysis: extract imports (Go and component), uppercase variable capture. Generate handler functions with data maps. Store struct pointers.   |
 | 3     | **Template codegen**           | Parse template body: bare `{{ Component (dict ...) }}` calls pass through unchanged; transform `{{ wrap Component ... }}` actions into function call + `{{define}}` blocks. Components registered in FuncMap under PascalCase names. Pipe expressions in props wrapped in parens. |
-| 4     | **Component system**           | Props struct detection, `gastro.Props()` codegen, `MapToStruct[T]` runtime helper, component render functions, per-page init with component FuncMap registration, `__gastro_render_children` closure for slot content. End-to-end working. |
+| 4     | **Component system**           | Props struct detection, `gastro.Props()` codegen, `MapToStruct[T]` runtime helper, component render functions, per-page init with component FuncMap registration, `__gastro_render_children` closure for children content. End-to-end working. |
 | 5     | **File router**                | Walk `pages/`, generate route table, handle `[param]` patterns, generate `Routes()` function with options.                                          |
 | 6     | **Runtime library**            | `gastro` package: `Context`, `Props`, `Recover`, `DefaultFuncs()`, `WithFuncs()` option, dev/prod FS abstraction.                                   |
 | 7     | **Embedding & static assets**  | `//go:embed` for templates and `static/`, `fs.FS` abstraction, static file serving, dev vs prod mode.                                               |

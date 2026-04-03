@@ -203,7 +203,7 @@ Components without Props (that fetch their own data) get a zero-argument method:
 html, err := gastro.Render.OrdersTable()
 ```
 
-Components with slots accept optional children:
+Components that accept children:
 
 ```go
 inner, _ := gastro.Render.Counter(gastro.CounterProps{Count: 42})

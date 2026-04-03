@@ -122,7 +122,7 @@ type componentMeta struct {
 	HasProps      bool
 	PropsTypeName string // e.g. "componentPostCardProps"
 	PropsFields   []codegen.StructField
-	HasSlot       bool
+	HasChildren   bool
 }
 
 // compileResult is returned by compileFile. It always contains template
@@ -150,8 +150,8 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 		return compileResult{}, err
 	}
 
-	// Check for slot usage before template transformation
-	hasSlot := strings.Contains(file.TemplateBody, "<slot") || strings.Contains(file.TemplateBody, "{{ .Children }}")
+	// Check for children usage before template transformation
+	hasChildren := strings.Contains(file.TemplateBody, "{{ .Children }}")
 
 	// Transform template body
 	transformedBody, err := codegen.TransformTemplate(file.TemplateBody, file.Uses)
@@ -221,7 +221,7 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 		HasProps:      info.PropsTypeName != "",
 		PropsTypeName: propsTypeName,
 		PropsFields:   codegen.ParseStructFields(hoistedTypes),
-		HasSlot:       hasSlot,
+		HasChildren:   hasChildren,
 	}
 
 	return compileResult{template: tmplMeta, component: compMeta}, nil
@@ -513,13 +513,13 @@ var Render = &renderAPI{}
 
 type renderAPI struct{}
 {{ range .Components }}
-func (r *renderAPI) {{ .ExportedName }}({{ if .HasProps }}props {{ .ExportedName }}Props{{ if .HasSlot }}, {{ end }}{{ end }}{{ if .HasSlot }}children ...template.HTML{{ end }}) (string, error) {
+func (r *renderAPI) {{ .ExportedName }}({{ if .HasProps }}props {{ .ExportedName }}Props{{ if .HasChildren }}, {{ end }}{{ end }}{{ if .HasChildren }}children ...template.HTML{{ end }}) (string, error) {
 	propsMap := map[string]any{
 {{- range .PropsFields }}
 		"{{ .Name }}": props.{{ .Name }},
 {{- end }}
 	}
-{{- if .HasSlot }}
+{{- if .HasChildren }}
 	if len(children) > 0 {
 		propsMap["__children"] = children[0]
 	}

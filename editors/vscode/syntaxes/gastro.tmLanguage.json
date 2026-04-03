@@ -23,7 +23,6 @@
         { "include": "#component-self-closing" },
         { "include": "#component-open" },
         { "include": "#component-close" },
-        { "include": "#slot" },
         { "include": "text.html.basic" }
       ]
     },
@@ -48,10 +47,6 @@
       "captures": {
         "1": { "name": "entity.name.tag.component.gastro" }
       }
-    },
-    "slot": {
-      "match": "<slot\\s*/>",
-      "name": "entity.name.tag.slot.gastro"
     }
   }
 }

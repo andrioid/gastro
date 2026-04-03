@@ -140,7 +140,7 @@ func TestCompile_GeneratesRenderFile(t *testing.T) {
 	// Should have a Render method for the Layout component (which has Props)
 	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps")
 
-	// Layout uses <slot />, so it should have children parameter
+	// Layout uses {{ .Children }}, so it should have children parameter
 	assertStringContains(t, s, "children ...template.HTML")
 }
 

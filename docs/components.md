@@ -1,7 +1,7 @@
 # Components
 
 Components are reusable `.gastro` files in the `components/` directory. They
-accept typed props, can render children via slots, and are invoked from pages
+accept typed props, can render children, and are invoked from pages
 or other templates using Go template actions.
 
 ## Defining a component
@@ -135,7 +135,7 @@ Use `wrap` for components that accept children, closed by `{{ end }}`:
 ```
 {{ wrap Layout (dict "Title" .Title) }}
     <h1>Hello</h1>
-    <p>This content goes into the slot.</p>
+    <p>This becomes the children content.</p>
 {{ end }}
 ```
 
@@ -152,9 +152,9 @@ Props are passed using `dict` syntax inside the template action:
 Expressions have access to the parent page's template data (the
 uppercase variables from the parent's frontmatter).
 
-## Slots
+## Children
 
-Slots let a component render content provided by its parent. Place `{{ .Children }}`
+Children let a component render content provided by its parent. Place `{{ .Children }}`
 in the component template where children should appear:
 
 ```gastro
@@ -182,7 +182,7 @@ The parent passes children by using `wrap` with the component:
 ```
 {{ wrap Layout (dict "Title" "Home") }}
     <h1>Welcome</h1>
-    <p>This replaces the slot.</p>
+    <p>This becomes the children content.</p>
 {{ end }}
 ```
 
@@ -190,7 +190,7 @@ Children are rendered in the **parent's** data context, so they can reference
 the parent's template data. The rendered HTML is then inserted where `{{ .Children }}`
 appears in the component.
 
-Only unnamed slots are supported. A component can have one `{{ .Children }}`.
+Only one `{{ .Children }}` is supported per component.
 
 ## Complete example
 

@@ -40,21 +40,3 @@ Self-closing component
         (prop_name)
         (prop_expression)))))
 
-================================================================================
-Slot tag
-================================================================================
-
----
----
-<div><slot /></div>
-
---------------------------------------------------------------------------------
-
-(document
-  (frontmatter_section
-    (frontmatter_delimiter)
-    (frontmatter_delimiter))
-  (template_body
-    (html_content)
-    (slot_tag)
-    (html_content)))
