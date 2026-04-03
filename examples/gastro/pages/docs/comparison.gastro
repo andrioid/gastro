@@ -1,0 +1,352 @@
+---
+import (
+    DocsLayout "components/docs-layout.gastro"
+)
+
+Title := "Comparison"
+Active := "comparison"
+---
+{{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
+    <h1>Comparison</h1>
+    <p>Gastro is one of several approaches to building HTML with Go. This page compares Gastro with <a href="https://templ.guide/" target="_blank" rel="noopener">Templ</a>, <a href="https://www.gomponents.com/" target="_blank" rel="noopener">gomponents</a>, <a href="https://htmgo.dev/" target="_blank" rel="noopener">htmgo</a>, and Go's standard <code>html/template</code> package. Each has real strengths &mdash; pick the one that fits your project.</p>
+
+    <h2>At a Glance</h2>
+    <div class="comparison-table-wrapper">
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Gastro</th>
+                    <th>Templ</th>
+                    <th>gomponents</th>
+                    <th>htmgo</th>
+                    <th>html/template</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Syntax</strong></td>
+                    <td>Go frontmatter + html/template markup in <code>.gastro</code> files</td>
+                    <td>Custom DSL in <code>.templ</code> files, compiled to Go</td>
+                    <td>Pure Go function calls with dot-import convention</td>
+                    <td>Pure Go function calls, htmx-oriented</td>
+                    <td>Go template directives in <code>.html</code> files</td>
+                </tr>
+                <tr>
+                    <td><strong>Type Safety</strong></td>
+                    <td>Compile-time (generated Go code, typed props)</td>
+                    <td>Compile-time (generated Go code, typed params)</td>
+                    <td>Compile-time (native Go types)</td>
+                    <td>Compile-time (native Go types)</td>
+                    <td>Runtime only (interface{} data)</td>
+                </tr>
+                <tr>
+                    <td><strong>Routing</strong></td>
+                    <td>File-based (automatic)</td>
+                    <td>Manual (wire your own router)</td>
+                    <td>Manual (wire your own router)</td>
+                    <td>File-based (automatic)</td>
+                    <td>Manual (wire your own router)</td>
+                </tr>
+                <tr>
+                    <td><strong>Code Generation</strong></td>
+                    <td>Yes (<code>gastro generate</code>)</td>
+                    <td>Yes (<code>templ generate</code>)</td>
+                    <td>No (pure Go)</td>
+                    <td>Yes (route registration)</td>
+                    <td>No</td>
+                </tr>
+                <tr>
+                    <td><strong>Dev Server</strong></td>
+                    <td>Built-in (<code>gastro dev</code>) with hot reload</td>
+                    <td>Watch mode + external tools (e.g. Air)</td>
+                    <td>External tools (e.g. Air)</td>
+                    <td>Built-in with live reload</td>
+                    <td>External tools</td>
+                </tr>
+                <tr>
+                    <td><strong>Single Binary</strong></td>
+                    <td>Yes (embedded assets)</td>
+                    <td>Yes (templates compiled into Go)</td>
+                    <td>Yes (no templates to embed)</td>
+                    <td>Yes (embedded assets)</td>
+                    <td>Yes (with go:embed)</td>
+                </tr>
+                <tr>
+                    <td><strong>Interactivity</strong></td>
+                    <td>SSE + Datastar (built-in)</td>
+                    <td>BYO (commonly HTMX or Datastar)</td>
+                    <td>BYO (commonly HTMX)</td>
+                    <td>HTMX (built-in)</td>
+                    <td>BYO</td>
+                </tr>
+                <tr>
+                    <td><strong>IDE Support</strong></td>
+                    <td>Go + HTML (standard tooling)</td>
+                    <td>VSCode &amp; GoLand plugins, LSP</td>
+                    <td>Full Go tooling (native Go code)</td>
+                    <td>Full Go tooling (native Go code)</td>
+                    <td>Basic template highlighting</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2>Syntax &amp; Developer Experience</h2>
+    <p>The biggest difference between these tools is how you write HTML. Here's the same component &mdash; a greeting card &mdash; in each approach.</p>
+
+    <h3>Gastro</h3>
+    <p>A <code>.gastro</code> file with Go frontmatter and html/template markup. If you know HTML and Go, you can read it immediately:</p>
+    <div class="code-block">
+        <pre><code class="language-go">
+{{ raw }}
+---
+type Props struct {
+    Name    string
+    IsAdmin bool
+}
+
+p := gastro.Props()
+Name := p.Name
+IsAdmin := p.IsAdmin
+---
+<div class="greeting-card">
+    <h2>Hello, {{ .Name }}</h2>
+    {{ if .IsAdmin }}
+        <span class="badge">Admin</span>
+    {{ end }}
+</div>
+{{ endraw }}
+</code></pre>
+    </div>
+
+    <h3>Templ</h3>
+    <p>A custom DSL in <code>.templ</code> files. Looks like Go with embedded HTML, compiled to Go code:</p>
+    <div class="code-block">
+        <pre><code class="language-go">templ GreetingCard(name string, isAdmin bool) {
+    &lt;div class="greeting-card"&gt;
+        &lt;h2&gt;Hello, { name }&lt;/h2&gt;
+        if isAdmin {
+            &lt;span class="badge"&gt;Admin&lt;/span&gt;
+        }
+    &lt;/div&gt;
+}</code></pre>
+    </div>
+
+    <h3>gomponents</h3>
+    <p>Pure Go functions that build an HTML node tree. No templates, no code generation:</p>
+    <div class="code-block">
+        <pre><code class="language-go">func GreetingCard(name string, isAdmin bool) g.Node {
+    return Div(Class("greeting-card"),
+        H2(g.Textf("Hello, %s", name)),
+        g.If(isAdmin,
+            Span(Class("badge"), g.Text("Admin")),
+        ),
+    )
+}</code></pre>
+    </div>
+
+    <h3>htmgo</h3>
+    <p>Pure Go functions similar to gomponents, designed around htmx patterns:</p>
+    <div class="code-block">
+        <pre><code class="language-go">func GreetingCard(name string, isAdmin bool) *h.Element {
+    return h.Div(
+        h.Class("greeting-card"),
+        h.H2(h.TextF("Hello, %s", name)),
+        h.Iff(isAdmin, func() *h.Element {
+            return h.Span(h.Class("badge"), h.Text("Admin"))
+        }),
+    )
+}</code></pre>
+    </div>
+
+    <h3>html/template</h3>
+    <p>Go's standard library. Templates are parsed at runtime from strings or files:</p>
+    <div class="code-block">
+        <pre><code class="language-go">// Template file: greeting-card.html
+{{ raw }}
+&lt;div class="greeting-card"&gt;
+    &lt;h2&gt;Hello, {{.Name}}&lt;/h2&gt;
+    {{if .IsAdmin}}
+        &lt;span class="badge"&gt;Admin&lt;/span&gt;
+    {{end}}
+&lt;/div&gt;
+{{ endraw }}
+
+// Go code to render:
+type GreetingData struct {
+    Name    string
+    IsAdmin bool
+}
+tmpl.ExecuteTemplate(w, "greeting-card.html", GreetingData{
+    Name: "Alice", IsAdmin: true,
+})</code></pre>
+    </div>
+
+    <h2>Type Safety</h2>
+    <p>Type safety determines when you catch errors &mdash; at compile time or at runtime.</p>
+    <ul>
+        <li><strong>Gastro</strong> generates Go code with typed <code>Props</code> structs. If you pass the wrong type to a component, the Go compiler catches it. Template expressions (<code>{{ "{{ .Name }}" }}</code>) are still checked at parse time but not at compile time.</li>
+        <li><strong>Templ</strong> compiles <code>.templ</code> files to Go. Component parameters are regular Go function arguments &mdash; fully type-checked by the compiler. Expressions inside templates are also compiled to Go, giving end-to-end compile-time safety.</li>
+        <li><strong>gomponents</strong> and <strong>htmgo</strong> are native Go code. Everything is type-checked by the compiler. There are no templates at all &mdash; HTML structure is Go function calls.</li>
+        <li><strong>html/template</strong> passes data via <code>interface{}</code>. Misspelled field names, wrong types, and missing data are only caught at runtime.</li>
+    </ul>
+
+    <h2>File-based Routing</h2>
+    <p>File-based routing maps filesystem paths to URL routes automatically, reducing boilerplate.</p>
+    <ul>
+        <li><strong>Gastro</strong> &mdash; files in <code>pages/</code> become routes automatically. <code>pages/blog/[slug].gastro</code> becomes <code>GET /blog/{slug}</code>. Dynamic parameters use bracket syntax. No manual route registration needed.</li>
+        <li><strong>htmgo</strong> &mdash; similar file-based routing. Pages in a designated directory are registered automatically. Supports dynamic segments.</li>
+        <li><strong>Templ</strong>, <strong>gomponents</strong>, and <strong>html/template</strong> &mdash; you wire routes manually using <code>http.ServeMux</code>, Chi, Echo, Gorilla, or any Go router. This is more flexible but requires more boilerplate.</li>
+    </ul>
+
+    <h2>Build &amp; Tooling</h2>
+    <table>
+        <thead>
+            <tr>
+                <th></th>
+                <th>Code Generation</th>
+                <th>Dev Server</th>
+                <th>Hot Reload</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Gastro</strong></td>
+                <td><code>gastro generate</code> compiles <code>.gastro</code> files to Go</td>
+                <td><code>gastro dev</code> watches files, rebuilds, restarts</td>
+                <td>Template changes hot-reload without restart; Go changes trigger rebuild</td>
+            </tr>
+            <tr>
+                <td><strong>Templ</strong></td>
+                <td><code>templ generate</code> compiles <code>.templ</code> files to Go</td>
+                <td>No built-in dev server; commonly paired with Air</td>
+                <td>Proxy mode supports hot reload of templates</td>
+            </tr>
+            <tr>
+                <td><strong>gomponents</strong></td>
+                <td>None needed (pure Go)</td>
+                <td>No built-in dev server; use Air or similar</td>
+                <td>Full rebuild required for any change</td>
+            </tr>
+            <tr>
+                <td><strong>htmgo</strong></td>
+                <td>Route registration generated from file paths</td>
+                <td>Built-in dev server with live reload</td>
+                <td>Rebuilds Go, CSS, and routes on change</td>
+            </tr>
+            <tr>
+                <td><strong>html/template</strong></td>
+                <td>None</td>
+                <td>No built-in dev server</td>
+                <td>Templates can be re-parsed from disk without recompile</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Deployment</h2>
+    <p>All five approaches produce a single deployable binary. The differences are in how assets are embedded:</p>
+    <ul>
+        <li><strong>Gastro</strong> &mdash; templates and static assets are embedded via <code>go:embed</code> at build time. One binary, zero runtime dependencies.</li>
+        <li><strong>Templ</strong> &mdash; templates are compiled directly into Go code. No template files to embed. Static assets still need <code>go:embed</code> or an external CDN.</li>
+        <li><strong>gomponents</strong> &mdash; HTML is generated by Go code, so there are no template files at all. Static assets need separate handling.</li>
+        <li><strong>htmgo</strong> &mdash; assets (including built CSS) are embedded into the binary. Built-in Tailwind CSS processing.</li>
+        <li><strong>html/template</strong> &mdash; templates can be embedded with <code>go:embed</code>. Everything else is manual.</li>
+    </ul>
+
+    <h2>Learning Curve</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Approach</th>
+                <th>What You Need to Know</th>
+                <th>New Concepts</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Gastro</strong></td>
+                <td>Go + html/template syntax + HTML/CSS</td>
+                <td><code>.gastro</code> file format, frontmatter conventions, <code>gastro.Props()</code> / <code>gastro.Context()</code> APIs</td>
+            </tr>
+            <tr>
+                <td><strong>Templ</strong></td>
+                <td>Go + the Templ DSL</td>
+                <td>Templ-specific syntax (looks like Go but is not Go), <code>@component</code> calls, <code>templ</code> blocks</td>
+            </tr>
+            <tr>
+                <td><strong>gomponents</strong></td>
+                <td>Go only</td>
+                <td>The <code>Node</code> interface and dot-import pattern. Otherwise it is standard Go.</td>
+            </tr>
+            <tr>
+                <td><strong>htmgo</strong></td>
+                <td>Go + HTMX attributes</td>
+                <td>htmgo's element builder API, HTMX concepts (hypermedia-driven), partial rendering</td>
+            </tr>
+            <tr>
+                <td><strong>html/template</strong></td>
+                <td>Go + template syntax</td>
+                <td>Template actions, pipelines, <code>FuncMap</code>, <code>define</code>/<code>block</code> semantics</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>Ecosystem &amp; Maturity</h2>
+    <table>
+        <thead>
+            <tr>
+                <th></th>
+                <th>Maturity</th>
+                <th>Community</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>Gastro</strong></td>
+                <td>Early stage, under active development</td>
+                <td>Small &mdash; new project</td>
+            </tr>
+            <tr>
+                <td><strong>Templ</strong></td>
+                <td>Established, widely adopted in the Go community</td>
+                <td>Large &mdash; active GitHub, Discord, conference talks</td>
+            </tr>
+            <tr>
+                <td><strong>gomponents</strong></td>
+                <td>Stable, maintained since 2020</td>
+                <td>Medium &mdash; steady adoption, GopherCon talks</td>
+            </tr>
+            <tr>
+                <td><strong>htmgo</strong></td>
+                <td>Newer project, growing quickly</td>
+                <td>Growing &mdash; active Discord community</td>
+            </tr>
+            <tr>
+                <td><strong>html/template</strong></td>
+                <td>Part of the Go standard library since Go 1.0</td>
+                <td>Universal &mdash; every Go developer knows it</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>When to Choose What</h2>
+    <ul>
+        <li><strong>Gastro</strong> &mdash; you want file-based routing, HTML-first syntax with Go's type safety, built-in SSE support, and a single CLI that handles the full dev-to-deploy workflow.</li>
+        <li><strong>Templ</strong> &mdash; you want the strongest compile-time type safety, mature tooling with IDE integration, and don't mind learning a custom DSL.</li>
+        <li><strong>gomponents</strong> &mdash; you want zero code generation, zero new syntax, and prefer building HTML entirely in Go functions.</li>
+        <li><strong>htmgo</strong> &mdash; you want a batteries-included framework with HTMX integration, file-based routing, and built-in Tailwind support.</li>
+        <li><strong>html/template</strong> &mdash; you want zero dependencies, are comfortable with runtime-only type checking, and prefer the standard library.</li>
+    </ul>
+
+    <div class="docs-nav">
+        <a href="/docs/deployment">
+            <div class="docs-nav-label">Previous</div>
+            <div class="docs-nav-title">Deployment</div>
+        </a>
+        <a href="/docs/demo" class="next">
+            <div class="docs-nav-label">Next</div>
+            <div class="docs-nav-title">Live Demo</div>
+        </a>
+    </div>
+{{ end }}

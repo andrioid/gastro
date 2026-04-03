@@ -83,9 +83,9 @@ docker run -p 8080:8080 -e PORT=8080 myapp</code></pre>
             <div class="docs-nav-label">Previous</div>
             <div class="docs-nav-title">Template Helpers</div>
         </a>
-        <a href="/docs/demo" class="next">
+        <a href="/docs/comparison" class="next">
             <div class="docs-nav-label">Next</div>
-            <div class="docs-nav-title">Live Demo</div>
+            <div class="docs-nav-title">Comparison</div>
         </a>
     </div>
 {{ end }}

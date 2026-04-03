@@ -71,9 +71,9 @@ Title := "Counter"
     </div>
 
     <div class="docs-nav">
-        <a href="/docs/deployment">
+        <a href="/docs/comparison">
             <div class="docs-nav-label">Previous</div>
-            <div class="docs-nav-title">Deployment</div>
+            <div class="docs-nav-title">Comparison</div>
         </a>
         <div></div>
     </div>
