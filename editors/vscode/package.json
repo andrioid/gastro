@@ -2,7 +2,7 @@
   "name": "gastro-vscode",
   "displayName": "Gastro",
   "description": "Language support for Gastro (.gastro) files - syntax highlighting, LSP, and completions",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "andrioid",
   "license": "MIT",
   "repository": {
@@ -20,8 +20,16 @@
   "activationEvents": [
     "onLanguage:gastro"
   ],
-  "categories": ["Programming Languages"],
-  "keywords": ["gastro", "go", "template", "component", "language-server"],
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "gastro",
+    "go",
+    "template",
+    "component",
+    "language-server"
+  ],
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
   },
@@ -29,8 +37,12 @@
     "languages": [
       {
         "id": "gastro",
-        "aliases": ["Gastro"],
-        "extensions": [".gastro"],
+        "aliases": [
+          "Gastro"
+        ],
+        "extensions": [
+          ".gastro"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
