@@ -3,7 +3,9 @@ type Props struct {
     Title string
 }
 
-Title := gastro.Props().Title
+p := gastro.Props()
+
+Title := p.Title
 ---
 <!DOCTYPE html>
 <html lang="en">

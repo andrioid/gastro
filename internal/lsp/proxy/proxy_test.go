@@ -54,10 +54,10 @@ func TestMapPosition_Roundtrip(t *testing.T) {
 
 func TestRewriteURI_GastroToVirtual(t *testing.T) {
 	gastroURI := "file:///Users/me/project/pages/index.gastro"
-	virtualPath := "/tmp/shadow/__gastro_pages_index.go"
+	virtualPath := "/tmp/shadow/gastro_pages_index/main.go"
 
 	got := proxy.RewriteURIToVirtual(gastroURI, virtualPath)
-	want := "file:///tmp/shadow/__gastro_pages_index.go"
+	want := "file:///tmp/shadow/gastro_pages_index/main.go"
 
 	if got != want {
 		t.Errorf("rewrite URI:\ngot:  %q\nwant: %q", got, want)
@@ -65,7 +65,7 @@ func TestRewriteURI_GastroToVirtual(t *testing.T) {
 }
 
 func TestRewriteURI_VirtualToGastro(t *testing.T) {
-	virtualURI := "file:///tmp/shadow/__gastro_pages_index.go"
+	virtualURI := "file:///tmp/shadow/gastro_pages_index/main.go"
 	gastroURI := "file:///Users/me/project/pages/index.gastro"
 
 	got := proxy.RewriteURIToGastro(virtualURI, gastroURI)
@@ -334,14 +334,14 @@ func TestRemapDefinitionResult_Location(t *testing.T) {
 	sm := sourcemap.New(2, 5) // gastro fm at line 2, virtual fm at line 5
 
 	checker := func(uri string) (string, *sourcemap.SourceMap) {
-		if uri == "file:///tmp/shadow/gastro_pages_index.go" {
+		if uri == "file:///tmp/shadow/gastro_pages_index/main.go" {
 			return "file:///project/pages/index.gastro", sm
 		}
 		return "", nil
 	}
 
 	raw := json.RawMessage(`{
-		"uri": "file:///tmp/shadow/gastro_pages_index.go",
+		"uri": "file:///tmp/shadow/gastro_pages_index/main.go",
 		"range": {
 			"start": {"line": 6, "character": 5},
 			"end": {"line": 6, "character": 10}
@@ -403,14 +403,14 @@ func TestRemapDefinitionResult_LocationLink(t *testing.T) {
 	sm := sourcemap.New(2, 5)
 
 	checker := func(uri string) (string, *sourcemap.SourceMap) {
-		if uri == "file:///tmp/shadow/gastro_pages_index.go" {
+		if uri == "file:///tmp/shadow/gastro_pages_index/main.go" {
 			return "file:///project/pages/index.gastro", sm
 		}
 		return "", nil
 	}
 
 	raw := json.RawMessage(`[{
-		"targetUri": "file:///tmp/shadow/gastro_pages_index.go",
+		"targetUri": "file:///tmp/shadow/gastro_pages_index/main.go",
 		"targetRange": {
 			"start": {"line": 6, "character": 0},
 			"end": {"line": 6, "character": 20}
@@ -454,7 +454,7 @@ func TestRemapDefinitionResult_LocationArray(t *testing.T) {
 	sm := sourcemap.New(2, 5)
 
 	checker := func(uri string) (string, *sourcemap.SourceMap) {
-		if uri == "file:///tmp/shadow/gastro_pages_index.go" {
+		if uri == "file:///tmp/shadow/gastro_pages_index/main.go" {
 			return "file:///project/pages/index.gastro", sm
 		}
 		return "", nil
@@ -462,7 +462,7 @@ func TestRemapDefinitionResult_LocationArray(t *testing.T) {
 
 	raw := json.RawMessage(`[
 		{
-			"uri": "file:///tmp/shadow/gastro_pages_index.go",
+			"uri": "file:///tmp/shadow/gastro_pages_index/main.go",
 			"range": {"start": {"line": 6, "character": 0}, "end": {"line": 6, "character": 10}}
 		},
 		{
