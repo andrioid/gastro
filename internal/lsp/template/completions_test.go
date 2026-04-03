@@ -792,3 +792,89 @@ func TestDetectPropValueContext(t *testing.T) {
 		})
 	}
 }
+
+func TestDiagnose_ChildrenInComponent(t *testing.T) {
+	info := &codegen.FrontmatterInfo{
+		IsComponent: true,
+		ExportedVars: []codegen.VarInfo{
+			{Name: "Title"},
+		},
+	}
+
+	templateBody := `<h1>{{ .Title }}</h1>
+<main>{{ .Children }}</main>`
+
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
+
+	for _, d := range diags {
+		if strings.Contains(d.Message, "Children") {
+			t.Errorf("Children should not be flagged in a component, got: %s", d.Message)
+		}
+	}
+}
+
+func TestDiagnose_ChildrenInNonComponent(t *testing.T) {
+	info := &codegen.FrontmatterInfo{
+		IsComponent: false,
+		ExportedVars: []codegen.VarInfo{
+			{Name: "Title"},
+		},
+	}
+
+	templateBody := `<h1>{{ .Title }}</h1>
+<main>{{ .Children }}</main>`
+
+	diags := lsptemplate.Diagnose(templateBody, info, nil, nil, nil, nil)
+
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "Children") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Children should be flagged as unknown in non-component pages")
+	}
+}
+
+func TestVariableCompletions_IncludesChildrenForComponents(t *testing.T) {
+	info := &codegen.FrontmatterInfo{
+		IsComponent: true,
+		ExportedVars: []codegen.VarInfo{
+			{Name: "Title"},
+		},
+	}
+
+	completions := lsptemplate.VariableCompletions(info)
+
+	hasChildren := false
+	for _, c := range completions {
+		if c.Label == ".Children" {
+			hasChildren = true
+			if c.Detail != "children content" {
+				t.Errorf("Children detail: got %q, want %q", c.Detail, "children content")
+			}
+		}
+	}
+	if !hasChildren {
+		t.Error("expected .Children in completions for component")
+	}
+}
+
+func TestVariableCompletions_ExcludesChildrenForPages(t *testing.T) {
+	info := &codegen.FrontmatterInfo{
+		IsComponent: false,
+		ExportedVars: []codegen.VarInfo{
+			{Name: "Title"},
+		},
+	}
+
+	completions := lsptemplate.VariableCompletions(info)
+
+	for _, c := range completions {
+		if c.Label == ".Children" {
+			t.Error(".Children should not appear in completions for non-component pages")
+		}
+	}
+}

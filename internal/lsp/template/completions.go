@@ -45,6 +45,14 @@ func VariableCompletions(info *codegen.FrontmatterInfo) []CompletionItem {
 			FilterText: "." + v.Name,
 		})
 	}
+	if info.IsComponent {
+		items = append(items, CompletionItem{
+			Label:      ".Children",
+			Detail:     "children content",
+			InsertText: ".Children",
+			FilterText: ".Children",
+		})
+	}
 	return items
 }
 
@@ -164,6 +172,11 @@ func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.
 	exportedNames := make(map[string]bool, len(info.ExportedVars))
 	for _, v := range info.ExportedVars {
 		exportedNames[v.Name] = true
+	}
+	// Children is a synthetic variable injected by the code generator for
+	// all components — not declared in frontmatter but always available.
+	if info.IsComponent {
+		exportedNames["Children"] = true
 	}
 
 	// Double-dot syntax is always invalid — check with regex regardless of
