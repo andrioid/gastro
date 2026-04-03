@@ -1,0 +1,203 @@
+---
+import (
+    "gastro-website/demo"
+
+    DocsLayout "components/docs-layout.gastro"
+    GuestbookEntry "components/guestbook-entry.gastro"
+    GuestbookForm "components/guestbook-form.gastro"
+)
+
+ctx := gastro.Context()
+_ = ctx
+
+Title := "HTMX"
+Active := "htmx"
+Entries := demo.ListEntries()
+---
+{{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
+    <h1>HTMX</h1>
+    <p>The same guestbook from the <a href="/docs/demo">Datastar</a> example, but powered by <a href="https://htmx.org/" target="_blank" rel="noopener">HTMX<span class="sr-only"> (opens in new tab)</span></a> instead. HTMX uses plain HTML fragment responses rather than SSE, making the server handlers simpler at the cost of some reactivity features.</p>
+
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous"></script>
+
+    <div class="demo-section">
+        <div class="guestbook-container">
+            <div class="guestbook-search-wrapper">
+                <input
+                    type="search"
+                    class="guestbook-input guestbook-search"
+                    name="q"
+                    placeholder="Search entries..."
+                    aria-label="Search guestbook entries"
+                    autocomplete="off"
+                    hx-get="/api/htmx/search"
+                    hx-trigger="input changed delay:300ms, search"
+                    hx-target="#htmx-guestbook-list"
+                    hx-indicator="#htmx-search-indicator"
+                >
+                <div id="htmx-search-indicator" class="loading-indicator htmx-indicator" aria-hidden="true">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+
+            <div id="htmx-guestbook-list" class="guestbook-list" role="list" aria-live="polite" aria-label="Guestbook entries">
+                {{ range .Entries }}
+                {{ GuestbookEntry (dict "ID" .ID "Name" .Name "Message" .Message "Time" (.CreatedAt.Format "Jan 2, 3:04 PM") "Mode" "htmx") }}
+                {{ end }}
+            </div>
+
+            <form class="guestbook-form"
+                hx-post="/api/htmx/add"
+                hx-target="#htmx-guestbook-list"
+                hx-swap="outerHTML"
+                hx-indicator="#htmx-submit-indicator"
+            >
+                {{ GuestbookForm (dict "Error" "" "Success" "") }}
+                <div class="guestbook-submit-wrapper">
+                    <button type="submit" class="btn btn-primary guestbook-submit">Sign Guestbook</button>
+                    <div id="htmx-submit-indicator" class="loading-indicator htmx-indicator" aria-hidden="true">
+                        <div class="spinner"></div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="demo-explanation">
+        <h2>How It Works</h2>
+        <p>HTMX extends HTML with attributes that issue AJAX requests and swap HTML fragments into the page. Unlike Datastar (which uses SSE), HTMX handlers return plain HTML responses.</p>
+
+        <h3>Search-as-you-type</h3>
+        <p>The <code>hx-trigger</code> attribute fires on input changes with a 300ms debounce. HTMX sends a GET request with the input value and swaps the response into the target:</p>
+        <div class="code-block">
+            <pre><code class="language-go">
+{{ raw }}
+<input
+    hx-get="/api/htmx/search"
+    hx-trigger="input changed delay:300ms, search"
+    hx-target="#htmx-guestbook-list"
+    name="q"
+>
+{{ endraw }}
+</code></pre>
+        </div>
+
+        <h3>Form Submission</h3>
+        <p>The form uses <code>hx-post</code> instead of the traditional <code>method="POST"</code>. HTMX serializes the form data and swaps the response HTML into the target:</p>
+        <div class="code-block">
+            <pre><code class="language-go">
+{{ raw }}
+<form hx-post="/api/htmx/add"
+      hx-target="#htmx-guestbook-list"
+      hx-swap="outerHTML">
+{{ endraw }}
+</code></pre>
+        </div>
+
+        <h3>Server Handler (HTMX vs Datastar)</h3>
+        <p>The key difference: HTMX handlers write plain HTML to the response. No SSE setup, no event framing &mdash; just render and write:</p>
+        <div class="code-block">
+            <pre><code class="language-go">// HTMX: plain HTML response
+func handleHtmxSearch(w http.ResponseWriter, r *http.Request) {
+    query := r.URL.Query().Get("q")
+    entries := demo.SearchEntries(query)
+    html, _ := renderEntryListHTML(entries)
+    w.Header().Set("Content-Type", "text/html")
+    fmt.Fprint(w, html)
+}
+
+// Datastar: SSE response with patch events
+func handleDsSearch(w http.ResponseWriter, r *http.Request) {
+    query := r.URL.Query().Get("search")
+    entries := demo.SearchEntries(query)
+    html, _ := renderEntryListHTML(entries)
+    sse := datastar.NewSSE(w, r)
+    sse.PatchElements(html)
+}</code></pre>
+        </div>
+
+        <h3>Inline Editing</h3>
+        <p>Each entry has an edit button with <code>hx-get</code> that fetches the edit form and <code>hx-swap="outerHTML"</code> that replaces the entry in place. Saving works the same way:</p>
+        <div class="code-block">
+            <pre><code class="language-go">
+{{ raw }}
+<!-- Trigger edit -->
+<button hx-get="/api/htmx/edit/1"
+        hx-target="#entry-1"
+        hx-swap="outerHTML">Edit</button>
+
+<!-- Save edit -->
+<button hx-post="/api/htmx/save/1"
+        hx-target="#entry-1"
+        hx-swap="outerHTML"
+        hx-include="#edit-message-1">Save</button>
+{{ endraw }}
+</code></pre>
+        </div>
+
+        <h3>Loading States</h3>
+        <p>HTMX has a built-in loading indicator pattern. Elements with the <code>htmx-indicator</code> class are hidden by default and shown while a request is in flight:</p>
+        <div class="code-block">
+            <pre><code class="language-go">
+{{ raw }}
+<input hx-get="/api/htmx/search"
+       hx-indicator="#search-spinner">
+<div id="search-spinner" class="htmx-indicator">
+    <div class="spinner"></div>
+</div>
+{{ endraw }}
+</code></pre>
+        </div>
+
+        <h2>When to Choose HTMX vs Datastar</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>HTMX</th>
+                    <th>Datastar</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Response format</strong></td>
+                    <td>Plain HTML fragments</td>
+                    <td>SSE events with DOM patches</td>
+                </tr>
+                <tr>
+                    <td><strong>Multiple updates</strong></td>
+                    <td>Requires <code>hx-swap-oob</code> for out-of-band swaps</td>
+                    <td>Multiple <code>PatchElements</code> calls in one response</td>
+                </tr>
+                <tr>
+                    <td><strong>Client-side state</strong></td>
+                    <td>Minimal (mostly DOM-driven)</td>
+                    <td>Reactive signals (<code>data-signals</code>, <code>data-bind</code>)</td>
+                </tr>
+                <tr>
+                    <td><strong>Server complexity</strong></td>
+                    <td>Simpler (standard HTTP responses)</td>
+                    <td>SSE setup required</td>
+                </tr>
+                <tr>
+                    <td><strong>Real-time updates</strong></td>
+                    <td>Requires SSE extension or WebSocket</td>
+                    <td>SSE is the default transport</td>
+                </tr>
+                <tr>
+                    <td><strong>Ecosystem</strong></td>
+                    <td>Large, mature, extensive extensions</td>
+                    <td>Newer, growing quickly</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="docs-nav">
+        <a href="/docs/demo">
+            <div class="docs-nav-label">Previous</div>
+            <div class="docs-nav-title">Datastar</div>
+        </a>
+        <div></div>
+    </div>
+{{ end }}

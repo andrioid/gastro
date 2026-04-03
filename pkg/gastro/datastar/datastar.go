@@ -75,6 +75,11 @@ func (s *SSE) PatchElements(html string, opts ...PatchOption) error {
 	}
 
 	if html != "" {
+		// Normalize \r\n and bare \r to \n before splitting so that
+		// carriage returns in user content cannot break out of the
+		// "data: elements ..." SSE line and inject new SSE fields.
+		html = strings.ReplaceAll(html, "\r\n", "\n")
+		html = strings.ReplaceAll(html, "\r", "\n")
 		for _, line := range strings.Split(html, "\n") {
 			dataLines = append(dataLines, "elements "+line)
 		}

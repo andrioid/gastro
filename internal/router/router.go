@@ -45,6 +45,11 @@ func fileToPattern(file string) string {
 	// Convert [param] to {param}
 	route = convertParams(route)
 
+	// Use {$} for the root path to get exact matching.
+	// Without it, "GET /" is a subtree pattern that matches all paths.
+	if route == "" {
+		return "GET /{$}"
+	}
 	return "GET /" + route
 }
 

@@ -1,8 +1,0 @@
----
-type Props struct {
-    Count int
-}
-
-Count := gastro.Props().Count
----
-<div id="count" class="demo-count" role="status" aria-live="polite" aria-label="Counter value">{{ .Count }}</div>

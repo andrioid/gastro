@@ -117,11 +117,15 @@ func (d *devReloader) Broadcast() {
 
 // HandleSSE is an http.HandlerFunc for the GET /__gastro/reload endpoint.
 // It establishes an SSE stream and sends a "reload" event whenever the dev
-// CLI signals a change.
+// CLI signals a change. A periodic heartbeat detects stale connections
+// (e.g. browser crash, network drop) so server-side goroutines don't linger.
 func (d *devReloader) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	sse := NewSSE(w, r)
 	ch, cancel := d.Subscribe()
 	defer cancel()
+
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 
 	for {
 		select {
@@ -129,6 +133,10 @@ func (d *devReloader) HandleSSE(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ch:
 			if err := sse.Send("reload", "reload"); err != nil {
+				return
+			}
+		case <-heartbeat.C:
+			if err := sse.Send("heartbeat", ""); err != nil {
 				return
 			}
 		}
@@ -150,11 +158,15 @@ func (d *devReloader) Middleware(next http.Handler) http.Handler {
 // On receiving a "reload" SSE event the page reloads immediately.
 // On reconnect after a disconnect (e.g. server restart) the dc flag
 // triggers a reload so the page picks up the rebuilt binary.
+// The beforeunload listener closes the EventSource so the browser
+// tears down the TCP connection immediately on navigation, preventing
+// HTTP/1.1 connection pool exhaustion.
 const reloadScript = `<script>(function(){` +
 	`var e=new EventSource("/__gastro/reload"),dc=false;` +
 	`e.onerror=function(){dc=true};` +
 	`e.addEventListener("reload",function(){location.reload()});` +
-	`e.onopen=function(){if(dc)location.reload()}` +
+	`e.onopen=function(){if(dc)location.reload()};` +
+	`window.addEventListener("beforeunload",function(){e.close()})` +
 	`})()</script>`
 
 // injectWriter buffers HTML responses so the live-reload script can be

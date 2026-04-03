@@ -62,8 +62,11 @@ func (s *SSE) Send(eventType string, data ...string) error {
 	b.WriteByte('\n')
 
 	for _, line := range data {
+		// Strip \r so user content cannot inject SSE line terminators.
+		// The SSE spec treats \r as a line ending; an embedded \r would
+		// allow breaking out of a data field and injecting new fields.
 		b.WriteString("data: ")
-		b.WriteString(line)
+		b.WriteString(strings.ReplaceAll(line, "\r", ""))
 		b.WriteByte('\n')
 	}
 

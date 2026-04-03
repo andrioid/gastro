@@ -1,0 +1,39 @@
+---
+import "fmt"
+
+type Props struct {
+    ID      string
+    Name    string
+    Message string
+    Mode    string
+}
+
+p := gastro.Props()
+ID := p.ID
+Name := p.Name
+Message := p.Message
+Mode := p.Mode
+DsSaveURL := fmt.Sprintf("@post(`/api/ds/save/%s`)", p.ID)
+HtmxSaveURL := fmt.Sprintf("/api/htmx/save/%s", p.ID)
+HtmxTarget := fmt.Sprintf("#entry-%s", p.ID)
+EditMessageID := fmt.Sprintf("edit-message-%s", p.ID)
+---
+<div id="entry-{{ .ID }}" class="guestbook-entry guestbook-entry--editing">
+    <div class="guestbook-entry-header">
+        <strong class="guestbook-entry-name">{{ .Name }}</strong>
+    </div>
+    {{ if eq .Mode "ds" }}
+    <textarea data-bind:message class="guestbook-input guestbook-textarea" aria-label="Edit message">{{ .Message }}</textarea>
+    <div class="guestbook-edit-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-on:click="{{ .DsSaveURL | safeJS }}" aria-label="Save changes">Save</button>
+    </div>
+    {{ end }}
+    {{ if eq .Mode "htmx" }}
+    <form>
+        <textarea id="{{ .EditMessageID }}" name="message" class="guestbook-input guestbook-textarea" aria-label="Edit message">{{ .Message }}</textarea>
+        <div class="guestbook-edit-actions">
+            <button type="button" class="btn btn-primary btn-sm" hx-post="{{ .HtmxSaveURL }}" hx-target="{{ .HtmxTarget }}" hx-swap="outerHTML" hx-include="#{{ .EditMessageID }}" aria-label="Save changes">Save</button>
+        </div>
+    </form>
+    {{ end }}
+</div>

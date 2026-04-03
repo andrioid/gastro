@@ -741,73 +741,227 @@ h3 code {
 }
 
 /* -------------------------------------------------------
-   Live Demo
+   Guestbook & Demo
    ------------------------------------------------------- */
 
 .demo-section {
-    text-align: center;
-    padding: 2.5rem 0;
-}
-
-.demo-container {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1.25rem;
-    padding: 2.5rem 3.5rem;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-}
-
-.demo-label {
-    font-family: var(--font-mono);
-    font-size: 0.78rem;
-    color: var(--color-text-muted);
-    letter-spacing: 0.02em;
-}
-
-.demo-count {
-    font-size: 3.5rem;
-    font-weight: 700;
-    font-family: var(--font-display);
-    color: var(--color-accent);
-    line-height: 1;
-    min-width: 100px;
-}
-
-.demo-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.6rem 1.8rem;
-    background: var(--color-accent);
-    color: white;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s ease, transform 0.15s ease;
-    font-family: var(--font-sans);
-}
-
-.demo-button:hover {
-    background: var(--color-accent-hover);
-    transform: translateY(-1px);
-}
-
-.demo-button:active {
-    transform: translateY(0);
+    padding: 2rem 0;
 }
 
 .demo-explanation {
     margin-top: 2rem;
-    text-align: left;
 }
 
-.demo-explanation h3 {
-    margin-bottom: 1rem;
+.guestbook-container {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: clamp(1.25rem, 2.5vw, 2rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.guestbook-search-wrapper {
+    position: relative;
+}
+
+.guestbook-input {
+    width: 100%;
+    padding: 0.6rem 0.85rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    color: var(--color-text);
+    background: var(--color-bg);
+    transition: border-color 0.15s ease;
+}
+
+.guestbook-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(232, 114, 42, 0.1);
+}
+
+.guestbook-input::placeholder {
+    color: var(--color-text-subtle);
+}
+
+.guestbook-textarea {
+    min-height: 80px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+.guestbook-search {
+    padding-right: 2.5rem;
+}
+
+.guestbook-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.guestbook-entry {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+    transition: border-color 0.15s ease;
+    position: relative;
+}
+
+.guestbook-entry:hover {
+    border-color: var(--color-accent);
+}
+
+.guestbook-entry--editing {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px rgba(232, 114, 42, 0.08);
+}
+
+.guestbook-entry-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.35rem;
+    gap: 0.5rem;
+}
+
+.guestbook-entry-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.guestbook-entry-time {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    color: var(--color-text-subtle);
+    white-space: nowrap;
+}
+
+.guestbook-entry-message {
+    font-size: 0.9rem;
+    color: var(--color-text-muted);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.guestbook-edit-btn {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.6rem;
+    background: none;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 0.2rem 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--color-text-subtle);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    opacity: 0;
+}
+
+.guestbook-entry:hover .guestbook-edit-btn {
+    opacity: 1;
+}
+
+.guestbook-edit-btn:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+}
+
+.guestbook-edit-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+
+.guestbook-empty {
+    text-align: center;
+    color: var(--color-text-subtle);
+    font-size: 0.9rem;
+    padding: 1.5rem 0;
+}
+
+.guestbook-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.guestbook-form-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.guestbook-submit-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.guestbook-submit {
+    align-self: flex-start;
+}
+
+.guestbook-alert {
+    padding: 0.6rem 0.85rem;
+    border-radius: var(--radius);
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+
+.guestbook-alert--success {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
+}
+
+.guestbook-alert--error {
+    background: #fef3eb;
+    color: #c62828;
+    border: 1px solid #ffe0cc;
+}
+
+.btn-sm {
+    padding: 0.35rem 0.85rem;
+    font-size: 0.82rem;
+}
+
+.loading-indicator {
+    position: absolute;
+    top: 50%;
+    right: 0.75rem;
+    transform: translateY(-50%);
+}
+
+.spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* HTMX loading indicator pattern */
+.htmx-indicator {
+    display: none;
+}
+
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    display: block;
 }
 
 /* -------------------------------------------------------
@@ -1008,12 +1162,8 @@ h3 code {
         text-align: center;
     }
 
-    .demo-container {
-        padding: 2rem 1.5rem;
-    }
-
-    .demo-count {
-        font-size: 2.75rem;
+    .guestbook-container {
+        padding: 1rem;
     }
 
     .docs-nav {

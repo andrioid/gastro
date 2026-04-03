@@ -3,78 +3,119 @@ import (
     "gastro-website/demo"
 
     DocsLayout "components/docs-layout.gastro"
-    Counter "components/counter.gastro"
+    GuestbookEntry "components/guestbook-entry.gastro"
+    GuestbookForm "components/guestbook-form.gastro"
 )
 
 ctx := gastro.Context()
 _ = ctx
 
-Title := "Live Demo"
+Title := "Datastar"
 Active := "demo"
-CurrentCount := demo.Count()
+Entries := demo.ListEntries()
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
-    <h1>Live Demo</h1>
-    <p>This is a working SSE counter running on this very site. Click the button to see server-sent events in action.</p>
+    <h1>Datastar</h1>
+    <p>A working guestbook powered by <a href="https://data-star.dev/" target="_blank" rel="noopener">Datastar<span class="sr-only"> (opens in new tab)</span></a> and server-sent events. Search, add entries, and edit inline &mdash; all without page reloads.</p>
 
     <div class="demo-section">
-        <div class="demo-container">
-            <p class="demo-label">Server-side counter via SSE</p>
-            {{ Counter (dict "Count" .CurrentCount) }}
-            <button class="demo-button" data-on:click="@get('/api/increment')" aria-label="Increment counter">Increment</button>
+        <div class="guestbook-container">
+            <div class="guestbook-search-wrapper">
+                <input
+                    type="search"
+                    class="guestbook-input guestbook-search"
+                    placeholder="Search entries..."
+                    aria-label="Search guestbook entries"
+                    autocomplete="off"
+                    data-bind:search
+                    data-on:input__debounce.300ms="{{ `@get('/api/ds/search')` | safeJS }}"
+                    data-indicator:_searching
+                >
+                <div class="loading-indicator" data-show="$_searching" aria-hidden="true">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+
+            <div id="guestbook-list" class="guestbook-list" role="list" aria-live="polite" aria-label="Guestbook entries">
+                {{ range .Entries }}
+                {{ GuestbookEntry (dict "ID" .ID "Name" .Name "Message" .Message "Time" (.CreatedAt.Format "Jan 2, 3:04 PM") "Mode" "ds") }}
+                {{ end }}
+            </div>
+
+            <form class="guestbook-form"
+                data-on:submit="{{ `@post('/api/ds/add', {contentType: 'form'})` | safeJS }}"
+                data-indicator:_submitting
+            >
+                {{ GuestbookForm (dict "Error" "" "Success" "") }}
+                <button type="submit" class="btn btn-primary guestbook-submit" data-attr:disabled="$_submitting">
+                    <span data-show="!$_submitting">Sign Guestbook</span>
+                    <span data-show="$_submitting">Sending...</span>
+                </button>
+            </form>
         </div>
     </div>
 
     <div class="demo-explanation">
         <h2>How It Works</h2>
-        <p>When you click the button, Datastar sends a <code>GET</code> request to <code>/api/increment</code>. The server atomically increments a counter, renders the <code>Counter</code> component using the type-safe <code>Render</code> API, and sends an SSE event that patches the DOM.</p>
+        <p>This demo showcases four common hypermedia patterns using Datastar and Gastro's SSE support.</p>
 
-        <h3>The SSE Handler</h3>
-        <p>This Go handler runs on the server. It uses <code>gastro.Render.Counter()</code> to render the component with the new count, then sends it as a Datastar patch event:</p>
-        <div class="code-block">
-            <pre><code class="language-go">var count atomic.Int64
-
-func handleIncrement(w http.ResponseWriter, r *http.Request) {
-    n := count.Add(1)
-
-    html, err := gastro.Render.Counter(
-        gastro.CounterProps{Count: int(n)},
-    )
-    if err != nil {
-        http.Error(w, err.Error(), 500)
-        return
-    }
-
-    sse := datastar.NewSSE(w, r)
-    sse.PatchElements(html)
-}</code></pre>
-        </div>
-
-        <h3>The Page</h3>
-        <p>The page uses Datastar's <code>data-on:click</code> attribute to trigger the SSE request. No custom JavaScript needed:</p>
+        <h3>Search-as-you-type</h3>
+        <p>The search input uses <code>data-bind</code> to create a reactive signal and <code>data-on:input__debounce.300ms</code> to send a debounced request. The server filters entries and patches the list:</p>
         <div class="code-block">
             <pre><code class="language-go">
 {{ raw }}
----
-import Layout "components/layout.gastro"
-Title := "Counter"
----
-{{ wrap Layout (dict "Title" .Title) }}
-    <div id="count">0</div>
-    <button data-on:click="@get('/api/increment')">+1</button>
-{{ end }}
+<input
+    data-bind:search
+    data-on:input__debounce.300ms="@get('/api/ds/search')"
+    data-indicator:searching
+>
 {{ endraw }}
 </code></pre>
         </div>
 
-        <p>This pattern works for any real-time UI: dashboards, notifications, live feeds, collaborative editing, and more. See the <a href="/docs/sse">SSE &amp; Datastar docs</a> for the full API.</p>
+        <h3>Form Submission</h3>
+        <p>The form uses <code>data-on:submit</code> to intercept submission and send the data via Datastar's <code>@post</code>. The server validates, adds the entry, and patches both the list and the form:</p>
+        <div class="code-block">
+            <pre><code class="language-go">func handleDsAdd(w http.ResponseWriter, r *http.Request) {
+    name := strings.TrimSpace(r.FormValue("name"))
+    message := strings.TrimSpace(r.FormValue("message"))
+
+    demo.AddEntry(name, message)
+
+    // Patch the list with new entries
+    sse := datastar.NewSSE(w, r)
+    sse.PatchElements(listHTML)
+
+    // Patch the form with a success message
+    sse.PatchElements(formHTML)
+}</code></pre>
+        </div>
+
+        <h3>Inline Editing</h3>
+        <p>Each entry has an edit button that sends <code>@get('/api/ds/edit/{id}')</code>. The server returns a <code>GuestbookEntryEdit</code> component that replaces the read-only row. Saving sends <code>@post('/api/ds/save/{id}')</code> and swaps back to the read-only view.</p>
+
+        <h3>Loading States</h3>
+        <p>The <code>data-indicator</code> attribute creates a boolean signal that's <code>true</code> while a request is in flight. Combined with <code>data-show</code> and <code>data-attr:disabled</code>, this provides visual feedback without any JavaScript:</p>
+        <div class="code-block">
+            <pre><code class="language-go">
+{{ raw }}
+<button data-indicator:submitting data-attr:disabled="$submitting">
+    <span data-show="!$submitting">Sign Guestbook</span>
+    <span data-show="$submitting">Sending...</span>
+</button>
+{{ endraw }}
+</code></pre>
+        </div>
     </div>
 
     <div class="docs-nav">
-        <a href="/docs/comparison">
+        <a href="/docs/forms">
             <div class="docs-nav-label">Previous</div>
-            <div class="docs-nav-title">Comparison</div>
+            <div class="docs-nav-title">Plain</div>
         </a>
-        <div></div>
+        <a href="/docs/htmx" class="next">
+            <div class="docs-nav-label">Next</div>
+            <div class="docs-nav-title">HTMX</div>
+        </a>
     </div>
 {{ end }}

@@ -1,0 +1,22 @@
+---
+type Props struct {
+    Error   string
+    Success string
+}
+
+p := gastro.Props()
+Error := p.Error
+Success := p.Success
+---
+<div id="guestbook-form-wrapper">
+    {{ if .Success }}
+    <div class="guestbook-alert guestbook-alert--success" role="status">{{ .Success }}</div>
+    {{ end }}
+    {{ if .Error }}
+    <div class="guestbook-alert guestbook-alert--error" role="alert">{{ .Error }}</div>
+    {{ end }}
+    <div class="guestbook-form-fields">
+        <input id="guestbook-name" type="text" name="name" placeholder="Your name" class="guestbook-input" required aria-label="Your name" autocomplete="off">
+        <textarea id="guestbook-message" name="message" placeholder="Leave a message..." class="guestbook-input guestbook-textarea" required aria-label="Your message"></textarea>
+    </div>
+</div>

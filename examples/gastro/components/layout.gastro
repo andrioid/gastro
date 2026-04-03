@@ -36,7 +36,6 @@ Title := p.Title
             </a>
             <nav class="nav-links" aria-label="Main">
                 <a href="/docs/getting-started">Docs</a>
-                <a href="/docs/demo">Demo</a>
                 <a href="https://github.com/andrioid/gastro" target="_blank" rel="noopener">GitHub<span class="sr-only"> (opens in new tab)</span></a>
             </nav>
         </div>

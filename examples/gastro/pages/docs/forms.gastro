@@ -1,0 +1,123 @@
+---
+import (
+    "gastro-website/demo"
+
+    DocsLayout "components/docs-layout.gastro"
+    GuestbookEntry "components/guestbook-entry.gastro"
+    GuestbookForm "components/guestbook-form.gastro"
+)
+
+ctx := gastro.Context()
+
+Title := "Plain"
+Active := "forms"
+Entries := demo.ListEntries()
+Error := ctx.Query("error")
+Success := ctx.Query("success")
+---
+{{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
+    <h1>Plain</h1>
+    <p>A guestbook using traditional HTML forms and the Post/Redirect/Get pattern. No JavaScript, no libraries &mdash; just a <code>&lt;form&gt;</code> with <code>method="POST"</code>.</p>
+
+    <div class="demo-section">
+        <div class="guestbook-container">
+            <div id="guestbook-list" class="guestbook-list" role="list" aria-label="Guestbook entries">
+                {{ range .Entries }}
+                {{ GuestbookEntry (dict "ID" .ID "Name" .Name "Message" .Message "Time" (.CreatedAt.Format "Jan 2, 3:04 PM")) }}
+                {{ end }}
+                {{ if not .Entries }}
+                <p class="guestbook-empty">No entries yet. Be the first to sign the guestbook!</p>
+                {{ end }}
+            </div>
+
+            <form class="guestbook-form" method="POST" action="/guestbook">
+                {{ GuestbookForm (dict "Error" .Error "Success" .Success) }}
+                <button type="submit" class="btn btn-primary guestbook-submit">Sign Guestbook</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="demo-explanation">
+        <h2>How It Works</h2>
+        <p>This is the simplest way to handle user input in Gastro. The <code>.gastro</code> page renders the form (GET), and a plain Go handler in <code>main.go</code> processes the submission (POST).</p>
+
+        <h3>The Page</h3>
+        <p>The page renders the form and reads query parameters for success/error messages via <code>ctx.Query()</code>:</p>
+        <div class="code-block">
+            <pre><code class="language-go">
+{{ raw }}
+---
+ctx := gastro.Context()
+Entries := demo.ListEntries()
+Error := ctx.Query("error")
+Success := ctx.Query("success")
+---
+{{ range .Entries }}
+    {{ GuestbookEntry (dict "ID" .ID ...) }}
+{{ end }}
+<form method="POST" action="/guestbook">
+    {{ GuestbookForm (dict "Error" .Error "Success" .Success) }}
+    <button type="submit">Sign Guestbook</button>
+</form>
+{{ endraw }}
+</code></pre>
+        </div>
+
+        <h3>The POST Handler</h3>
+        <p>The POST handler lives in <code>main.go</code> (since Gastro only generates GET routes). It validates input, adds the entry, and redirects back using the <a href="https://en.wikipedia.org/wiki/Post/Redirect/Get" target="_blank" rel="noopener">Post/Redirect/Get<span class="sr-only"> (opens in new tab)</span></a> pattern:</p>
+        <div class="code-block">
+            <pre><code class="language-go">// In main.go
+mux.HandleFunc("POST /guestbook", handleGuestbookPost)
+
+func handleGuestbookPost(w http.ResponseWriter, r *http.Request) {
+    r.ParseForm()
+    name := strings.TrimSpace(r.FormValue("name"))
+    message := strings.TrimSpace(r.FormValue("message"))
+
+    if name == "" {
+        http.Redirect(w, r,
+            "/docs/forms?error=Name+is+required",
+            http.StatusSeeOther)
+        return
+    }
+
+    demo.AddEntry(name, message)
+    http.Redirect(w, r,
+        "/docs/forms?success=Entry+added",
+        http.StatusSeeOther)
+}</code></pre>
+        </div>
+
+        <h2>Progressive Enhancement</h2>
+        <p>This same form can be enhanced with Datastar or HTMX to avoid full-page reloads. The only changes are HTML attributes &mdash; no JavaScript needed:</p>
+        <div class="code-block">
+            <pre><code class="language-go">
+{{ raw }}
+<!-- Before: traditional form -->
+<form method="POST" action="/guestbook">
+
+<!-- After: Datastar-enhanced -->
+<form data-on:submit="@post('/api/ds/add')"
+      data-indicator:submitting>
+
+<!-- Or: HTMX-enhanced -->
+<form hx-post="/api/htmx/add"
+      hx-target="#guestbook-list"
+      hx-swap="outerHTML">
+{{ endraw }}
+</code></pre>
+        </div>
+        <p>See the <a href="/docs/demo">Datastar</a> and <a href="/docs/htmx">HTMX</a> examples for these patterns in action.</p>
+    </div>
+
+    <div class="docs-nav">
+        <a href="/docs/comparison">
+            <div class="docs-nav-label">Previous</div>
+            <div class="docs-nav-title">Comparison</div>
+        </a>
+        <a href="/docs/demo" class="next">
+            <div class="docs-nav-label">Next</div>
+            <div class="docs-nav-title">Datastar</div>
+        </a>
+    </div>
+{{ end }}

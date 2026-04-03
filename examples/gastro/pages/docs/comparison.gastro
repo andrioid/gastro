@@ -344,9 +344,9 @@ tmpl.ExecuteTemplate(w, "greeting-card.html", GreetingData{
             <div class="docs-nav-label">Previous</div>
             <div class="docs-nav-title">Deployment</div>
         </a>
-        <a href="/docs/demo" class="next">
+        <a href="/docs/forms" class="next">
             <div class="docs-nav-label">Next</div>
-            <div class="docs-nav-title">Live Demo</div>
+            <div class="docs-nav-title">Plain</div>
         </a>
     </div>
 {{ end }}

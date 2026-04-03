@@ -11,7 +11,7 @@ func TestBuildRoutes_IndexFile(t *testing.T) {
 
 	routes := router.BuildRoutes(files)
 
-	assertRoute(t, routes, "GET /", "pages/index.gastro")
+	assertRoute(t, routes, "GET /{$}", "pages/index.gastro")
 }
 
 func TestBuildRoutes_NestedIndex(t *testing.T) {
@@ -22,7 +22,7 @@ func TestBuildRoutes_NestedIndex(t *testing.T) {
 
 	routes := router.BuildRoutes(files)
 
-	assertRoute(t, routes, "GET /", "pages/index.gastro")
+	assertRoute(t, routes, "GET /{$}", "pages/index.gastro")
 	assertRoute(t, routes, "GET /about", "pages/about/index.gastro")
 }
 

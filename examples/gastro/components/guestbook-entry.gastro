@@ -1,0 +1,34 @@
+---
+import "fmt"
+
+type Props struct {
+    ID      string
+    Name    string
+    Message string
+    Time    string
+    Mode    string
+}
+
+p := gastro.Props()
+ID := p.ID
+Name := p.Name
+Message := p.Message
+Time := p.Time
+Mode := p.Mode
+DsEditURL := fmt.Sprintf("@get(`/api/ds/edit/%s`)", p.ID)
+HtmxEditURL := fmt.Sprintf("/api/htmx/edit/%s", p.ID)
+HtmxTarget := fmt.Sprintf("#entry-%s", p.ID)
+---
+<div id="entry-{{ .ID }}" class="guestbook-entry">
+    <div class="guestbook-entry-header">
+        <strong class="guestbook-entry-name">{{ .Name }}</strong>
+        <time class="guestbook-entry-time">{{ .Time }}</time>
+    </div>
+    <p class="guestbook-entry-message">{{ .Message }}</p>
+    {{ if eq .Mode "ds" }}
+    <button class="guestbook-edit-btn" data-on:click="{{ .DsEditURL | safeJS }}" aria-label="Edit entry">Edit</button>
+    {{ end }}
+    {{ if eq .Mode "htmx" }}
+    <button class="guestbook-edit-btn" hx-get="{{ .HtmxEditURL }}" hx-target="{{ .HtmxTarget }}" hx-swap="outerHTML" aria-label="Edit entry">Edit</button>
+    {{ end }}
+</div>

@@ -28,7 +28,9 @@ Active := p.Active
                     </ul>
                     <h3>Examples</h3>
                     <ul>
-                        <li><a href="/docs/demo" {{ if eq .Active "demo" }}class="active" aria-current="page"{{ end }}>Live Demo</a></li>
+                        <li><a href="/docs/forms" {{ if eq .Active "forms" }}class="active" aria-current="page"{{ end }}>Plain</a></li>
+                        <li><a href="/docs/demo" {{ if eq .Active "demo" }}class="active" aria-current="page"{{ end }}>Datastar</a></li>
+                        <li><a href="/docs/htmx" {{ if eq .Active "htmx" }}class="active" aria-current="page"{{ end }}>HTMX</a></li>
                     </ul>
                 </nav>
             </details>
