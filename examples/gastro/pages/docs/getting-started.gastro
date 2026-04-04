@@ -10,36 +10,38 @@ Active := "getting-started"
     <h1>Getting Started</h1>
     <p>Set up your first Gastro project in under a minute. You'll need Go 1.26+ installed.</p>
 
-    <h2>Install the CLI</h2>
-    <p>Build the <code>gastro</code> CLI from source. If you use <a href="https://mise.jdx.dev/" target="_blank" rel="noopener">mise</a>, it will manage your Go toolchain automatically.</p>
+    <h2>Install</h2>
+    <p>Install the <code>gastro</code> CLI with <a href="https://mise.jdx.dev/" target="_blank" rel="noopener">mise</a> (recommended) or <code>go install</code>:</p>
     <div class="code-block">
-        <pre><code class="language-bash"># Build the gastro CLI from source
-go build -o gastro ./cmd/gastro/
+        <pre><code class="language-bash"># With mise (recommended)
+mise use github:andrioid/gastro@latest
 
-# Or with mise (managed tooling)
-mise install</code></pre>
+# Or with go install
+go install github.com/andrioid/gastro/cmd/gastro@latest</code></pre>
     </div>
+
+    <h2>Create a Project</h2>
+    <p>Scaffold a new project and start the dev server:</p>
+    <div class="code-block">
+        <pre><code class="language-bash">gastro new myapp
+cd myapp
+gastro dev</code></pre>
+    </div>
+    <p>Open <a href="http://localhost:4242">http://localhost:4242</a> in your browser. Edit <code>pages/index.gastro</code> and watch it reload automatically.</p>
 
     <h2>Project Structure</h2>
-    <p>A Gastro project has a simple, opinionated layout:</p>
+    <p><code>gastro new</code> creates this layout:</p>
     <div class="code-block">
         <pre><code class="language-bash">myapp/
-  pages/
-    index.gastro
-  static/
-    styles.css
-  main.go
-  go.mod</code></pre>
+  pages/           Page templates (.gastro files)
+  components/      Reusable components (.gastro files)
+  static/          CSS, images, and other static assets
+  main.go          Application entry point
+  go.mod           Go module file</code></pre>
     </div>
-    <ul>
-        <li><strong>pages/</strong> &mdash; <code>.gastro</code> files that become HTTP routes</li>
-        <li><strong>components/</strong> &mdash; reusable <code>.gastro</code> components</li>
-        <li><strong>static/</strong> &mdash; CSS, images, and other static files served at <code>/static/</code></li>
-        <li><strong>main.go</strong> &mdash; your application entry point</li>
-    </ul>
 
     <h2>Your First Page</h2>
-    <p>Create <code>pages/index.gastro</code>. The code between <code>---</code> delimiters is Go frontmatter that runs on the server. The HTML below is rendered with Go's <code>html/template</code>.</p>
+    <p>The scaffolded <code>pages/index.gastro</code> shows the basic file format. The code between <code>---</code> delimiters is Go frontmatter that runs on the server. The HTML below is rendered with Go's <code>html/template</code>.</p>
     <div class="code-block">
         <pre><code class="language-go">
 {{ raw }}
@@ -62,51 +64,58 @@ Year := time.Now().Year()
     </div>
     <p>Uppercase variables like <code>Title</code> and <code>Year</code> are automatically exported to the template as <code>{{ raw }}{{ .Title }}{{ endraw }}</code> and <code>{{ raw }}{{ .Year }}{{ endraw }}</code>. Lowercase variables stay private.</p>
 
-    <h2>Entry Point</h2>
-    <p>Create <code>main.go</code> that imports the generated code and starts the server:</p>
+    <h2>Your First Component</h2>
+    <p>Components are reusable <code>.gastro</code> files in the <code>components/</code> directory. Create <code>components/greeting.gastro</code>:</p>
     <div class="code-block">
         <pre><code class="language-go">
-package main
+{{ raw }}
+---
+type Props struct {
+    Name string
+}
 
+Name := gastro.Props().Name
+---
+<section>
+    <h2>Hello, {{ .Name }}!</h2>
+    <p>This is a Gastro component with typed props.</p>
+</section>
+{{ endraw }}
+</code></pre>
+    </div>
+    <p>Components use <code>gastro.Props()</code> to declare typed props. The <code>Props</code> struct defines what the component accepts.</p>
+
+    <p>Now import and use it in <code>pages/index.gastro</code>:</p>
+    <div class="code-block">
+        <pre><code class="language-go">
+{{ raw }}
+---
 import (
-    "fmt"
-    "net/http"
-    "os"
-
-    gastro "myapp/.gastro"
+    Greeting "components/greeting.gastro"
 )
 
-func main() {
-    port := os.Getenv("PORT")
-    if port == "" {
-        port = "4242"
-    }
-    fmt.Printf("Listening on http://localhost:%s\n", port)
-    http.ListenAndServe(":"+port, gastro.Routes())
-}
-        </code></pre>
+Title := "Welcome to Gastro"
+---
+<!DOCTYPE html>
+<html>
+<head><title>{{ .Title }}</title></head>
+<body>
+    <h1>{{ .Title }}</h1>
+    {{ Greeting (dict "Name" "World") }}
+</body>
+</html>
+{{ endraw }}
+</code></pre>
     </div>
-    <p>The <code>.gastro/</code> directory contains generated Go code. Import it as a package with any alias you like.</p>
+    <p>Props are passed with <code>dict</code>. The dev server picks up the new component automatically &mdash; no restart needed.</p>
 
-    <h2>Build &amp; Run</h2>
+    <h2>Build for Production</h2>
+    <p>Build a single static binary for deployment:</p>
     <div class="code-block">
-        <pre><code class="language-bash"># Generate Go code from .gastro files
-gastro generate
-
-# Build the binary
-go build -o myapp .
-
-# Run
-./myapp</code></pre>
+        <pre><code class="language-bash">gastro build
+./app</code></pre>
     </div>
-    <p>Open <a href="http://localhost:4242">http://localhost:4242</a> to see your page.</p>
-
-    <h2>Development Mode</h2>
-    <p>For development, use the <code>gastro dev</code> command. It watches for file changes, regenerates code, and restarts the server automatically. Template changes are hot-reloaded without a restart.</p>
-    <div class="code-block">
-        <pre><code class="language-bash"># Watches for changes, rebuilds, restarts server
-gastro dev</code></pre>
-    </div>
+    <p>The binary embeds all templates and static assets. See <a href="/docs/deployment">Deployment</a> for Docker and other options.</p>
 
     <div class="docs-nav">
         <div></div>
