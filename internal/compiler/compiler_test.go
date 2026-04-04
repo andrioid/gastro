@@ -286,6 +286,53 @@ func TestCompile_EmbedFileOmitsStaticWhenAbsent(t *testing.T) {
 	}
 }
 
+func TestCompile_EmbedFileOmitsStaticWhenEmpty(t *testing.T) {
+	projectDir := t.TempDir()
+	pagesDir := filepath.Join(projectDir, "pages")
+	staticDir := filepath.Join(projectDir, "static")
+	os.MkdirAll(pagesDir, 0o755)
+	os.MkdirAll(staticDir, 0o755)
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte("---\nTitle := \"Hi\"\n---\n<h1>{{ .Title }}</h1>"), 0o644)
+
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(outputDir, "embed.go"))
+	s := string(content)
+
+	if contains(s, "staticAssetFS") {
+		t.Error("embed.go should not contain staticAssetFS when static directory is empty")
+	}
+}
+
+func TestCompile_EmbedFileOmitsStaticWhenOnlyDotfiles(t *testing.T) {
+	projectDir := t.TempDir()
+	pagesDir := filepath.Join(projectDir, "pages")
+	staticDir := filepath.Join(projectDir, "static")
+	os.MkdirAll(pagesDir, 0o755)
+	os.MkdirAll(staticDir, 0o755)
+	os.WriteFile(filepath.Join(staticDir, ".gitkeep"), []byte(""), 0o644)
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte("---\nTitle := \"Hi\"\n---\n<h1>{{ .Title }}</h1>"), 0o644)
+
+	outputDir := t.TempDir()
+
+	err := compiler.Compile(projectDir, outputDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	content, _ := os.ReadFile(filepath.Join(outputDir, "embed.go"))
+	s := string(content)
+
+	if contains(s, "staticAssetFS") {
+		t.Error("embed.go should not contain staticAssetFS when static directory has only dotfiles")
+	}
+}
+
 func TestCompile_CopiesStaticDir(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()

@@ -49,10 +49,18 @@ func Compile(projectDir, outputDir string) error {
 		}
 	}
 
-	// Detect static asset directory
+	// Detect static asset directory (ignore dotfiles like .gitkeep, .DS_Store)
 	hasStatic := false
 	if info, err := os.Stat(filepath.Join(projectDir, "static")); err == nil && info.IsDir() {
-		hasStatic = true
+		entries, err := os.ReadDir(filepath.Join(projectDir, "static"))
+		if err == nil {
+			for _, entry := range entries {
+				if !strings.HasPrefix(entry.Name(), ".") {
+					hasStatic = true
+					break
+				}
+			}
+		}
 	}
 
 	// Copy static/ into .gastro/ so //go:embed can find it.

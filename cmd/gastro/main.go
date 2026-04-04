@@ -131,6 +131,13 @@ func runNew() error {
 		fmt.Fprintf(os.Stderr, "gastro: initial generate failed (run 'gastro generate' in the project dir): %v\n", err)
 	}
 
+	// Populate go.sum so the project builds without extra steps.
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = projectDir
+	if out, err := tidy.CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "gastro: go mod tidy failed (run manually later): %v\n%s", err, out)
+	}
+
 	fmt.Println("gastro: done")
 	fmt.Println("")
 	fmt.Printf("  cd %s\n", name)

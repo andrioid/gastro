@@ -33,6 +33,7 @@ func Generate(projectName, targetDir, gastroVersion string) error {
 		"main.go":            mainGo(projectName),
 		"go.mod":             goMod(projectName, gastroVersion),
 		".gitignore":         gitIgnore,
+		"static/.gitkeep":    "",
 	}
 
 	for name, content := range files {
