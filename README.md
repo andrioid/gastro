@@ -32,95 +32,33 @@ route, build, serve). Editor support is in progress.
 ### Prerequisites
 
 - Go 1.26+
-- [mise](https://mise.jdx.dev/) (optional, for managed tooling)
+- [mise](https://mise.jdx.dev/) (recommended) or `go install`
+
+### Install
 
 ```sh
-# If using mise, install tools
-mise install
+# With mise (recommended)
+mise use github:andrioid/gastro@latest
 
-# Build the gastro CLI
-go build -o gastro ./cmd/gastro/
+# Or with go install
+go install github.com/andrioid/gastro/cmd/gastro@latest
 ```
 
 ### Create a Project
 
-```
-myapp/
-  pages/
-    index.gastro
-  static/
-    styles.css
-  main.go
-  go.mod
-```
-
-**pages/index.gastro:**
-
-```gastro
----
-import "time"
-
-Title := "Hello, Gastro"
-Year := time.Now().Year()
----
-<!DOCTYPE html>
-<html>
-<head><title>{{ .Title }}</title></head>
-<body>
-    <h1>{{ .Title }}</h1>
-    <p>Copyright {{ .Year }}</p>
-</body>
-</html>
-```
-
-**main.go:**
-
-```go
-package main
-
-import (
-    "fmt"
-    "net/http"
-    "os"
-
-    gastro "myapp/.gastro"
-)
-
-func main() {
-    port := os.Getenv("PORT")
-    if port == "" {
-        port = "4242"
-    }
-    fmt.Printf("Listening on http://localhost:%s\n", port)
-    http.ListenAndServe(":"+port, gastro.Routes())
-}
-```
-
-### Build and Run
-
 ```sh
-# Generate Go code from .gastro files
-gastro generate
-
-# Build the binary
-go build -o myapp .
-
-# Run
-./myapp
+gastro new myapp
+cd myapp
+gastro dev
 ```
 
-Or in one step:
+Open [http://localhost:4242](http://localhost:4242) in your browser. Edit `pages/index.gastro` and watch it reload.
+
+### Build for Production
 
 ```sh
 gastro build
 ./app
-```
-
-### Development Mode
-
-```sh
-gastro dev
-# Watches for changes, rebuilds, restarts server on :4242
 ```
 
 ## How It Works
