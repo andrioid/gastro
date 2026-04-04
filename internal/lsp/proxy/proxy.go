@@ -317,7 +317,7 @@ func NewGoplsProxy(workspaceDir string, onNotification func(string, json.RawMess
 func (p *GoplsProxy) start(goplsPath, workspaceDir string) error {
 	p.cmd = exec.Command(goplsPath, "serve")
 	p.cmd.Dir = workspaceDir
-	// Capture gopls stderr so its error messages appear in gastro-lsp logs
+	// Capture gopls stderr so its error messages appear in gastro lsp logs
 	p.cmd.Stderr = log.Writer()
 
 	var err error

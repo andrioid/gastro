@@ -2,7 +2,7 @@
 
 Gastro is a file-based component framework for Go. `.gastro` files combine Go
 frontmatter with `html/template` markup in a single file. A CLI compiler
-(`gastro`) generates type-safe Go code, and a language server (`gastro-lsp`)
+(`gastro`) generates type-safe Go code, and a language server (`gastro lsp`)
 provides editor intelligence.
 
 Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
@@ -747,8 +747,8 @@ Helix, and increasingly VS Code.
 
 ### Binary
 
-Separate binary: `gastro-lsp`. Versioned and distributed independently from the
-CLI.
+Subcommand of the main binary: `gastro lsp`. Distributed as part of the single
+`gastro` binary.
 
 ### Architecture: gopls Proxy Model
 
@@ -756,7 +756,7 @@ CLI.
 Editor
   |
   v
-gastro-lsp
+gastro lsp
   +-- Shadow workspace: extracts frontmatter -> virtual .go files
   +-- Proxies Go requests to gopls
   |     (completions, diagnostics, hover, go-to-def)
@@ -784,7 +784,7 @@ When a `.gastro` file is opened, the LSP:
 3. Converts component import lines to comments (preserving line numbers).
 4. Wraps the frontmatter in a valid Go function with package, imports, and
    function signature.
-5. Writes to shadow directory (e.g. `/tmp/gastro-lsp-shadow/`).
+5. Writes to shadow directory (e.g. `/tmp/gastro-shadow/`).
 6. Sends to gopls for analysis.
 
 Position mapping (source maps) translates between `.gastro` line numbers and
@@ -799,17 +799,17 @@ virtual `.go` line numbers.
 | Go hover                         | Frontmatter       | gopls proxy          |
 | Go go-to-definition              | Frontmatter       | gopls proxy          |
 | HTML completions                 | Template body     | Editor built-in (v1) |
-| `{{ .Var }}` completions         | Template exprs    | gastro-lsp (AST)     |
-| `{{ .Var.Field }}` completions   | Template exprs    | gastro-lsp via gopls |
-| `{{ func }}` / pipe completions  | Template exprs    | gastro-lsp (FuncMap) |
-| Type-aware hover on `{{ }}`      | Template exprs    | gastro-lsp via gopls |
-| Component name completions       | `{{ Component/wrap }}` | gastro-lsp           |
-| Component prop completions       | `{{ Component/wrap }}` | gastro-lsp           |
-| Component go-to-definition       | `{{ Component/wrap }}` | gastro-lsp           |
-| Unknown variable diagnostic      | Template exprs    | gastro-lsp           |
-| Unknown component diagnostic     | `{{ Component/wrap }}` | gastro-lsp           |
-| Missing/wrong prop diagnostic    | `{{ Component/wrap }}` | gastro-lsp           |
-| Component import completions     | Frontmatter       | gastro-lsp           |
+| `{{ .Var }}` completions         | Template exprs    | gastro lsp (AST)     |
+| `{{ .Var.Field }}` completions   | Template exprs    | gastro lsp via gopls |
+| `{{ func }}` / pipe completions  | Template exprs    | gastro lsp (FuncMap) |
+| Type-aware hover on `{{ }}`      | Template exprs    | gastro lsp via gopls |
+| Component name completions       | `{{ Component/wrap }}` | gastro lsp           |
+| Component prop completions       | `{{ Component/wrap }}` | gastro lsp           |
+| Component go-to-definition       | `{{ Component/wrap }}` | gastro lsp           |
+| Unknown variable diagnostic      | Template exprs    | gastro lsp           |
+| Unknown component diagnostic     | `{{ Component/wrap }}` | gastro lsp           |
+| Missing/wrong prop diagnostic    | `{{ Component/wrap }}` | gastro lsp           |
+| Component import completions     | Frontmatter       | gastro lsp           |
 
 ---
 
@@ -838,11 +838,11 @@ virtual `.go` line numbers.
 | 19 | LSP Go intelligence       | Proxy to gopls via shadow workspace                                      |
 | 20 | LSP HTML intelligence     | Editor built-in (v1), Go-native on the roadmap                           |
 | 21 | LSP template intelligence | Own logic: variable/function/component completions, type-aware hover     |
-| 22 | LSP binary                | Separate `gastro-lsp` binary                                             |
+| 22 | LSP binary                | `gastro lsp` subcommand (single binary)                                  |
 | 23 | Syntax highlighting       | Tree-sitter first, with Go/HTML language injection                       |
 | 24 | Static assets             | `static/` directory, embedded via `//go:embed`                           |
 | 25 | Build output              | `gastro build` = generate + `go build` -> single binary                  |
-| 26 | Component import + LSP    | Component imports commented out in gopls virtual file, handled by gastro-lsp |
+| 26 | Component import + LSP    | Component imports commented out in gopls virtual file, handled by gastro lsp |
 
 ---
 
@@ -861,7 +861,7 @@ virtual `.go` line numbers.
 | 9     | **CLI: `gastro build`**        | Generate + `go build` -> single deployable binary. Configurable output.                                                                             |
 | 10    | **CLI: `gastro dev`**          | File watcher, hybrid restart (template reload vs process restart), `GASTRO_DEV=1`.                                                                  |
 | 11    | **Tree-sitter grammar**        | `tree-sitter-gastro` with Go and HTML language injection. Highlights and injection queries.                                                          |
-| 12    | **LSP: foundation**            | `gastro-lsp` binary. Document sync, `.gastro` file parsing, shadow workspace with virtual `.go` files, position mapping (source maps).               |
+| 12    | **LSP: foundation**            | `gastro lsp` subcommand. Document sync, `.gastro` file parsing, shadow workspace with virtual `.go` files, position mapping (source maps).            |
 | 13    | **LSP: gopls proxy**           | Spawn and manage gopls subprocess. Proxy completions, diagnostics, hover, go-to-def for frontmatter. Translate positions. Handle component import commenting. |
 | 14    | **LSP: template intelligence** | Variable/field/function completions, pipe completions, type-aware hover, component name/prop completions, component go-to-def, diagnostics.         |
 | 15    | **Editor extensions**          | Neovim plugin (tree-sitter + LSP config), VS Code extension (tree-sitter via WASM + LSP client).                                                    |
@@ -874,9 +874,7 @@ virtual `.go` line numbers.
 ```
 gastro/
   cmd/
-    gastro/                <- CLI binary (generate, build, dev)
-      main.go
-    gastro-lsp/            <- LSP binary (gopls proxy + template intelligence)
+    gastro/                <- CLI binary (generate, build, dev, lsp)
       main.go
       lsp_integration_test.go
   internal/
@@ -886,6 +884,7 @@ gastro/
     compiler/              <- orchestrates parser + codegen + router
     watcher/               <- file watching for dev mode
     lsp/
+      server/              <- LSP server, message routing, gopls integration
       proxy/               <- gopls subprocess management + JSON-RPC forwarding
       shadow/              <- virtual .go file generation + shadow workspace
       sourcemap/           <- position mapping between .gastro and virtual .go

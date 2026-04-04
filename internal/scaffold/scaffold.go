@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // GoVersion is the Go version used in generated go.mod files.
@@ -12,7 +13,10 @@ const GoVersion = "1.26.1"
 
 // Generate creates a new gastro project skeleton in targetDir.
 // The projectName is used as the Go module name.
-func Generate(projectName, targetDir string) error {
+// The gastroVersion is used in the generated go.mod require directive
+// (e.g. "0.1.1"). When set to "dev", a commented-out replace directive
+// is included instead.
+func Generate(projectName, targetDir, gastroVersion string) error {
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return fmt.Errorf("create project directory: %w", err)
 	}
@@ -27,7 +31,7 @@ func Generate(projectName, targetDir string) error {
 	files := map[string]string{
 		"pages/index.gastro": indexPage,
 		"main.go":            mainGo(projectName),
-		"go.mod":             goMod(projectName),
+		"go.mod":             goMod(projectName, gastroVersion),
 		".gitignore":         gitIgnore,
 	}
 
@@ -66,13 +70,26 @@ func main() {
 `
 }
 
-func goMod(moduleName string) string {
+func goMod(moduleName, gastroVersion string) string {
+	ver := strings.TrimPrefix(gastroVersion, "v")
+
+	if ver == "" || ver == "dev" {
+		return `module ` + moduleName + `
+
+go ` + GoVersion + `
+
+require github.com/andrioid/gastro v0.0.0
+
+// For local development, uncomment and adjust the path:
+// replace github.com/andrioid/gastro => ../gastro
+`
+	}
+
 	return `module ` + moduleName + `
 
 go ` + GoVersion + `
 
-// TODO: replace with actual version after first release
-require github.com/andrioid/gastro v0.0.0
+require github.com/andrioid/gastro v` + ver + `
 `
 }
 

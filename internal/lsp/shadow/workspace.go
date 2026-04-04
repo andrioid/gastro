@@ -30,7 +30,7 @@ func NewWorkspace(projectDir string) (*Workspace, error) {
 		return nil, fmt.Errorf("resolving project dir: %w", err)
 	}
 
-	dir, err := os.MkdirTemp("", "gastro-lsp-shadow-*")
+	dir, err := os.MkdirTemp("", "gastro-shadow-*")
 	if err != nil {
 		return nil, fmt.Errorf("creating shadow workspace: %w", err)
 	}

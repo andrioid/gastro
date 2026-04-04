@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+#MISE description="Verify that scaffolded projects build successfully"
+
+set -euo pipefail
+
+TEMP_DIR=$(mktemp -d)
+trap "rm -rf $TEMP_DIR" EXIT
+
+echo "Building gastro binary..."
+go build -o "$TEMP_DIR/gastro" -ldflags "-X main.version=0.1.0" ./cmd/gastro/
+
+echo "Scaffolding new project..."
+"$TEMP_DIR/gastro" new "$TEMP_DIR/testproject"
+
+echo "Running go mod tidy..."
+(cd "$TEMP_DIR/testproject" && go mod tidy)
+
+echo "Building scaffolded project..."
+(cd "$TEMP_DIR/testproject" && go build -o /dev/null .)
+
+echo ""
+echo "Bootstrap verification passed."

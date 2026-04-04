@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
-#MISE description="Cross-compile gastro and gastro-lsp for all platforms"
+#MISE description="Cross-compile gastro for all platforms and package into archives"
 
 set -euo pipefail
 
 OUTDIR="tmp/release"
 VERSION="${GASTRO_VERSION:-dev}"
 LDFLAGS="-X main.version=${VERSION} -s -w"
-BINARIES=("gastro" "gastro-lsp")
 PLATFORMS=(
   "linux/amd64"
   "linux/arm64"
@@ -27,16 +26,29 @@ for platform in "${PLATFORMS[@]}"; do
   os="${platform%/*}"
   arch="${platform#*/}"
 
-  for bin in "${BINARIES[@]}"; do
-    output="${OUTDIR}/${bin}-${os}-${arch}"
-    if [[ "$os" == "windows" ]]; then
-      output="${output}.exe"
-    fi
+  ext=""
+  if [[ "$os" == "windows" ]]; then
+    ext=".exe"
+  fi
 
-    echo "Building ${bin} for ${os}/${arch} (${VERSION})..."
-    GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -ldflags "${LDFLAGS}" -o "$output" "./cmd/${bin}/"
-  done
+  binary="${OUTDIR}/gastro-${os}-${arch}${ext}"
+
+  echo "Building gastro for ${os}/${arch} (${VERSION})..."
+  GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags "${LDFLAGS}" -o "$binary" "./cmd/gastro/"
+
+  # Package into archive
+  staging=$(mktemp -d)
+  cp "$binary" "${staging}/gastro${ext}"
+
+  archive_name="gastro-${os}-${arch}"
+  if [[ "$os" == "windows" ]]; then
+    (cd "$staging" && zip -q "${OLDPWD}/${OUTDIR}/${archive_name}.zip" "gastro${ext}")
+  else
+    tar czf "${OUTDIR}/${archive_name}.tar.gz" -C "$staging" "gastro${ext}"
+  fi
+
+  rm -rf "$staging"
 done
 
-echo "Release binaries written to ${OUTDIR}/"
+echo "Release archives written to ${OUTDIR}/"
 ls -lh "$OUTDIR/"

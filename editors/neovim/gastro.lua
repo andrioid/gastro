@@ -4,15 +4,15 @@
 -- Installation:
 -- 1. Copy or symlink this file to ~/.config/nvim/after/plugin/gastro.lua
 --    (or use `mise run link:neovim`)
--- 2. Ensure gastro-lsp is in your PATH (mise install provides it)
+-- 2. Ensure gastro is in your PATH (go install or mise use)
 --
 -- The LSP starts automatically for .gastro files. To customize the LSP
--- command, call require("gastro").setup({ cmd = "/path/to/gastro-lsp" })
+-- command, call require("gastro").setup({ cmd = { "/path/to/gastro", "lsp" } })
 -- in your Neovim config.
 
 local M = {}
 
-local lsp_cmd = "gastro-lsp"
+local lsp_cmd = { "gastro", "lsp" }
 
 -- Register .gastro filetype
 vim.filetype.add({
@@ -46,7 +46,7 @@ local function create_lsp_autocmd()
     callback = function()
       vim.lsp.start({
         name = "gastro-lsp",
-        cmd = { lsp_cmd },
+        cmd = lsp_cmd,
         root_dir = vim.fs.dirname(
           vim.fs.find({ "go.mod" }, { upward = true })[1]
         ),

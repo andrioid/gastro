@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// These integration tests spawn gastro-lsp as a subprocess and communicate
+// These integration tests spawn gastro lsp as a subprocess and communicate
 // via JSON-RPC over stdin/stdout.
 
 type lspClient struct {
@@ -27,15 +27,15 @@ type lspClient struct {
 func startLSP(t *testing.T, projectDir string) *lspClient {
 	t.Helper()
 
-	// Build gastro-lsp binary
-	binPath := filepath.Join(t.TempDir(), "gastro-lsp")
+	// Build gastro binary
+	binPath := filepath.Join(t.TempDir(), "gastro")
 	build := exec.Command("go", "build", "-o", binPath, ".")
-	build.Dir = filepath.Join(projectRoot(t), "cmd", "gastro-lsp")
+	build.Dir = filepath.Join(projectRoot(t), "cmd", "gastro")
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("building gastro-lsp: %v\n%s", err, out)
+		t.Fatalf("building gastro: %v\n%s", err, out)
 	}
 
-	proc := exec.Command(binPath)
+	proc := exec.Command(binPath, "lsp")
 	proc.Dir = projectDir
 
 	stdin, err := proc.StdinPipe()
@@ -54,7 +54,7 @@ func startLSP(t *testing.T, projectDir string) *lspClient {
 	}
 
 	if err := proc.Start(); err != nil {
-		t.Fatalf("starting gastro-lsp: %v", err)
+		t.Fatalf("starting gastro lsp: %v", err)
 	}
 
 	t.Cleanup(func() {
@@ -232,7 +232,7 @@ func readOneLSPMessage(reader *bufio.Reader) (map[string]any, error) {
 
 func projectRoot(t *testing.T) string {
 	t.Helper()
-	// Walk up from cmd/gastro-lsp to find go.mod
+	// Walk up from cmd/gastro to find go.mod
 	dir, _ := os.Getwd()
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {

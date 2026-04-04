@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Build all targets"
-#MISE depends=["build:gastro", "build:gastro-lsp", "build:vscode", "build:tree-sitter"]
+#MISE depends=["build:gastro", "build:tree-sitter"]
 
 set -euo pipefail

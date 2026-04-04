@@ -36,11 +36,8 @@ default.
 ### Building
 
 ```sh
-# CLI
+# CLI (includes LSP server via `gastro lsp`)
 go build -o gastro ./cmd/gastro/
-
-# LSP server
-go build -o gastro-lsp ./cmd/gastro-lsp/
 
 # Example blog
 cd examples/blog
@@ -90,8 +87,8 @@ Quick orientation:
 
 | Directory | Purpose |
 |-----------|---------|
-| `cmd/gastro/` | CLI binary |
-| `cmd/gastro-lsp/` | LSP server binary |
+| `cmd/gastro/` | CLI binary (includes LSP via `gastro lsp`) |
+| `internal/lsp/server/` | LSP server |
 | `internal/parser/` | `.gastro` file parser |
 | `internal/codegen/` | Go code generation |
 | `internal/router/` | File-based routing |
@@ -154,12 +151,12 @@ mise run link:neovim
 
 This symlinks the plugin to `~/.config/nvim/after/plugin/gastro.lua`. The LSP
 starts automatically for `.gastro` files. To customize the LSP command, add
-`require("gastro").setup({ cmd = "/path/to/gastro-lsp" })` to your Neovim
+`require("gastro").setup({ cmd = { "/path/to/gastro", "lsp" } })` to your Neovim
 config. Changes take effect on next Neovim restart.
 
 **Zed extension (`editors/zed/`):**
 
-The Zed extension is a Rust WASM crate that auto-downloads `gastro-lsp` from
+The Zed extension is a Rust WASM crate that auto-downloads `gastro` from
 GitHub releases. To install for development:
 
 1. Open Zed's command palette and run "zed: install dev extension"
@@ -168,7 +165,7 @@ GitHub releases. To install for development:
 Zed compiles the Rust code to WASM automatically. Use `zed --foreground` to
 see extension logs.
 
-**All editors require `gastro-lsp` and `gopls` in PATH.** If using mise,
+**All editors require `gastro` and `gopls` in PATH.** If using mise,
 `mise install` in the project root provides both.
 
 ### Working on the LSP
@@ -178,14 +175,14 @@ working reliably. See `.opencode/plans/lsp-debugging.md` for the investigation
 plan and hypotheses.
 
 Key files:
-- `cmd/gastro-lsp/main.go` -- LSP server, message routing, gopls integration
+- `internal/lsp/server/` -- LSP server, message routing, gopls integration
 - `internal/lsp/shadow/workspace.go` -- Virtual `.go` file generation
 - `internal/lsp/proxy/proxy.go` -- gopls subprocess management
 - `internal/lsp/sourcemap/sourcemap.go` -- Position mapping
 - `internal/lsp/template/completions.go` -- Template body intelligence
 
-Integration tests for the LSP are in `cmd/gastro-lsp/lsp_integration_test.go`.
-They spawn gastro-lsp as a subprocess and communicate via JSON-RPC over
+Integration tests for the LSP are in `cmd/gastro/lsp_integration_test.go`.
+They spawn `gastro lsp` as a subprocess and communicate via JSON-RPC over
 stdin/stdout.
 
 ## Commit Messages

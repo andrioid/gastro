@@ -37,8 +37,18 @@ impl GastroExtension {
             ""
         };
 
-        let binary_name = format!("gastro-lsp-{os_str}-{arch_str}{ext}");
-        let binary_path = format!("gastro-lsp{ext}");
+        let archive_name = format!("gastro-{os_str}-{arch_str}");
+        let archive_type = if matches!(os, zed::Os::Windows) {
+            zed::DownloadedFileType::Zip
+        } else {
+            zed::DownloadedFileType::GzipTar
+        };
+        let archive_ext = if matches!(os, zed::Os::Windows) {
+            ".zip"
+        } else {
+            ".tar.gz"
+        };
+        let binary_path = format!("gastro{ext}");
 
         zed::set_language_server_installation_status(
             language_server_id,
@@ -54,13 +64,14 @@ impl GastroExtension {
         )
         .map_err(|e| format!("failed to fetch latest release: {e}"))?;
 
+        let asset_name = format!("{archive_name}{archive_ext}");
         let asset = release
             .assets
             .iter()
-            .find(|a| a.name == binary_name)
+            .find(|a| a.name == asset_name)
             .ok_or_else(|| {
                 format!(
-                    "no matching binary '{binary_name}' in release {}",
+                    "no matching archive '{asset_name}' in release {}",
                     release.version
                 )
             })?;
@@ -70,12 +81,8 @@ impl GastroExtension {
             &zed::LanguageServerInstallationStatus::Downloading,
         );
 
-        zed::download_file(
-            &asset.download_url,
-            &binary_path,
-            zed::DownloadedFileType::Uncompressed,
-        )
-        .map_err(|e| format!("failed to download {binary_name}: {e}"))?;
+        zed::download_file(&asset.download_url, &binary_path, archive_type)
+            .map_err(|e| format!("failed to download {asset_name}: {e}"))?;
 
         zed::make_file_executable(&binary_path)
             .map_err(|e| format!("failed to make {binary_path} executable: {e}"))?;
@@ -100,7 +107,7 @@ impl zed::Extension for GastroExtension {
         let binary_path = self.language_server_binary_path(language_server_id)?;
         Ok(zed::Command {
             command: binary_path,
-            args: vec![],
+            args: vec!["lsp".to_string()],
             env: vec![],
         })
     }

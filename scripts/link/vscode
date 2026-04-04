@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 #MISE description="Symlink the VS Code extension for local development"
-#MISE depends=["build:vscode"]
+#MISE depends=["build:vscode-deps"]
 
 set -euo pipefail
 
 EXTENSION_DIR="$HOME/.vscode/extensions"
-LINK_NAME="andrioid.gastro-vscode-0.1.0"
+VERSION=$(node -p "require('./editors/vscode/package.json').version")
+LINK_NAME="andrioid.gastro-vscode-${VERSION}"
 TARGET="$PWD/editors/vscode"
 
 if [ -L "$EXTENSION_DIR/$LINK_NAME" ]; then

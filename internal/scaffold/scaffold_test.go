@@ -13,7 +13,7 @@ func TestGenerate_CreatesExpectedStructure(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "myapp")
 
-	if err := scaffold.Generate("myapp", target); err != nil {
+	if err := scaffold.Generate("myapp", target, "0.1.0"); err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
@@ -41,7 +41,7 @@ func TestGenerate_GoModContainsModuleName(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "testproject")
 
-	if err := scaffold.Generate("testproject", target); err != nil {
+	if err := scaffold.Generate("testproject", target, "0.1.0"); err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
@@ -57,8 +57,30 @@ func TestGenerate_GoModContainsModuleName(t *testing.T) {
 	if !strings.Contains(text, "go "+scaffold.GoVersion) {
 		t.Errorf("go.mod should contain go version %s, got:\n%s", scaffold.GoVersion, text)
 	}
-	if !strings.Contains(text, "github.com/andrioid/gastro") {
-		t.Errorf("go.mod should require gastro, got:\n%s", text)
+	if !strings.Contains(text, "github.com/andrioid/gastro v0.1.0") {
+		t.Errorf("go.mod should require gastro v0.1.0, got:\n%s", text)
+	}
+}
+
+func TestGenerate_GoModDevVersion(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "devproject")
+
+	if err := scaffold.Generate("devproject", target, "dev"); err != nil {
+		t.Fatalf("Generate failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(target, "go.mod"))
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+
+	text := string(content)
+	if !strings.Contains(text, "github.com/andrioid/gastro v0.0.0") {
+		t.Errorf("go.mod should use v0.0.0 for dev version, got:\n%s", text)
+	}
+	if !strings.Contains(text, "replace github.com/andrioid/gastro") {
+		t.Errorf("go.mod should contain commented replace directive for dev, got:\n%s", text)
 	}
 }
 
@@ -66,7 +88,7 @@ func TestGenerate_MainGoImportsGastroPackage(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "coolapp")
 
-	if err := scaffold.Generate("coolapp", target); err != nil {
+	if err := scaffold.Generate("coolapp", target, "0.1.0"); err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
@@ -88,7 +110,7 @@ func TestGenerate_IndexPageHasFrontmatterAndTemplate(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "myapp")
 
-	if err := scaffold.Generate("myapp", target); err != nil {
+	if err := scaffold.Generate("myapp", target, "0.1.0"); err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
@@ -110,7 +132,7 @@ func TestGenerate_GitignoreContentsCorrect(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "myapp")
 
-	if err := scaffold.Generate("myapp", target); err != nil {
+	if err := scaffold.Generate("myapp", target, "0.1.0"); err != nil {
 		t.Fatalf("Generate failed: %v", err)
 	}
 
@@ -137,7 +159,7 @@ func TestGenerate_ErrorWhenTargetIsFile(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	err := scaffold.Generate("myapp", target)
+	err := scaffold.Generate("myapp", target, "0.1.0")
 	if err == nil {
 		t.Error("expected error when target is a file, got nil")
 	}
@@ -158,7 +180,7 @@ func TestGenerate_DifferentModuleNames(t *testing.T) {
 			dir := t.TempDir()
 			target := filepath.Join(dir, "project")
 
-			if err := scaffold.Generate(tt.moduleName, target); err != nil {
+			if err := scaffold.Generate(tt.moduleName, target, "0.1.0"); err != nil {
 				t.Fatalf("Generate(%q) failed: %v", tt.moduleName, err)
 			}
 

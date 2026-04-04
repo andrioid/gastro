@@ -202,15 +202,15 @@ scp dist/myapp server:/opt/myapp
 
 Editor intelligence requires two binaries in your PATH:
 
-- **`gastro-lsp`** -- the Gastro language server
+- **`gastro`** -- includes the Gastro language server (`gastro lsp` subcommand)
 - **`gopls`** -- the Go language server (for frontmatter Go intelligence)
 
 ```sh
-go install github.com/andrioid/gastro/cmd/gastro-lsp@latest
+go install github.com/andrioid/gastro/cmd/gastro@latest
 go install golang.org/x/tools/gopls@latest
 ```
 
-If `gopls` is not in PATH, `gastro-lsp` will still provide template body
+If `gopls` is not in PATH, `gastro lsp` will still provide template body
 completions (variables, components, functions) but frontmatter Go intelligence
 (completions, hover, diagnostics) will not be available.
 
@@ -235,7 +235,7 @@ Copy or symlink `editors/neovim/gastro.lua` to
 
 ### Zed
 
-A Zed extension is in `editors/zed/`. It auto-downloads `gastro-lsp` from
+A Zed extension is in `editors/zed/`. It auto-downloads `gastro` from
 GitHub releases on first use. To install as a dev extension:
 
 1. Open Zed's command palette and run "zed: install dev extension"

@@ -16,17 +16,17 @@ Gastro has three main subsystems:
                          |
          +---------------+---------------+
          |                               |
-    [Compiler]                      [LSP Server]
-    cmd/gastro                      cmd/gastro-lsp
+    [Compiler]                    [LSP Server]
+    gastro generate/build/dev     gastro lsp
          |                               |
     internal/parser    <-- shared -->    internal/parser
-    internal/codegen                    internal/lsp/shadow
-    internal/router                    internal/lsp/proxy
-    internal/compiler                  internal/lsp/sourcemap
-    internal/watcher                   internal/lsp/template
-         |                               |
-    .gastro/ (generated)            gopls (subprocess)
-         |
+    internal/codegen                    internal/lsp/server
+    internal/router                    internal/lsp/shadow
+    internal/compiler                  internal/lsp/proxy
+    internal/watcher                   internal/lsp/sourcemap
+         |                             internal/lsp/template
+    .gastro/ (generated)                    |
+         |                             gopls (subprocess)
     pkg/gastro (runtime)
          |
     Running HTTP server
@@ -238,14 +238,14 @@ The CLI binary. Three commands:
 - `build` -- generate + `go build`
 - `dev` -- watch mode with polling watcher, debounced rebuild, process restart
 
-### `cmd/gastro-lsp/`
+### `internal/lsp/server/`
 
-The LSP server binary. Handles JSON-RPC over stdin/stdout. On startup:
+The LSP server (invoked via `gastro lsp`). Handles JSON-RPC over stdin/stdout. On startup:
 1. Receives `initialize` with the project root
 2. Creates a shadow workspace
 3. Attempts to spawn gopls pointed at the shadow workspace
 
-**Graceful degradation:** If gopls is not in PATH, `gastro-lsp` logs a warning
+**Graceful degradation:** If gopls is not in PATH, `gastro lsp` logs a warning
 and continues without Go intelligence. Template body features (variable,
 component, and function completions) still work. Only frontmatter features
 (Go completions, hover, diagnostics, go-to-definition) require gopls.
@@ -306,7 +306,7 @@ parser.File {
 Editor sends completion request at line 3, col 10
      |
      v
-gastro-lsp receives textDocument/completion
+gastro lsp receives textDocument/completion
      |
      v
 Parse .gastro file -> determine cursor is in frontmatter (line 3 < TemplateBodyLine)

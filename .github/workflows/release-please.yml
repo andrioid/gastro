@@ -30,50 +30,58 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
-            vscode_target: linux-x64
           - goos: linux
             goarch: arm64
-            vscode_target: linux-arm64
           - goos: darwin
             goarch: amd64
-            vscode_target: darwin-x64
           - goos: darwin
             goarch: arm64
-            vscode_target: darwin-arm64
           - goos: windows
             goarch: amd64
-            vscode_target: win32-x64
           - goos: windows
             goarch: arm64
-            vscode_target: win32-arm64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v4
 
-      - name: Build release binaries
+      - name: Build release archive
         run: mise run build:release
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           GASTRO_VERSION: ${{ needs.release-please.outputs.version }}
 
-      - name: Build VS Code extension
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            tmp/release/*.tar.gz
+            tmp/release/*.zip
+
+  build-vscode:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Build universal VS Code extension
         run: |
           npm install
-          mkdir -p bin
-          EXT="${{ matrix.goos == 'windows' && '.exe' || '' }}"
-          cp "$GITHUB_WORKSPACE/tmp/release/gastro-lsp-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" "bin/gastro-lsp${EXT}"
-          npx @vscode/vsce package --target ${{ matrix.vscode_target }} -o "$GITHUB_WORKSPACE/tmp/release/gastro-vscode-${{ matrix.vscode_target }}.vsix"
+          npx @vscode/vsce package -o "$GITHUB_WORKSPACE/tmp/release/gastro-vscode.vsix"
         working-directory: editors/vscode
 
       - uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: tmp/release/*
+          name: release-vscode
+          path: tmp/release/*.vsix
 
   publish:
-    needs: [release-please, build]
+    needs: [release-please, build, build-vscode]
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:
@@ -83,11 +91,21 @@ jobs:
           pattern: release-*
           merge-multiple: true
 
-      - name: Upload binaries to GitHub Release
+      - name: Generate checksums
+        run: sha256sum *.tar.gz *.zip *.vsix > SHA256SUMS
+        working-directory: tmp/release
+
+      - name: Upload to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" tmp/release/*
+        run: gh release upload "${{ needs.release-please.outputs.tag_name }}" tmp/release/*.tar.gz tmp/release/*.zip tmp/release/*.vsix tmp/release/SHA256SUMS
+
+      - name: Warm Go module proxy
+        run: |
+          VERSION="${{ needs.release-please.outputs.version }}"
+          echo "Warming proxy for github.com/andrioid/gastro@v${VERSION}..."
+          curl -fsS "https://proxy.golang.org/github.com/andrioid/gastro/@v/v${VERSION}.info" || echo "Proxy warmup failed (non-fatal)"
 
       - name: Publish to VS Code Marketplace
         if: ${{ vars.VSCE_PAT != '' }}

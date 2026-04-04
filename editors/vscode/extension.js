@@ -1,13 +1,18 @@
-const path = require("path");
+const { workspace, window } = require("vscode");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
 let client;
 
 function activate(context) {
-  const serverPath = context.asAbsolutePath(path.join("bin", "gastro-lsp"));
+  const config = workspace.getConfiguration("gastro");
+  const customPath = config.get("lspPath");
+
+  const command = customPath || "gastro";
+  const args = customPath ? [] : ["lsp"];
 
   const serverOptions = {
-    command: serverPath,
+    command,
+    args,
     transport: TransportKind.stdio,
   };
 
@@ -22,7 +27,13 @@ function activate(context) {
     clientOptions,
   );
 
-  client.start();
+  client.start().catch((err) => {
+    const msg =
+      `Gastro LSP failed to start. Is "gastro" installed and on your PATH?\n\n` +
+      `Install with: go install github.com/andrioid/gastro/cmd/gastro@latest\n` +
+      `Or: mise use github:andrioid/gastro@latest`;
+    window.showErrorMessage(msg);
+  });
 }
 
 function deactivate() {

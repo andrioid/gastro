@@ -34,6 +34,16 @@
     "vscode-languageclient": "^9.0.1"
   },
   "contributes": {
+    "configuration": {
+      "title": "Gastro",
+      "properties": {
+        "gastro.lspPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the gastro binary. Leave empty to find it on PATH."
+        }
+      }
+    },
     "languages": [
       {
         "id": "gastro",

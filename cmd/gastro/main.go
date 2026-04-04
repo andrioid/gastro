@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/andrioid/gastro/internal/compiler"
+	"github.com/andrioid/gastro/internal/lsp"
 	"github.com/andrioid/gastro/internal/scaffold"
 	"github.com/andrioid/gastro/internal/watcher"
 )
@@ -54,6 +55,8 @@ func main() {
 			fmt.Fprintf(os.Stderr, "gastro new: %v\n", err)
 			os.Exit(1)
 		}
+	case "lsp":
+		lsp.Serve(version)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
@@ -117,7 +120,7 @@ func runNew() error {
 	}
 
 	fmt.Printf("gastro: creating project %q...\n", name)
-	if err := scaffold.Generate(name, targetDir); err != nil {
+	if err := scaffold.Generate(name, targetDir, version); err != nil {
 		return err
 	}
 
