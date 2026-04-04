@@ -72,6 +72,7 @@ jobs:
       - name: Build universal VS Code extension
         run: |
           npm install
+          mkdir -p "$GITHUB_WORKSPACE/tmp/release"
           npx @vscode/vsce package -o "$GITHUB_WORKSPACE/tmp/release/gastro-vscode.vsix"
         working-directory: editors/vscode
 
