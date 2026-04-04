@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.4](https://github.com/andrioid/gastro/compare/v0.1.3...v0.1.4) (2026-04-04)
+
+
+### Features
+
+* auto-increment dev server port when default is in use ([048ea9d](https://github.com/andrioid/gastro/commit/048ea9dcde025fee203ccb51e0e2eef342437b95))
+* include README.md with quickstart in scaffolded projects ([2a502d7](https://github.com/andrioid/gastro/commit/2a502d78148cc5d2b10c6391c11b510d1062569e))
+
+
+### Bug Fixes
+
+* handle empty static/ directory in scaffold and compiler ([b37e1d1](https://github.com/andrioid/gastro/commit/b37e1d1def4b882321ab19bea9ee7d02adbc2bec))
+
 ## [0.1.3](https://github.com/andrioid/gastro/compare/v0.1.2...v0.1.3) (2026-04-04)
 
 
