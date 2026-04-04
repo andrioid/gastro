@@ -29,7 +29,7 @@ func TestGenerate_CreatesExpectedStructure(t *testing.T) {
 		}
 	}
 
-	expectedFiles := []string{"pages/index.gastro", "main.go", "go.mod", ".gitignore", "static/.gitkeep"}
+	expectedFiles := []string{"pages/index.gastro", "main.go", "go.mod", ".gitignore", "static/.gitkeep", "README.md"}
 	for _, f := range expectedFiles {
 		if _, err := os.Stat(filepath.Join(target, f)); err != nil {
 			t.Errorf("expected file %s to exist: %v", f, err)

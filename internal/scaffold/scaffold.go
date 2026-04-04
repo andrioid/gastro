@@ -34,6 +34,7 @@ func Generate(projectName, targetDir, gastroVersion string) error {
 		"go.mod":             goMod(projectName, gastroVersion),
 		".gitignore":         gitIgnore,
 		"static/.gitkeep":    "",
+		"README.md":          readme(projectName),
 	}
 
 	for name, content := range files {
@@ -110,6 +111,44 @@ Title := "Welcome to Gastro"
 </body>
 </html>
 `
+
+func readme(projectName string) string {
+	return `# ` + projectName + `
+
+A web application built with [Gastro](https://github.com/andrioid/gastro).
+
+## Getting Started
+
+Start the development server with hot reload:
+
+` + "```" + `sh
+gastro dev
+` + "```" + `
+
+Then open [http://localhost:4242](http://localhost:4242) in your browser.
+
+## Project Structure
+
+` + "```" + `
+pages/          Page templates (.gastro files)
+components/     Reusable components (.gastro files)
+static/         Static assets (CSS, images, etc.)
+main.go         Application entry point
+` + "```" + `
+
+## Commands
+
+| Command          | Description                              |
+|------------------|------------------------------------------|
+| ` + "`gastro dev`" + `      | Start dev server with hot reload         |
+| ` + "`gastro build`" + `    | Build a production binary                |
+| ` + "`gastro generate`" + ` | Regenerate the .gastro/ directory        |
+
+## Learn More
+
+- [Gastro Documentation](https://github.com/andrioid/gastro)
+`
+}
 
 const gitIgnore = `.gastro/
 app
