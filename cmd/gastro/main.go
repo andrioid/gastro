@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -146,10 +148,31 @@ func runNew() error {
 	return nil
 }
 
+// findAvailablePort tries to bind to each port in [startPort, startPort+10)
+// and returns the first one that is available.
+func findAvailablePort(startPort int) (string, error) {
+	for port := startPort; port < startPort+10; port++ {
+		ln, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+		if err != nil {
+			continue
+		}
+		ln.Close()
+		return strconv.Itoa(port), nil
+	}
+	return "", fmt.Errorf("no available port found in range %d-%d", startPort, startPort+9)
+}
+
 func runDev() error {
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "4242"
+		p, err := findAvailablePort(4242)
+		if err != nil {
+			return err
+		}
+		if p != "4242" {
+			fmt.Printf("gastro: port 4242 is in use, using http://localhost:%s\n", p)
+		}
+		port = p
 	}
 
 	// Initial generation
