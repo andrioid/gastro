@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/andrioid/gastro/compare/v0.1.4...v0.1.5) (2026-04-04)
+
+
+### Documentation
+
+* update Quick Start to use mise and gastro new ([b18fc9b](https://github.com/andrioid/gastro/commit/b18fc9ba60cfc7c529d6ae829147a7da1182411c))
+
 ## [0.1.4](https://github.com/andrioid/gastro/compare/v0.1.3...v0.1.4) (2026-04-04)
 
 
