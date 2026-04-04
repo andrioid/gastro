@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/andrioid/gastro/compare/v0.1.1...v0.1.2) (2026-04-04)
+
+
+### Refactoring
+
+* consolidate gastro-lsp into gastro lsp subcommand ([11324e3](https://github.com/andrioid/gastro/commit/11324e337e3a00233b5ee93c7e626726e3f3b9f3))
+
 ## [0.1.1](https://github.com/andrioid/gastro/compare/v0.1.0...v0.1.1) (2026-04-03)
 
 
