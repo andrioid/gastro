@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/andrioid/gastro/compare/v0.1.2...v0.1.3) (2026-04-04)
+
+
+### Bug Fixes
+
+* create output directory for VS Code extension build ([2259c49](https://github.com/andrioid/gastro/commit/2259c49a42d0403f240a5b069a8d7a62899c6159))
+
 ## [0.1.2](https://github.com/andrioid/gastro/compare/v0.1.1...v0.1.2) (2026-04-04)
 
 
