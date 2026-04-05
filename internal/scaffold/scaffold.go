@@ -1,15 +1,29 @@
 package scaffold
 
 import (
+	"bytes"
+	"embed"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 )
 
 // GoVersion is the Go version used in generated go.mod files.
 // Must match the version in the project root go.mod and mise.toml.
 const GoVersion = "1.26.1"
+
+//go:embed all:template
+var templateFS embed.FS
+
+type templateData struct {
+	ProjectName   string
+	GastroVersion string
+	GoVersion     string
+	IsDev         bool
+}
 
 // Generate creates a new gastro project skeleton in targetDir.
 // The projectName is used as the Go module name.
@@ -21,135 +35,58 @@ func Generate(projectName, targetDir, gastroVersion string) error {
 		return fmt.Errorf("create project directory: %w", err)
 	}
 
-	dirs := []string{"pages", "components", "static"}
-	for _, d := range dirs {
-		if err := os.MkdirAll(filepath.Join(targetDir, d), 0o755); err != nil {
-			return fmt.Errorf("create %s directory: %w", d, err)
-		}
-	}
-
-	files := map[string]string{
-		"pages/index.gastro": indexPage,
-		"main.go":            mainGo(projectName),
-		"go.mod":             goMod(projectName, gastroVersion),
-		".gitignore":         gitIgnore,
-		"static/.gitkeep":    "",
-		"README.md":          readme(projectName),
-	}
-
-	for name, content := range files {
-		path := filepath.Join(targetDir, name)
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("write %s: %w", name, err)
-		}
-	}
-
-	return nil
-}
-
-func mainGo(moduleName string) string {
-	return `package main
-
-import (
-	"fmt"
-	"net/http"
-	"os"
-
-	gastro "` + moduleName + `/.gastro"
-)
-
-func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "4242"
-	}
-
-	routes := gastro.Routes()
-
-	fmt.Printf("Listening on http://localhost:%s\n", port)
-	http.ListenAndServe(":"+port, routes)
-}
-`
-}
-
-func goMod(moduleName, gastroVersion string) string {
 	ver := strings.TrimPrefix(gastroVersion, "v")
-
-	if ver == "" || ver == "dev" {
-		return `module ` + moduleName + `
-
-go ` + GoVersion + `
-
-require github.com/andrioid/gastro v0.0.0
-
-// For local development, uncomment and adjust the path:
-// replace github.com/andrioid/gastro => ../gastro
-`
+	data := templateData{
+		ProjectName:   projectName,
+		GastroVersion: ver,
+		GoVersion:     GoVersion,
+		IsDev:         ver == "" || ver == "dev",
 	}
 
-	return `module ` + moduleName + `
+	root := "template"
 
-go ` + GoVersion + `
+	return fs.WalkDir(templateFS, root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 
-require github.com/andrioid/gastro v` + ver + `
-`
+		// Relative path from the template root
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+
+		dest := filepath.Join(targetDir, rel)
+
+		if d.IsDir() {
+			return os.MkdirAll(dest, 0o755)
+		}
+
+		content, err := templateFS.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read embedded %s: %w", path, err)
+		}
+
+		// Process .tmpl files through text/template and strip the suffix
+		if strings.HasSuffix(path, ".tmpl") {
+			dest = strings.TrimSuffix(dest, ".tmpl")
+
+			tmpl, err := template.New(filepath.Base(path)).Parse(string(content))
+			if err != nil {
+				return fmt.Errorf("parse template %s: %w", path, err)
+			}
+
+			var buf bytes.Buffer
+			if err := tmpl.Execute(&buf, data); err != nil {
+				return fmt.Errorf("execute template %s: %w", path, err)
+			}
+			content = buf.Bytes()
+		}
+
+		if err := os.WriteFile(dest, content, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", rel, err)
+		}
+
+		return nil
+	})
 }
-
-const indexPage = `---
-Title := "Welcome to Gastro"
----
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ .Title }}</title>
-</head>
-<body>
-    <h1>{{ .Title }}</h1>
-    <p>Edit <code>pages/index.gastro</code> to get started.</p>
-</body>
-</html>
-`
-
-func readme(projectName string) string {
-	return `# ` + projectName + `
-
-A web application built with [Gastro](https://github.com/andrioid/gastro).
-
-## Getting Started
-
-Start the development server with hot reload:
-
-` + "```" + `sh
-gastro dev
-` + "```" + `
-
-Then open [http://localhost:4242](http://localhost:4242) in your browser.
-
-## Project Structure
-
-` + "```" + `
-pages/          Page templates (.gastro files)
-components/     Reusable components (.gastro files)
-static/         Static assets (CSS, images, etc.)
-main.go         Application entry point
-` + "```" + `
-
-## Commands
-
-| Command          | Description                              |
-|------------------|------------------------------------------|
-| ` + "`gastro dev`" + `      | Start dev server with hot reload         |
-| ` + "`gastro build`" + `    | Build a production binary                |
-| ` + "`gastro generate`" + ` | Regenerate the .gastro/ directory        |
-
-## Learn More
-
-- [Gastro Documentation](https://github.com/andrioid/gastro)
-`
-}
-
-const gitIgnore = `.gastro/
-app
-`
