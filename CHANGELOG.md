@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.7](https://github.com/andrioid/gastro/compare/v0.1.6...v0.1.7) (2026-04-05)
+
+
+### Bug Fixes
+
+* VS Code extension missing vscode-languageclient module ([8e8cfc0](https://github.com/andrioid/gastro/commit/8e8cfc07a013144fc8cd2025bfee83313af962bd))
+
+
+### Refactoring
+
+* scaffold uses file-based templates via embed.FS ([cb88ecc](https://github.com/andrioid/gastro/commit/cb88ecc4e158355eec359c544ed07df09afb126c))
+
 ## [0.1.6](https://github.com/andrioid/gastro/compare/v0.1.5...v0.1.6) (2026-04-05)
 
 
