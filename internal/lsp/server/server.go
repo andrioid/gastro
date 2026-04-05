@@ -31,6 +31,7 @@ type projectInstance struct {
 	root                string
 	workspace           *shadow.Workspace
 	gopls               *proxy.GoplsProxy
+	goplsError          error // non-nil if gopls failed to start
 	components          []componentInfo
 	componentPropsCache map[string][]codegen.StructField // componentPath -> Props struct fields
 	goplsOpenFiles      map[string]int                   // virtualURI -> version
@@ -43,17 +44,18 @@ type fieldInfo struct {
 }
 
 type server struct {
-	version        string
-	documents      map[string]string                              // URI -> content
-	projectDir     string                                         // global root from editor (fallback)
-	instances      map[string]*projectInstance                    // projectRoot -> instance
-	writeMu        sync.Mutex                                     // protects stdout writes from concurrent goroutines
-	dataMu         sync.RWMutex                                   // protects diagnostic and document maps from concurrent access
-	goplsDiags     map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
-	templateDiags  map[string][]map[string]any                    // URI -> template diagnostics (body)
-	typeCache      map[string]map[string]string                   // URI -> varName -> type string
-	fieldCache     map[string]map[string][]fieldInfo              // URI -> varName -> fields
-	typeFieldCache map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
+	version              string
+	documents            map[string]string                              // URI -> content
+	projectDir           string                                         // global root from editor (fallback)
+	instances            map[string]*projectInstance                    // projectRoot -> instance
+	writeMu              sync.Mutex                                     // protects stdout writes from concurrent goroutines
+	dataMu               sync.RWMutex                                   // protects diagnostic and document maps from concurrent access
+	goplsDiags           map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
+	templateDiags        map[string][]map[string]any                    // URI -> template diagnostics (body)
+	typeCache            map[string]map[string]string                   // URI -> varName -> type string
+	fieldCache           map[string]map[string][]fieldInfo              // URI -> varName -> fields
+	typeFieldCache       map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
+	notifiedGoplsMissing sync.Once                                      // ensures gopls-unavailable notification is sent only once
 }
 
 func newServer(version string) *server {
@@ -105,6 +107,21 @@ func (s *server) writeToClient(msg *jsonRPCMessage) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	writeMessage(os.Stdout, msg)
+}
+
+// notifyGoplsUnavailable sends a custom notification to the editor so it can
+// prompt the user to install gopls. Only sent once per server lifetime.
+func (s *server) notifyGoplsUnavailable(goplsErr error) {
+	s.notifiedGoplsMissing.Do(func() {
+		params, _ := json.Marshal(map[string]string{
+			"message": goplsErr.Error(),
+		})
+		s.writeToClient(&jsonRPCMessage{
+			JSONRPC: "2.0",
+			Method:  "gastro/goplsNotAvailable",
+			Params:  params,
+		})
+	})
 }
 
 type jsonRPCMessage struct {

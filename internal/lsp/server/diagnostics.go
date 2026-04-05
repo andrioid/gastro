@@ -238,13 +238,13 @@ func (s *server) resolveAllComponentProps(uses []parser.UseDeclaration, inst *pr
 }
 
 // invalidateComponentPropsCache removes cached props for a component file
-// when it changes. The URI is a file:// URI for the changed document.
+// when it changes. The caller must hold s.dataMu (read or write).
 func (s *server) invalidateComponentPropsCache(uri string) {
 	filePath := uriToPath(uri)
 	if filePath == "" {
 		return
 	}
-	inst := s.instanceForURI(uri)
+	inst := s.lookupInstanceLocked(uri)
 	if inst == nil {
 		return
 	}

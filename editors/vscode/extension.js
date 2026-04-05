@@ -1,5 +1,8 @@
-const { workspace, window } = require("vscode");
-const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
+const { workspace, window, commands } = require("vscode");
+const {
+  LanguageClient,
+  TransportKind,
+} = require("vscode-languageclient/node");
 
 let client;
 
@@ -33,6 +36,33 @@ function activate(context) {
       `Install with: go install github.com/andrioid/gastro/cmd/gastro@latest\n` +
       `Or: mise use github:andrioid/gastro@latest`;
     window.showErrorMessage(msg);
+  });
+
+  // Handle custom notification when gopls is not available
+  client.onReady().then(() => {
+    client.onNotification("gastro/goplsNotAvailable", async (params) => {
+      const action = await window.showWarningMessage(
+        "Gopls is not installed. Go language features (completions, hover, " +
+          "diagnostics) in the frontmatter will be limited.\n\n" +
+          "Install gopls to enable full Go intelligence.",
+        "Install gopls",
+        "Dismiss",
+      );
+
+      if (action === "Install gopls") {
+        const terminal = window.createTerminal("Install gopls");
+        terminal.show();
+        terminal.sendText("go install golang.org/x/tools/gopls@latest");
+
+        const reload = await window.showInformationMessage(
+          "After gopls finishes installing, reload the window to activate Go features.",
+          "Reload Window",
+        );
+        if (reload === "Reload Window") {
+          commands.executeCommand("workbench.action.reloadWindow");
+        }
+      }
+    });
   });
 }
 

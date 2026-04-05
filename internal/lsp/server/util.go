@@ -85,8 +85,20 @@ func findProjectRoot(filePath, fallback string) string {
 	}
 }
 
+// lookupInstanceLocked returns the project instance for a URI without
+// acquiring any locks. The caller must already hold s.dataMu (read or write).
+func (s *server) lookupInstanceLocked(uri string) *projectInstance {
+	filePath := uriToPath(uri)
+	if filePath == "" {
+		return nil
+	}
+	root := findProjectRoot(filePath, s.projectDir)
+	return s.instances[root]
+}
+
 // instanceForURI returns the project instance for a given file URI, creating
-// one lazily if needed. Uses double-checked locking for thread safety.
+// one lazily if needed. Initialization (I/O, subprocess spawning) happens
+// outside the lock to avoid blocking concurrent readers.
 func (s *server) instanceForURI(uri string) *projectInstance {
 	filePath := uriToPath(uri)
 	if filePath == "" {
@@ -102,30 +114,44 @@ func (s *server) instanceForURI(uri string) *projectInstance {
 		return inst
 	}
 
-	// Slow path: write lock
-	s.dataMu.Lock()
-	defer s.dataMu.Unlock()
-
-	// Check again (another goroutine may have created it)
-	if inst, ok := s.instances[root]; ok {
-		return inst
-	}
-
-	inst = &projectInstance{
+	// Create and initialize outside the lock (I/O happens here)
+	newInst := &projectInstance{
 		root:                root,
 		componentPropsCache: make(map[string][]codegen.StructField),
 		goplsOpenFiles:      make(map[string]int),
 	}
-	if err := s.initInstance(inst); err != nil {
-		log.Printf("failed to init instance for %s: %v", root, err)
-		return nil
+	goplsErr := s.initInstance(newInst)
+
+	// Acquire write lock to store the instance
+	s.dataMu.Lock()
+	// Double-check: another goroutine may have created it while we were initializing
+	if existing, ok := s.instances[root]; ok {
+		s.dataMu.Unlock()
+		// Clean up our duplicate instance
+		if newInst.gopls != nil {
+			newInst.gopls.Close()
+		}
+		if newInst.workspace != nil {
+			newInst.workspace.Close()
+		}
+		return existing
 	}
-	s.instances[root] = inst
-	return inst
+	s.instances[root] = newInst
+	s.dataMu.Unlock()
+
+	// Notify the editor about gopls failure (outside all locks)
+	if goplsErr != nil {
+		log.Printf("instance for %s: %v", root, goplsErr)
+		s.notifyGoplsUnavailable(goplsErr)
+	}
+
+	return newInst
 }
 
 // initInstance creates the shadow workspace, starts gopls, and discovers
-// components for a project instance.
+// components for a project instance. Gopls failure is non-fatal: the instance
+// remains usable for template features even without Go intelligence.
+// Returns a non-nil error only to signal gopls unavailability (not a hard failure).
 func (s *server) initInstance(inst *projectInstance) error {
 	var err error
 	inst.workspace, err = shadow.NewWorkspace(inst.root)
@@ -133,17 +159,20 @@ func (s *server) initInstance(inst *projectInstance) error {
 		return fmt.Errorf("creating shadow workspace: %w", err)
 	}
 
+	inst.components = discoverComponentsIn(inst.root)
+
 	inst.gopls, err = proxy.NewGoplsProxy(inst.workspace.Dir(), func(method string, params json.RawMessage) {
 		s.handleGoplsNotification(method, params, inst)
 	})
 	if err != nil {
-		inst.workspace.Close()
-		inst.workspace = nil
-		return fmt.Errorf("starting gopls: %w", err)
+		// Gopls unavailable — keep workspace alive for template features
+		inst.gopls = nil
+		inst.goplsError = fmt.Errorf("gopls unavailable: %w", err)
+		log.Printf("initialized instance for %s (%d components, gopls: unavailable)", inst.root, len(inst.components))
+		return inst.goplsError
 	}
 
-	inst.components = discoverComponentsIn(inst.root)
-	log.Printf("initialized instance for %s (%d components)", inst.root, len(inst.components))
+	log.Printf("initialized instance for %s (%d components, gopls: ok)", inst.root, len(inst.components))
 	return nil
 }
 

@@ -18,7 +18,7 @@ import (
 // didChange on subsequent syncs.
 func (s *server) syncToGopls(gastroURI, content string) {
 	inst := s.instanceForURI(gastroURI)
-	if inst == nil {
+	if inst == nil || inst.gopls == nil {
 		return
 	}
 
@@ -77,7 +77,7 @@ func (s *server) syncToGopls(gastroURI, content string) {
 // the result with positions mapped back.
 func (s *server) forwardToGopls(gastroURI, method string, pos proxy.Position) any {
 	inst := s.instanceForURI(gastroURI)
-	if inst == nil {
+	if inst == nil || inst.gopls == nil {
 		return nil
 	}
 
@@ -127,7 +127,7 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 	}
 
 	inst := s.instanceForURI(gastroURI)
-	if inst == nil {
+	if inst == nil || inst.gopls == nil {
 		return nil
 	}
 
@@ -230,7 +230,7 @@ func parseTypeFromHover(raw json.RawMessage) string {
 // temporarily injecting a probe line into the virtual file.
 func (s *server) queryFieldsFromGopls(gastroURI, varName, typeName string) []fieldInfo {
 	inst := s.instanceForURI(gastroURI)
-	if inst == nil {
+	if inst == nil || inst.gopls == nil {
 		return nil
 	}
 
@@ -491,7 +491,7 @@ func (s *server) resolveFieldsViaChain(uri, typeName, chainExpr string) []lsptem
 	}
 
 	rfInst := s.instanceForURI(uri)
-	if rfInst == nil || chainExpr == "" {
+	if rfInst == nil || rfInst.gopls == nil || chainExpr == "" {
 		return nil
 	}
 

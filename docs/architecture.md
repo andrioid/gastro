@@ -245,10 +245,12 @@ The LSP server (invoked via `gastro lsp`). Handles JSON-RPC over stdin/stdout. O
 2. Creates a shadow workspace
 3. Attempts to spawn gopls pointed at the shadow workspace
 
-**Graceful degradation:** If gopls is not in PATH, `gastro lsp` logs a warning
-and continues without Go intelligence. Template body features (variable,
-component, and function completions) still work. Only frontmatter features
-(Go completions, hover, diagnostics, go-to-definition) require gopls.
+**Graceful degradation:** If gopls is not in PATH, the instance is still
+created with a working shadow workspace and component index. Template body
+features (variable, component, and function completions) still work. Only
+frontmatter features (Go completions, hover, diagnostics, go-to-definition)
+require gopls. A `gastro/goplsNotAvailable` notification is sent to the
+editor once, allowing it to prompt the user to install gopls.
 
 For each open `.gastro` file:
 1. Generates a virtual `.go` file in the shadow workspace
