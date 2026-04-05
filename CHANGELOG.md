@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.6](https://github.com/andrioid/gastro/compare/v0.1.5...v0.1.6) (2026-04-05)
+
+
+### Bug Fixes
+
+* LSP deadlock, graceful degradation without gopls, and VS Code install prompt ([556015b](https://github.com/andrioid/gastro/commit/556015b3d59a12a53fa7a0bc3c2a78e38d60f765))
+
+
+### Documentation
+
+* rewrite getting started guide with mise install and first component ([4edf3f1](https://github.com/andrioid/gastro/commit/4edf3f125cdd4a89b08968d48b9a9d0a488975a6))
+
 ## [0.1.5](https://github.com/andrioid/gastro/compare/v0.1.4...v0.1.5) (2026-04-04)
 
 
