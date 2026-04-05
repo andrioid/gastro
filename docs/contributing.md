@@ -129,13 +129,21 @@ Quick orientation:
 
 ```sh
 cd editors/vscode
-npm install   # must run before the extension works
+npm install   # install dependencies (including esbuild)
+npm run build # bundle extension.js into dist/extension.js
 ```
 
-The extension depends on `vscode-languageclient`. Without `npm install`, VS
-Code will fail to activate the extension with a module-not-found error.
+The extension is bundled with esbuild. `dist/extension.js` is the entry point
+loaded by VS Code — the raw `extension.js` source is not used directly.
 
-To test changes, symlink the extension directory into VS Code's extensions:
+For iterative development, use watch mode to rebuild on changes:
+
+```sh
+npm run watch
+```
+
+To test changes, symlink the extension directory into VS Code's extensions
+(or use `mise run link:vscode` which also runs the build):
 
 ```sh
 ln -s "$(pwd)" ~/.vscode/extensions/gastro-vscode

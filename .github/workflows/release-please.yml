@@ -72,6 +72,8 @@ jobs:
       - name: Build universal VS Code extension
         run: |
           npm install
+          npm run build
+          test -f dist/extension.js || (echo "Build failed: dist/extension.js not found" && exit 1)
           mkdir -p "$GITHUB_WORKSPACE/tmp/release"
           npx @vscode/vsce package -o "$GITHUB_WORKSPACE/tmp/release/gastro-vscode.vsix"
         working-directory: editors/vscode

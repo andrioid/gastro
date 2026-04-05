@@ -30,8 +30,19 @@
     "component",
     "language-server"
   ],
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.0"
   },
   "contributes": {
     "configuration": {
@@ -68,5 +79,5 @@
       }
     ]
   },
-  "main": "./extension.js"
+  "main": "./dist/extension.js"
 }

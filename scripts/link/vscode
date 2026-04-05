@@ -4,6 +4,9 @@
 
 set -euo pipefail
 
+# Bundle the extension so dist/extension.js exists
+npm run --prefix editors/vscode build
+
 EXTENSION_DIR="$HOME/.vscode/extensions"
 VERSION=$(node -p "require('./editors/vscode/package.json').version")
 LINK_NAME="andrioid.gastro-vscode-${VERSION}"
