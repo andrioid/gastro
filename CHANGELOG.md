@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.11](https://github.com/andrioid/gastro/compare/v0.1.10...v0.1.11) (2026-04-06)
+
+
+### Bug Fixes
+
+* reject bare gastro.Props() on exported vars, replace link:vscode with install:vscode ([30f84e8](https://github.com/andrioid/gastro/commit/30f84e8773e8053c67784768d471d8f93db15476))
+
+
+### Refactoring
+
+* downgrade bare gastro.Props() from error to warning ([b4d05ed](https://github.com/andrioid/gastro/commit/b4d05ed7eb3939c78614f292862ee5db949f1333))
+
 ## [0.1.10](https://github.com/andrioid/gastro/compare/v0.1.9...v0.1.10) (2026-04-06)
 
 
