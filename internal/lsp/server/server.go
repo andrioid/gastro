@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -60,6 +61,7 @@ type server struct {
 	fieldCache           map[string]map[string][]fieldInfo              // URI -> varName -> fields
 	typeFieldCache       map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
 	notifiedGoplsMissing sync.Once                                      // ensures gopls-unavailable notification is sent only once
+	notifiedGoMissing    sync.Once                                      // ensures go-unavailable notification is sent only once
 }
 
 func newServer(version string) *server {
@@ -128,6 +130,31 @@ func (s *server) notifyGoplsUnavailable(goplsErr error) {
 	})
 }
 
+// notifyGoUnavailable sends a custom notification to the editor when the Go
+// toolchain is not found. Gastro can still edit .gastro files and generate Go
+// code, but building requires Go. Only sent once per server lifetime.
+func (s *server) notifyGoUnavailable() {
+	s.notifiedGoMissing.Do(func() {
+		params, _ := json.Marshal(map[string]string{
+			"message": "go not found in PATH. Gastro can edit and generate Go files, but building requires Go.",
+		})
+		s.writeToClient(&jsonRPCMessage{
+			JSONRPC: "2.0",
+			Method:  "gastro/goNotAvailable",
+			Params:  params,
+		})
+	})
+}
+
+// checkGoToolchain checks if the Go toolchain is available in PATH and
+// notifies the editor if it is not.
+func (s *server) checkGoToolchain() {
+	if _, err := exec.LookPath("go"); err != nil {
+		log.Println("go toolchain not found in PATH")
+		s.notifyGoUnavailable()
+	}
+}
+
 type jsonRPCMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      any             `json:"id,omitempty"`
@@ -141,6 +168,7 @@ func (s *server) handleMessage(msg *jsonRPCMessage) *jsonRPCMessage {
 	case "initialize":
 		return s.handleInitialize(msg)
 	case "initialized":
+		go s.checkGoToolchain()
 		return nil
 	case "textDocument/didOpen":
 		s.handleDidOpen(msg)

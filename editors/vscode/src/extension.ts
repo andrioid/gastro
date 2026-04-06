@@ -36,12 +36,29 @@ export async function activate(
 
   // Register notifications before start so none are missed during init
   client.onNotification(
-    "gastro/goplsNotAvailable",
-    async (_params: unknown) => {
+    "gastro/goNotAvailable",
+    async (params: { message?: string }) => {
       const action = await vscode.window.showWarningMessage(
-        "Gopls is not installed. Go language features (completions, hover, " +
-          "diagnostics) in the frontmatter will be limited.\n\n" +
-          "Install gopls to enable full Go intelligence.",
+        params.message ||
+          "Go is not installed. Gastro can edit .gastro files, but building requires Go.",
+        "Install Go",
+        "Dismiss",
+      );
+
+      if (action === "Install Go") {
+        vscode.env.openExternal(vscode.Uri.parse("https://go.dev/dl/"));
+      }
+    },
+  );
+
+  client.onNotification(
+    "gastro/goplsNotAvailable",
+    async (params: { message?: string }) => {
+      const action = await vscode.window.showWarningMessage(
+        params.message ||
+          "Gopls is not installed. Go language features (completions, hover, " +
+            "diagnostics) in the frontmatter will be limited.\n\n" +
+            "Install gopls to enable full Go intelligence.",
         "Install gopls",
         "Dismiss",
       );
@@ -65,11 +82,23 @@ export async function activate(
   try {
     await client.start();
   } catch {
-    vscode.window.showErrorMessage(
+    const action = await vscode.window.showErrorMessage(
       `Gastro LSP failed to start. Is "gastro" installed and on your PATH?\n\n` +
         `Install with: go install github.com/andrioid/gastro/cmd/gastro@latest\n` +
         `Or: mise use github:andrioid/gastro@latest`,
+      "Install gastro",
+      "Reload Window",
     );
+
+    if (action === "Install gastro") {
+      const terminal = vscode.window.createTerminal("Install Gastro");
+      terminal.show();
+      terminal.sendText(
+        "go install github.com/andrioid/gastro/cmd/gastro@latest",
+      );
+    } else if (action === "Reload Window") {
+      vscode.commands.executeCommand("workbench.action.reloadWindow");
+    }
     return;
   }
 
@@ -99,6 +128,14 @@ export async function activate(
       terminal.sendText(
         "go install github.com/andrioid/gastro/cmd/gastro@latest",
       );
+
+      const reload = await vscode.window.showInformationMessage(
+        "After gastro finishes updating, reload the window to use the new version.",
+        "Reload Window",
+      );
+      if (reload === "Reload Window") {
+        vscode.commands.executeCommand("workbench.action.reloadWindow");
+      }
     }
   }
 }
