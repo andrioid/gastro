@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.8](https://github.com/andrioid/gastro/compare/v0.1.7...v0.1.8) (2026-04-06)
+
+
+### Features
+
+* add gastro fmt command for auto-formatting .gastro files ([6434182](https://github.com/andrioid/gastro/commit/6434182f786182026e71fa2c98699b82f18ead7e))
+
+
+### Bug Fixes
+
+* HoistTypeDeclarations falsely hoists type declarations inside backtick strings ([a6592db](https://github.com/andrioid/gastro/commit/a6592db1254bf500fee60e6636e2bc9fcf77bbc7))
+* LSP auto-import discovers new components without restart ([c132475](https://github.com/andrioid/gastro/commit/c132475419fb1de2f4a745dd4b5137cfe484ba09))
+
+
+### Refactoring
+
+* replace custom utilities with Go stdlib equivalents ([a848038](https://github.com/andrioid/gastro/commit/a84803808b7ddc135e1ee2ad9648cfb58ed7f6f2))
+
 ## [0.1.7](https://github.com/andrioid/gastro/compare/v0.1.6...v0.1.7) (2026-04-05)
 
 
