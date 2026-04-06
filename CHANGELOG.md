@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/andrioid/gastro/compare/v0.1.9...v0.1.10) (2026-04-06)
+
+
+### Features
+
+* add snippet completions, version check, and VSCode README ([bc4bbea](https://github.com/andrioid/gastro/commit/bc4bbeadb9174a2ea9d99d3b3ceb883ead941bd5))
+
 ## [0.1.9](https://github.com/andrioid/gastro/compare/v0.1.8...v0.1.9) (2026-04-06)
 
 
