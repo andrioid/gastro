@@ -346,6 +346,55 @@ func TestHoistTypeDeclarations_BacktickStringWithType(t *testing.T) {
 	}
 }
 
+func TestAnalyze_RejectsBarePropsOnExportedVar(t *testing.T) {
+	frontmatter := `type Props struct {
+	Name string
+}
+
+Name := gastro.Props()`
+
+	_, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err == nil {
+		t.Fatal("expected error when exported var is assigned bare gastro.Props()")
+	}
+	if !strings.Contains(err.Error(), "entire Props struct") {
+		t.Errorf("expected error about entire Props struct, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "gastro.Props().Name") {
+		t.Errorf("expected error to suggest gastro.Props().Name, got: %v", err)
+	}
+}
+
+func TestAnalyze_AllowsBarePropsOnPrivateVar(t *testing.T) {
+	// Assigning gastro.Props() to a private var is fine — it's the
+	// standard "whole struct" pattern: p := gastro.Props()
+	frontmatter := `type Props struct {
+	Title string
+}
+
+p := gastro.Props()
+Title := p.Title`
+
+	_, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAnalyze_AllowsPropsFieldAccessOnExportedVar(t *testing.T) {
+	// The correct pattern: Name := gastro.Props().Name
+	frontmatter := `type Props struct {
+	Name string
+}
+
+Name := gastro.Props().Name`
+
+	_, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func assertVarExists(t *testing.T, vars []codegen.VarInfo, name string) {
 	t.Helper()
 	for _, v := range vars {

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#MISE description="Build and install the VS Code extension locally from source"
+#MISE depends=["install:gastro", "build:vscode-deps"]
+#MISE dir="editors/vscode"
+
+set -euo pipefail
+
+# Bundle the extension
+npm run build
+
+# Package as VSIX with a dev version derived from git SHA.
+# --no-update-package-json keeps package.json untouched for release-please.
+DEV_VERSION="0.0.0-dev.$(git rev-parse --short HEAD)"
+
+mkdir -p dist
+npx @vscode/vsce package \
+  --no-dependencies \
+  --no-git-tag-version \
+  --no-update-package-json \
+  --out dist/ \
+  "$DEV_VERSION"
+
+# Find the generated VSIX file
+VSIX_FILE=$(ls -t dist/*.vsix 2>/dev/null | head -1)
+if [ -z "$VSIX_FILE" ]; then
+  echo "Error: no .vsix file found in dist/"
+  exit 1
+fi
+
+# Install into VS Code (--force replaces marketplace or previous dev version)
+code --install-extension "$VSIX_FILE" --force
+
+echo "Installed ${VSIX_FILE} (${DEV_VERSION}) into VS Code. Reload your window to pick up changes."

@@ -1501,3 +1501,53 @@ func TestLSP_SnippetCompletions_DisabledWithoutCapability(t *testing.T) {
 	}
 	t.Fatal("expected Card completion item")
 }
+
+func TestLSP_BarePropsExportedVarDiagnostic(t *testing.T) {
+	projectDir := setupTestProject(t)
+
+	// Create a component that assigns bare gastro.Props() to an exported var
+	os.MkdirAll(filepath.Join(projectDir, "components"), 0o755)
+	helloContent := "---\ntype Props struct {\n\tName string\n}\n\nName := gastro.Props()\n---\n<div>\n\t<p>Hello {{.Name}}</p>\n</div>"
+	os.WriteFile(filepath.Join(projectDir, "components", "hello.gastro"), []byte(helloContent), 0o644)
+
+	client := startLSP(t, projectDir)
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	fileURI := "file://" + filepath.Join(projectDir, "components", "hello.gastro")
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       helloContent,
+		},
+	})
+
+	found := false
+	for attempts := 0; attempts < 5; attempts++ {
+		notification := client.recvNotification(t, "textDocument/publishDiagnostics", 3*time.Second)
+		if notification == nil {
+			break
+		}
+		params, _ := notification["params"].(map[string]any)
+		diags, _ := params["diagnostics"].([]any)
+		for _, d := range diags {
+			dm, _ := d.(map[string]any)
+			msg, _ := dm["message"].(string)
+			if strings.Contains(msg, "entire Props struct") {
+				found = true
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		t.Error("expected diagnostic about bare gastro.Props() on exported variable")
+	}
+}

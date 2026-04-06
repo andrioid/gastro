@@ -57,16 +57,27 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 	var propsTypeCount int
 	var propsIsStruct bool
 
+	// Track exported vars assigned bare gastro.Props() (no field selector).
+	// These are almost always a mistake — the user likely meant gastro.Props().FieldName.
+	var barePropsExportedVars []string
+
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
 		case *ast.AssignStmt:
 			if node.Tok == token.DEFINE { // :=
-				for _, lhs := range node.Lhs {
+				for i, lhs := range node.Lhs {
 					ident, ok := lhs.(*ast.Ident)
 					if !ok || ident.Name == "_" {
 						continue
 					}
 					classifyVar(info, ident, fset, prefixLineCount)
+
+					// Check if this exported var is assigned bare gastro.Props()
+					if token.IsExported(ident.Name) && i < len(node.Rhs) {
+						if call, ok := node.Rhs[i].(*ast.CallExpr); ok && isGastroPropsCall(call) {
+							barePropsExportedVars = append(barePropsExportedVars, ident.Name)
+						}
+					}
 				}
 			}
 
@@ -107,7 +118,7 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 		return true
 	})
 
-	if err := validateFrontmatter(info, propsTypeCount, propsIsStruct); err != nil {
+	if err := validateFrontmatter(info, propsTypeCount, propsIsStruct, barePropsExportedVars); err != nil {
 		return nil, err
 	}
 
@@ -116,7 +127,7 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 
 // validateFrontmatter checks for consistency between gastro markers and type
 // declarations. Returns an error for invalid combinations.
-func validateFrontmatter(info *FrontmatterInfo, propsTypeCount int, propsIsStruct bool) error {
+func validateFrontmatter(info *FrontmatterInfo, propsTypeCount int, propsIsStruct bool, barePropsExportedVars []string) error {
 	if info.IsPage && info.IsComponent {
 		return fmt.Errorf("frontmatter cannot use both gastro.Context() and gastro.Props(): choose one")
 	}
@@ -131,6 +142,14 @@ func validateFrontmatter(info *FrontmatterInfo, propsTypeCount int, propsIsStruc
 
 	if propsTypeCount == 1 && !propsIsStruct {
 		return fmt.Errorf("'type Props' must be a struct type")
+	}
+
+	// Assigning bare gastro.Props() to an exported variable passes the entire
+	// Props struct to the template, which renders as "{field1 field2}" instead
+	// of the expected value. The user almost always wants a field selector.
+	if len(barePropsExportedVars) > 0 {
+		name := barePropsExportedVars[0]
+		return fmt.Errorf("%s is assigned the entire Props struct; did you mean gastro.Props().%s?", name, name)
 	}
 
 	return nil

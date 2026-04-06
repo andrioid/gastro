@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
 #MISE description="Link all editor extensions for local development"
-#MISE depends=["link:vscode", "link:zed", "link:neovim"]
+#MISE depends=["link:zed", "link:neovim"]
 
 set -euo pipefail
