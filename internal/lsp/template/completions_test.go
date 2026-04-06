@@ -878,3 +878,149 @@ func TestVariableCompletions_ExcludesChildrenForPages(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildComponentSnippet(t *testing.T) {
+	tests := []struct {
+		name   string
+		comp   string
+		fields []codegen.StructField
+		want   string
+	}{
+		{
+			name:   "no props",
+			comp:   "Card",
+			fields: nil,
+			want:   "Card (dict $0)",
+		},
+		{
+			name:   "empty props",
+			comp:   "Card",
+			fields: []codegen.StructField{},
+			want:   "Card (dict $0)",
+		},
+		{
+			name: "single string prop",
+			comp: "Card",
+			fields: []codegen.StructField{
+				{Name: "Title", Type: "string"},
+			},
+			want: `Card (dict "Title" ${1:""})$0`,
+		},
+		{
+			name: "multiple props with types",
+			comp: "Card",
+			fields: []codegen.StructField{
+				{Name: "Title", Type: "string"},
+				{Name: "Count", Type: "int"},
+				{Name: "Active", Type: "bool"},
+			},
+			want: `Card (dict "Title" ${1:""} "Count" ${2:0} "Active" ${3:false})$0`,
+		},
+		{
+			name: "unknown type gets value placeholder",
+			comp: "Widget",
+			fields: []codegen.StructField{
+				{Name: "Data", Type: "db.Record"},
+			},
+			want: `Widget (dict "Data" ${1:value})$0`,
+		},
+		{
+			name: "prop name with dollar sign is escaped",
+			comp: "Card",
+			fields: []codegen.StructField{
+				{Name: "Price$", Type: "string"},
+			},
+			want: `Card (dict "Price\$" ${1:""})$0`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lsptemplate.BuildComponentSnippet(tt.comp, tt.fields)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestStripSnippetSyntax(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "tabstop with placeholder",
+			input: `Card (dict "Title" ${1:""} "Count" ${2:0})$0`,
+			want:  `Card (dict "Title" "" "Count" 0)`,
+		},
+		{
+			name:  "bare tabstop",
+			input: `Card (dict $0)`,
+			want:  `Card (dict )`,
+		},
+		{
+			name:  "no snippet syntax",
+			input: `Card`,
+			want:  `Card`,
+		},
+		{
+			name:  "prop completion snippet",
+			input: `"Title" ${1:.}`,
+			want:  `"Title" .`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lsptemplate.StripSnippetSyntax(tt.input)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestComponentPropCompletions_WithSnippets(t *testing.T) {
+	fields := []codegen.StructField{
+		{Name: "Title", Type: "string"},
+		{Name: "Count", Type: "int"},
+	}
+
+	// With snippets enabled
+	items := lsptemplate.ComponentPropCompletions(fields, nil, true)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if !items[0].IsSnippet {
+		t.Error("expected IsSnippet=true for snippet mode")
+	}
+	if items[0].InsertText != `"Title" ${1:.}` {
+		t.Errorf("snippet insertText: got %q, want %q", items[0].InsertText, `"Title" ${1:.}`)
+	}
+
+	// With snippets disabled
+	items = lsptemplate.ComponentPropCompletions(fields, nil, false)
+	if items[0].IsSnippet {
+		t.Error("expected IsSnippet=false for plain text mode")
+	}
+	if items[0].InsertText != `"Title" .` {
+		t.Errorf("plain insertText: got %q, want %q", items[0].InsertText, `"Title" .`)
+	}
+}
+
+func TestComponentPropCompletions_FiltersExisting(t *testing.T) {
+	fields := []codegen.StructField{
+		{Name: "Title", Type: "string"},
+		{Name: "Body", Type: "string"},
+	}
+
+	items := lsptemplate.ComponentPropCompletions(fields, []string{"Title"}, true)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item (Title filtered), got %d", len(items))
+	}
+	if items[0].Label != "Body" {
+		t.Errorf("expected Body, got %s", items[0].Label)
+	}
+}

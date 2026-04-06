@@ -11,6 +11,22 @@ import (
 	"github.com/andrioid/gastro/internal/parser"
 )
 
+// LSP CompletionItemKind values
+// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#completionItemKind
+const (
+	completionKindFunction = 3
+	completionKindField    = 5
+	completionKindVariable = 6
+	completionKindClass    = 7 // used for components
+)
+
+// LSP InsertTextFormat values
+// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#insertTextFormat
+const (
+	insertTextFormatPlainText = 1
+	insertTextFormatSnippet   = 2
+)
+
 // positionParams is used by completion, hover, and definition handlers.
 type positionParams struct {
 	TextDocument struct {
@@ -105,7 +121,7 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 			for _, c := range lsptemplate.FuncMapCompletions() {
 				items = append(items, map[string]any{
 					"label":      c.Label,
-					"kind":       3, // LSP Function
+					"kind":       completionKindFunction,
 					"detail":     c.Detail,
 					"insertText": c.InsertText,
 				})
@@ -135,13 +151,17 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 			}
 			fields, err := lsptemplate.ResolveComponentProps(compRoot, compPath, s.documents)
 			if err == nil && len(fields) > 0 {
-				for _, c := range lsptemplate.ComponentPropCompletions(fields, tagCtx.ExistingProps) {
-					items = append(items, map[string]any{
+				for _, c := range lsptemplate.ComponentPropCompletions(fields, tagCtx.ExistingProps, s.snippetSupport) {
+					item := map[string]any{
 						"label":      c.Label,
-						"kind":       5, // LSP Field
+						"kind":       completionKindField,
 						"detail":     c.Detail,
 						"insertText": c.InsertText,
-					})
+					}
+					if c.IsSnippet {
+						item["insertTextFormat"] = insertTextFormatSnippet
+					}
+					items = append(items, item)
 				}
 				return items
 			}
@@ -157,7 +177,7 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 		for _, c := range lsptemplate.VariableCompletions(info) {
 			item := map[string]any{
 				"label":  c.Label,
-				"kind":   6,
+				"kind":   completionKindVariable,
 				"detail": c.Detail,
 			}
 			if c.FilterText != "" {
@@ -179,34 +199,55 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	}
 
 	// Imported component completions
+	compInst := s.instanceForURI(uri)
 	importedNames := make(map[string]bool, len(parsed.Uses))
 	for _, c := range lsptemplate.ComponentCompletions(parsed.Uses) {
 		importedNames[c.Label] = true
-		items = append(items, map[string]any{
-			"label":      c.Label,
-			"kind":       7,
-			"detail":     c.Detail,
-			"insertText": c.InsertText,
-		})
+		item := map[string]any{
+			"label":  c.Label,
+			"kind":   completionKindClass,
+			"detail": c.Detail,
+		}
+		if s.snippetSupport {
+			// Look up the component's path from use declarations to resolve Props
+			compPath := ""
+			for _, u := range parsed.Uses {
+				if u.Name == c.Label {
+					compPath = u.Path
+					break
+				}
+			}
+			fields := s.cachedComponentProps(compInst, compPath)
+			item["insertText"] = lsptemplate.BuildComponentSnippet(c.Label, fields)
+			item["insertTextFormat"] = insertTextFormatSnippet
+		} else {
+			item["insertText"] = c.InsertText
+		}
+		items = append(items, item)
 	}
 
 	// Un-imported component completions (with auto-import edit).
 	// Uses getComponents() which re-scans the components/ directory if the
 	// cache is stale, so newly created files are picked up without restart.
-	tcInst := s.instanceForURI(uri)
 	var tcComponents []componentInfo
-	if tcInst != nil {
-		tcComponents = tcInst.getComponents()
+	if compInst != nil {
+		tcComponents = compInst.getComponents()
 	}
 	for _, comp := range tcComponents {
 		if importedNames[comp.Name] {
 			continue
 		}
 		item := map[string]any{
-			"label":      comp.Name,
-			"kind":       7,
-			"detail":     comp.Path + " (auto-import)",
-			"insertText": comp.Name,
+			"label":  comp.Name,
+			"kind":   completionKindClass,
+			"detail": comp.Path + " (auto-import)",
+		}
+		if s.snippetSupport {
+			fields := s.cachedComponentProps(compInst, comp.Path)
+			item["insertText"] = lsptemplate.BuildComponentSnippet(comp.Name, fields)
+			item["insertTextFormat"] = insertTextFormatSnippet
+		} else {
+			item["insertText"] = comp.Name
 		}
 
 		// Compute additional text edit to insert the import declaration
@@ -221,7 +262,7 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	for _, c := range lsptemplate.FuncMapCompletions() {
 		items = append(items, map[string]any{
 			"label":      c.Label,
-			"kind":       3,
+			"kind":       completionKindFunction,
 			"detail":     c.Detail,
 			"insertText": c.InsertText,
 		})
@@ -277,6 +318,23 @@ func (s *server) computeAutoImportEdit(content string, comp componentInfo) map[s
 	return nil
 }
 
+// cachedComponentProps returns Props struct fields for a component, checking
+// the project instance's cache first to avoid disk I/O on every completion.
+func (s *server) cachedComponentProps(inst *projectInstance, compPath string) []codegen.StructField {
+	if inst == nil {
+		return nil
+	}
+	if cached, ok := inst.componentPropsCache[compPath]; ok {
+		return cached
+	}
+	fields, err := lsptemplate.ResolveComponentProps(inst.root, compPath, s.documents)
+	if err != nil {
+		return nil
+	}
+	inst.componentPropsCache[compPath] = fields
+	return fields
+}
+
 // scopedFieldCompletions queries gopls for the fields of a variable's element
 // type and returns them as completion items. Used when the cursor is inside a
 // range/with block.
@@ -311,7 +369,7 @@ func (s *server) scopedFieldCompletions(uri, rangeVar string, pos proxy.Position
 	for _, fi := range fieldItems {
 		item := map[string]any{
 			"label":      "." + fi.Label,
-			"kind":       5, // Field
+			"kind":       completionKindField,
 			"detail":     fi.Detail,
 			"filterText": "." + fi.Label,
 		}

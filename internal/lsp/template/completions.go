@@ -19,8 +19,9 @@ import (
 type CompletionItem struct {
 	Label      string
 	Detail     string // type info or description
-	InsertText string // text to insert (may differ from label)
+	InsertText string // text to insert (may differ from label); may contain snippet syntax when IsSnippet is true
 	FilterText string // text the editor uses for fuzzy matching (optional)
+	IsSnippet  bool   // true when InsertText contains snippet tabstop syntax ($0, ${1:...})
 }
 
 // Diagnostic represents an LSP diagnostic (error/warning).
@@ -823,7 +824,9 @@ func isAfterPipeInDict(text string) bool {
 
 // ComponentPropCompletions returns completion items for a component's props.
 // It filters out props that are already specified on the tag.
-func ComponentPropCompletions(fields []codegen.StructField, existingProps []string) []CompletionItem {
+// When snippets is true, the insertText uses snippet syntax with a tabstop
+// at the value position so the user can tab to fill in the value.
+func ComponentPropCompletions(fields []codegen.StructField, existingProps []string, snippets bool) []CompletionItem {
 	existing := make(map[string]bool, len(existingProps))
 	for _, p := range existingProps {
 		existing[p] = true
@@ -834,11 +837,68 @@ func ComponentPropCompletions(fields []codegen.StructField, existingProps []stri
 		if existing[f.Name] {
 			continue
 		}
+		insertText := `"` + f.Name + `" .`
+		isSnippet := false
+		if snippets {
+			insertText = `"` + escapeSnippetText(f.Name) + `" ${1:.}`
+			isSnippet = true
+		}
 		items = append(items, CompletionItem{
 			Label:      f.Name,
 			Detail:     f.Type,
-			InsertText: `"` + f.Name + `" .`,
+			InsertText: insertText,
+			IsSnippet:  isSnippet,
 		})
 	}
 	return items
+}
+
+// BuildComponentSnippet builds a snippet insertText for a component call with
+// a full dict skeleton containing tabstops for each prop value.
+// Example: `Card (dict "Title" ${1:""} "Count" ${2:0})$0`
+func BuildComponentSnippet(name string, fields []codegen.StructField) string {
+	if len(fields) == 0 {
+		return name + " (dict $0)"
+	}
+	var b strings.Builder
+	b.WriteString(name)
+	b.WriteString(" (dict")
+	for i, f := range fields {
+		b.WriteString(fmt.Sprintf(` "%s" ${%d:%s}`, escapeSnippetText(f.Name), i+1, snippetPlaceholderForType(f.Type)))
+	}
+	b.WriteString(")$0")
+	return b.String()
+}
+
+// snippetPlaceholderForType returns a sensible default placeholder based on the Go type.
+func snippetPlaceholderForType(typ string) string {
+	switch {
+	case strings.Contains(typ, "string"):
+		return `""`
+	case strings.Contains(typ, "int"), strings.Contains(typ, "float"):
+		return "0"
+	case strings.Contains(typ, "bool"):
+		return "false"
+	default:
+		return "value"
+	}
+}
+
+// escapeSnippetText escapes characters that have special meaning in LSP snippet syntax.
+func escapeSnippetText(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `$`, `\$`)
+	s = strings.ReplaceAll(s, `}`, `\}`)
+	return s
+}
+
+// StripSnippetSyntax removes snippet tabstop syntax from text, returning
+// plain text suitable for editors that don't support snippets.
+func StripSnippetSyntax(s string) string {
+	// Replace ${N:placeholder} with placeholder
+	re := regexp.MustCompile(`\$\{[0-9]+:([^}]*)\}`)
+	s = re.ReplaceAllString(s, "$1")
+	// Remove bare $0 final tabstops
+	s = strings.ReplaceAll(s, "$0", "")
+	return s
 }

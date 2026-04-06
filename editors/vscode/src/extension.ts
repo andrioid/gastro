@@ -70,6 +70,36 @@ export async function activate(
         `Install with: go install github.com/andrioid/gastro/cmd/gastro@latest\n` +
         `Or: mise use github:andrioid/gastro@latest`,
     );
+    return;
+  }
+
+  // Check if the gastro binary version matches the extension version.
+  // Mismatches cause features like formatting or snippet completions to
+  // silently not work because the binary doesn't advertise them yet.
+  const serverVersion = (
+    client.initializeResult as { serverInfo?: { version?: string } }
+  )?.serverInfo?.version;
+  const extensionVersion = context.extension.packageJSON.version as string;
+
+  if (
+    serverVersion &&
+    serverVersion !== "dev" &&
+    serverVersion !== extensionVersion
+  ) {
+    const action = await vscode.window.showWarningMessage(
+      `Gastro version mismatch: the gastro binary is v${serverVersion} ` +
+        `but the extension expects v${extensionVersion}. ` +
+        `Some features may not work correctly.`,
+      "Update gastro",
+      "Dismiss",
+    );
+    if (action === "Update gastro") {
+      const terminal = vscode.window.createTerminal("Update Gastro");
+      terminal.show();
+      terminal.sendText(
+        "go install github.com/andrioid/gastro/cmd/gastro@latest",
+      );
+    }
   }
 }
 

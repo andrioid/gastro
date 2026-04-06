@@ -1364,3 +1364,140 @@ func TestLSP_Formatting_NoOp(t *testing.T) {
 		t.Errorf("expected empty edits for already-formatted file, got %d edits", len(edits))
 	}
 }
+
+func TestLSP_SnippetCompletions_ComponentWithProps(t *testing.T) {
+	projectDir := setupTestProjectWithComponents(t)
+	client := startLSP(t, projectDir)
+
+	// Initialize WITH snippet support
+	client.send("initialize", map[string]any{
+		"rootUri": "file://" + projectDir,
+		"capabilities": map[string]any{
+			"textDocument": map[string]any{
+				"completion": map[string]any{
+					"completionItem": map[string]any{
+						"snippetSupport": true,
+					},
+				},
+			},
+		},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// Open a page that imports Card; cursor inside {{ }} after "C"
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<div>{{ C }}</div>"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Request completion at the "C" position (line 4, char 8)
+	client.send("textDocument/completion", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 4, "character": 8},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+	items, ok := resp["result"].([]any)
+	if !ok {
+		t.Fatalf("expected result array, got: %T (%v)", resp["result"], resp["result"])
+	}
+
+	// Find the Card completion item
+	var cardItem map[string]any
+	for _, item := range items {
+		m, _ := item.(map[string]any)
+		if m["label"] == "Card" {
+			cardItem = m
+			break
+		}
+	}
+	if cardItem == nil {
+		t.Fatal("expected Card completion item")
+	}
+
+	// Verify it has snippet format
+	insertTextFormat, _ := cardItem["insertTextFormat"].(float64)
+	if insertTextFormat != 2 {
+		t.Errorf("expected insertTextFormat=2 (Snippet), got %v", cardItem["insertTextFormat"])
+	}
+
+	// Verify the insertText contains dict with prop tabstops
+	insertText, _ := cardItem["insertText"].(string)
+	if !strings.Contains(insertText, "(dict") {
+		t.Errorf("expected snippet with (dict, got %q", insertText)
+	}
+	if !strings.Contains(insertText, `"Title"`) {
+		t.Errorf("expected snippet to contain Title prop, got %q", insertText)
+	}
+	if !strings.Contains(insertText, `"Body"`) {
+		t.Errorf("expected snippet to contain Body prop, got %q", insertText)
+	}
+	if !strings.Contains(insertText, "${1:") {
+		t.Errorf("expected snippet tabstops, got %q", insertText)
+	}
+}
+
+func TestLSP_SnippetCompletions_DisabledWithoutCapability(t *testing.T) {
+	projectDir := setupTestProjectWithComponents(t)
+	client := startLSP(t, projectDir)
+
+	// Initialize WITHOUT snippet support
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n<div>{{ C }}</div>"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	client.send("textDocument/completion", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 4, "character": 8},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+	items, ok := resp["result"].([]any)
+	if !ok {
+		t.Fatalf("expected result array, got: %T (%v)", resp["result"], resp["result"])
+	}
+
+	// Find the Card completion item
+	for _, item := range items {
+		m, _ := item.(map[string]any)
+		if m["label"] == "Card" {
+			// Should NOT have insertTextFormat=2
+			if m["insertTextFormat"] != nil {
+				itf, _ := m["insertTextFormat"].(float64)
+				if itf == 2 {
+					t.Error("expected no snippet format when client doesn't support snippets")
+				}
+			}
+			// insertText should be plain component name
+			insertText, _ := m["insertText"].(string)
+			if strings.Contains(insertText, "${") {
+				t.Errorf("expected plain text insertText, got snippet syntax: %q", insertText)
+			}
+			return
+		}
+	}
+	t.Fatal("expected Card completion item")
+}

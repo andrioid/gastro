@@ -7,13 +7,24 @@ import (
 )
 
 type initializeParams struct {
-	RootURI  string `json:"rootUri"`
-	RootPath string `json:"rootPath"`
+	RootURI      string `json:"rootUri"`
+	RootPath     string `json:"rootPath"`
+	Capabilities struct {
+		TextDocument struct {
+			Completion struct {
+				CompletionItem struct {
+					SnippetSupport bool `json:"snippetSupport"`
+				} `json:"completionItem"`
+			} `json:"completion"`
+		} `json:"textDocument"`
+	} `json:"capabilities"`
 }
 
 func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 	var params initializeParams
 	json.Unmarshal(msg.Params, &params)
+
+	s.snippetSupport = params.Capabilities.TextDocument.Completion.CompletionItem.SnippetSupport
 
 	// Determine project root
 	s.projectDir = uriToPath(params.RootURI)

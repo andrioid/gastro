@@ -21,7 +21,8 @@
     "onLanguage:gastro"
   ],
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Formatters"
   ],
   "keywords": [
     "gastro",
@@ -52,6 +53,16 @@
           "type": "string",
           "default": "",
           "description": "Absolute path to the gastro binary. Leave empty to find it on PATH."
+        },
+        "gastro-lsp.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the Gastro Language Server."
         }
       }
     },

@@ -48,6 +48,7 @@ type fieldInfo struct {
 
 type server struct {
 	version              string
+	snippetSupport       bool                                           // client supports snippet insertTextFormat; set once during initialize, read-only after
 	documents            map[string]string                              // URI -> content
 	projectDir           string                                         // global root from editor (fallback)
 	instances            map[string]*projectInstance                    // projectRoot -> instance
