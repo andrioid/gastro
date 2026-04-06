@@ -12,7 +12,7 @@ func TestCompile_ProducesOutputDirectory(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestCompile_GeneratesRouteFile(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestCompile_GeneratesPageHandlers(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestCompile_GeneratesTemplateFiles(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestCompile_GeneratesStaticHandler(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestCompile_OmitsStaticHandlerWhenNoDir(t *testing.T) {
 
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestCompile_GeneratesRenderFile(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestCompile_RenderFileWithComposition(t *testing.T) {
 	projectDir := filepath.Join("testdata", "composition")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestCompile_ComponentComposition(t *testing.T) {
 	projectDir := filepath.Join("testdata", "composition")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestCompile_RoutesContainsTemplateFuncMapWiring(t *testing.T) {
 	projectDir := filepath.Join("testdata", "composition")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestCompile_GeneratesEmbedFile(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,7 +250,7 @@ func TestCompile_EmbedFileIncludesStaticWhenPresent(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestCompile_EmbedFileOmitsStaticWhenAbsent(t *testing.T) {
 
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestCompile_EmbedFileOmitsStaticWhenEmpty(t *testing.T) {
 
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestCompile_EmbedFileOmitsStaticWhenOnlyDotfiles(t *testing.T) {
 
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestCompile_CopiesStaticDir(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestCompile_NoStaticDirWhenAbsent(t *testing.T) {
 
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestCompile_ComponentWithoutFrontmatter(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -438,7 +438,7 @@ func TestCompile_PageWithoutFrontmatter(t *testing.T) {
 
 	outputDir := t.TempDir()
 
-	err := compiler.Compile(projectDir, outputDir)
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

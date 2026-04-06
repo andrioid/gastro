@@ -16,6 +16,13 @@ type VarInfo struct {
 	Line int // 1-indexed line within the frontmatter
 }
 
+// Warning represents a non-fatal issue detected during frontmatter analysis.
+// Warnings don't block compilation but indicate likely mistakes.
+type Warning struct {
+	Line    int // 1-indexed line within the frontmatter
+	Message string
+}
+
 // FrontmatterInfo contains the analysis results of a .gastro frontmatter block.
 type FrontmatterInfo struct {
 	ExportedVars  []VarInfo // Uppercase variables — available to the template
@@ -23,6 +30,7 @@ type FrontmatterInfo struct {
 	IsPage        bool      // true if gastro.Context() is called
 	IsComponent   bool      // true if gastro.Props() is called
 	PropsTypeName string    // e.g. "Props" — from type Props struct in the frontmatter
+	Warnings      []Warning // Non-fatal issues detected during analysis
 }
 
 const wrapperSuffix = "\n}"
@@ -59,7 +67,11 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 
 	// Track exported vars assigned bare gastro.Props() (no field selector).
 	// These are almost always a mistake — the user likely meant gastro.Props().FieldName.
-	var barePropsExportedVars []string
+	type barePropsVar struct {
+		name string
+		line int // 1-indexed within frontmatter
+	}
+	var barePropsExportedVars []barePropsVar
 
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
@@ -75,7 +87,11 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 					// Check if this exported var is assigned bare gastro.Props()
 					if token.IsExported(ident.Name) && i < len(node.Rhs) {
 						if call, ok := node.Rhs[i].(*ast.CallExpr); ok && isGastroPropsCall(call) {
-							barePropsExportedVars = append(barePropsExportedVars, ident.Name)
+							pos := fset.Position(ident.Pos())
+							barePropsExportedVars = append(barePropsExportedVars, barePropsVar{
+								name: ident.Name,
+								line: pos.Line - prefixLineCount,
+							})
 						}
 					}
 				}
@@ -118,8 +134,20 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 		return true
 	})
 
-	if err := validateFrontmatter(info, propsTypeCount, propsIsStruct, barePropsExportedVars); err != nil {
+	if err := validateFrontmatter(info, propsTypeCount, propsIsStruct); err != nil {
 		return nil, err
+	}
+
+	// Populate warnings for bare gastro.Props() on exported vars.
+	// These are non-fatal: the component still compiles but renders incorrectly.
+	// Line numbers from the AST are relative to the body after type hoisting,
+	// so we look up the original line in the raw frontmatter instead.
+	for _, bpv := range barePropsExportedVars {
+		origLine := findLineInFrontmatter(frontmatter, bpv.name+` := gastro.Props()`)
+		info.Warnings = append(info.Warnings, Warning{
+			Line:    origLine,
+			Message: fmt.Sprintf("%s is assigned the entire Props struct; did you mean gastro.Props().%s?", bpv.name, bpv.name),
+		})
 	}
 
 	return info, nil
@@ -127,7 +155,7 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 
 // validateFrontmatter checks for consistency between gastro markers and type
 // declarations. Returns an error for invalid combinations.
-func validateFrontmatter(info *FrontmatterInfo, propsTypeCount int, propsIsStruct bool, barePropsExportedVars []string) error {
+func validateFrontmatter(info *FrontmatterInfo, propsTypeCount int, propsIsStruct bool) error {
 	if info.IsPage && info.IsComponent {
 		return fmt.Errorf("frontmatter cannot use both gastro.Context() and gastro.Props(): choose one")
 	}
@@ -144,15 +172,18 @@ func validateFrontmatter(info *FrontmatterInfo, propsTypeCount int, propsIsStruc
 		return fmt.Errorf("'type Props' must be a struct type")
 	}
 
-	// Assigning bare gastro.Props() to an exported variable passes the entire
-	// Props struct to the template, which renders as "{field1 field2}" instead
-	// of the expected value. The user almost always wants a field selector.
-	if len(barePropsExportedVars) > 0 {
-		name := barePropsExportedVars[0]
-		return fmt.Errorf("%s is assigned the entire Props struct; did you mean gastro.Props().%s?", name, name)
-	}
-
 	return nil
+}
+
+// findLineInFrontmatter returns the 1-indexed line number within the
+// frontmatter where substr first appears, or 1 if not found.
+func findLineInFrontmatter(frontmatter, substr string) int {
+	for i, line := range strings.Split(frontmatter, "\n") {
+		if strings.Contains(strings.TrimSpace(line), substr) {
+			return i + 1
+		}
+	}
+	return 1
 }
 
 // classifyVar adds a variable to ExportedVars or PrivateVars based on whether

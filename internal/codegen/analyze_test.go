@@ -346,28 +346,57 @@ func TestHoistTypeDeclarations_BacktickStringWithType(t *testing.T) {
 	}
 }
 
-func TestAnalyze_RejectsBarePropsOnExportedVar(t *testing.T) {
+func TestAnalyze_WarnsBarePropsOnExportedVar(t *testing.T) {
 	frontmatter := `type Props struct {
 	Name string
 }
 
 Name := gastro.Props()`
 
-	_, err := codegen.AnalyzeFrontmatter(frontmatter)
-	if err == nil {
-		t.Fatal("expected error when exported var is assigned bare gastro.Props()")
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "entire Props struct") {
-		t.Errorf("expected error about entire Props struct, got: %v", err)
+	if len(info.Warnings) != 1 {
+		t.Fatalf("expected 1 warning, got %d", len(info.Warnings))
 	}
-	if !strings.Contains(err.Error(), "gastro.Props().Name") {
-		t.Errorf("expected error to suggest gastro.Props().Name, got: %v", err)
+	if !strings.Contains(info.Warnings[0].Message, "entire Props struct") {
+		t.Errorf("expected warning about entire Props struct, got: %s", info.Warnings[0].Message)
+	}
+	if !strings.Contains(info.Warnings[0].Message, "gastro.Props().Name") {
+		t.Errorf("expected warning to suggest gastro.Props().Name, got: %s", info.Warnings[0].Message)
+	}
+	// Line should point to the assignment, not the type declaration
+	if info.Warnings[0].Line != 5 {
+		t.Errorf("expected warning on frontmatter line 5, got %d", info.Warnings[0].Line)
+	}
+}
+
+func TestAnalyze_WarnsMultipleBarePropsExportedVars(t *testing.T) {
+	frontmatter := `type Props struct {
+	Name  string
+	Title string
+}
+
+Name := gastro.Props()
+Title := gastro.Props()`
+
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(info.Warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %d", len(info.Warnings))
+	}
+	if !strings.Contains(info.Warnings[0].Message, "gastro.Props().Name") {
+		t.Errorf("warning 0: expected Name suggestion, got: %s", info.Warnings[0].Message)
+	}
+	if !strings.Contains(info.Warnings[1].Message, "gastro.Props().Title") {
+		t.Errorf("warning 1: expected Title suggestion, got: %s", info.Warnings[1].Message)
 	}
 }
 
 func TestAnalyze_AllowsBarePropsOnPrivateVar(t *testing.T) {
-	// Assigning gastro.Props() to a private var is fine — it's the
-	// standard "whole struct" pattern: p := gastro.Props()
 	frontmatter := `type Props struct {
 	Title string
 }
@@ -375,23 +404,28 @@ func TestAnalyze_AllowsBarePropsOnPrivateVar(t *testing.T) {
 p := gastro.Props()
 Title := p.Title`
 
-	_, err := codegen.AnalyzeFrontmatter(frontmatter)
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(info.Warnings) != 0 {
+		t.Errorf("expected no warnings for private var, got %d: %v", len(info.Warnings), info.Warnings)
 	}
 }
 
 func TestAnalyze_AllowsPropsFieldAccessOnExportedVar(t *testing.T) {
-	// The correct pattern: Name := gastro.Props().Name
 	frontmatter := `type Props struct {
 	Name string
 }
 
 Name := gastro.Props().Name`
 
-	_, err := codegen.AnalyzeFrontmatter(frontmatter)
+	info, err := codegen.AnalyzeFrontmatter(frontmatter)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(info.Warnings) != 0 {
+		t.Errorf("expected no warnings for field access, got %d: %v", len(info.Warnings), info.Warnings)
 	}
 }
 

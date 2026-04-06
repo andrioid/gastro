@@ -1541,6 +1541,21 @@ func TestLSP_BarePropsExportedVarDiagnostic(t *testing.T) {
 			msg, _ := dm["message"].(string)
 			if strings.Contains(msg, "entire Props struct") {
 				found = true
+
+				// Should be a warning (severity 2), not an error
+				severity, _ := dm["severity"].(float64)
+				if severity != 2 {
+					t.Errorf("expected severity 2 (Warning), got %v", severity)
+				}
+
+				// Should point to line 6 (0-indexed: 5) where "Name := gastro.Props()" is,
+				// not line 2 where "type Props struct {" is
+				rng, _ := dm["range"].(map[string]any)
+				start, _ := rng["start"].(map[string]any)
+				line, _ := start["line"].(float64)
+				if line != 5 {
+					t.Errorf("expected diagnostic on line 5 (0-indexed), got %v", line)
+				}
 			}
 		}
 		if found {
@@ -1548,6 +1563,6 @@ func TestLSP_BarePropsExportedVarDiagnostic(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("expected diagnostic about bare gastro.Props() on exported variable")
+		t.Error("expected warning diagnostic about bare gastro.Props() on exported variable")
 	}
 }

@@ -12,37 +12,68 @@ import (
 	"github.com/andrioid/gastro/internal/router"
 )
 
+// CompileOptions configures compilation behavior.
+type CompileOptions struct {
+	Strict bool // Treat warnings as errors (production builds)
+}
+
+// FileWarning represents a warning from a specific file during compilation.
+type FileWarning struct {
+	File    string
+	Line    int
+	Message string
+}
+
+// CompileResult contains the output of a successful compilation.
+type CompileResult struct {
+	Warnings []FileWarning
+}
+
 // Compile reads all .gastro files from a project directory, processes them
 // through the parser and code generator, and writes the output to outputDir.
-func Compile(projectDir, outputDir string) error {
+func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult, error) {
 	// Ensure output subdirectories exist
 	for _, sub := range []string{"pages", "components", "templates"} {
 		if err := os.MkdirAll(filepath.Join(outputDir, sub), 0o755); err != nil {
-			return fmt.Errorf("creating output directory: %w", err)
+			return nil, fmt.Errorf("creating output directory: %w", err)
 		}
 	}
 
 	// Discover all .gastro files
 	pageFiles, err := discoverFiles(filepath.Join(projectDir, "pages"), "pages")
 	if err != nil {
-		return fmt.Errorf("discovering pages: %w", err)
+		return nil, fmt.Errorf("discovering pages: %w", err)
 	}
 
 	componentFiles, err := discoverFiles(filepath.Join(projectDir, "components"), "components")
 	if err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("discovering components: %w", err)
+		return nil, fmt.Errorf("discovering components: %w", err)
 	}
 
 	// Process each file, collecting metadata for render.go and routes.go
 	allFiles := append(pageFiles, componentFiles...)
 	var components []componentMeta
 	var templates []templateMeta
+	var allWarnings []FileWarning
 	for _, relPath := range allFiles {
 		absPath := filepath.Join(projectDir, relPath)
 		result, err := compileFile(absPath, relPath, outputDir)
 		if err != nil {
-			return fmt.Errorf("compiling %s: %w", relPath, err)
+			return nil, fmt.Errorf("compiling %s: %w", relPath, err)
 		}
+
+		// Collect warnings from frontmatter analysis
+		for _, w := range result.warnings {
+			if opts.Strict {
+				return nil, fmt.Errorf("compiling %s: %s", relPath, w.Message)
+			}
+			allWarnings = append(allWarnings, FileWarning{
+				File:    relPath,
+				Line:    w.Line,
+				Message: w.Message,
+			})
+		}
+
 		templates = append(templates, result.template)
 		if result.component != nil {
 			components = append(components, *result.component)
@@ -67,29 +98,29 @@ func Compile(projectDir, outputDir string) error {
 	// Go's //go:embed does not follow symlinks to directories, so we copy.
 	if hasStatic {
 		if err := syncStatic(projectDir, outputDir); err != nil {
-			return fmt.Errorf("syncing static: %w", err)
+			return nil, fmt.Errorf("syncing static: %w", err)
 		}
 	}
 
 	// Generate embed.go with //go:embed directives
 	if err := generateEmbedFile(hasStatic, outputDir); err != nil {
-		return fmt.Errorf("generating embed: %w", err)
+		return nil, fmt.Errorf("generating embed: %w", err)
 	}
 
 	// Generate routes file
 	routes := router.BuildRoutes(pageFiles)
 	if err := generateRoutesFile(routes, templates, hasStatic, outputDir); err != nil {
-		return fmt.Errorf("generating routes: %w", err)
+		return nil, fmt.Errorf("generating routes: %w", err)
 	}
 
 	// Generate render file for component rendering API
 	if len(components) > 0 {
 		if err := generateRenderFile(components, outputDir); err != nil {
-			return fmt.Errorf("generating render: %w", err)
+			return nil, fmt.Errorf("generating render: %w", err)
 		}
 	}
 
-	return nil
+	return &CompileResult{Warnings: allWarnings}, nil
 }
 
 // discoverFiles walks a directory and returns relative paths of all .gastro files.
@@ -138,6 +169,7 @@ type componentMeta struct {
 type compileResult struct {
 	template  templateMeta
 	component *componentMeta
+	warnings  []codegen.Warning
 }
 
 func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
@@ -219,7 +251,7 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 
 	// Pages have no component metadata
 	if !isComponent {
-		return compileResult{template: tmplMeta}, nil
+		return compileResult{template: tmplMeta, warnings: info.Warnings}, nil
 	}
 
 	_, hoistedTypes := codegen.HoistTypeDeclarations(file.Frontmatter)
@@ -239,7 +271,7 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 		HasChildren:   hasChildren,
 	}
 
-	return compileResult{template: tmplMeta, component: compMeta}, nil
+	return compileResult{template: tmplMeta, component: compMeta, warnings: info.Warnings}, nil
 }
 
 // syncStatic copies the project's static/ directory into outputDir/static/.

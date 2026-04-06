@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,13 @@ import (
 	"github.com/andrioid/gastro/internal/lsp/proxy"
 	lsptemplate "github.com/andrioid/gastro/internal/lsp/template"
 	"github.com/andrioid/gastro/internal/parser"
+)
+
+// LSP DiagnosticSeverity values
+// https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#diagnosticSeverity
+const (
+	diagnosticSeverityError   = 1
+	diagnosticSeverityWarning = 2
 )
 
 // runTemplateDiagnostics parses the document, runs template-body diagnostics
@@ -52,11 +60,34 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 	// Convert to LSP diagnostic format, offsetting positions by the template body start line.
 	// TemplateBodyLine is 1-indexed; LSP positions are 0-indexed.
 	bodyLineOffset := parsed.TemplateBodyLine - 1
-	lspDiags := make([]map[string]any, 0, len(templateDiags))
+	lspDiags := make([]map[string]any, 0, len(templateDiags)+len(info.Warnings))
+
+	// Surface frontmatter warnings (e.g. bare gastro.Props()) as LSP diagnostics.
+	// Warning.Line is 1-indexed within the original frontmatter.
+	// FrontmatterLine is the 1-indexed line in the file where frontmatter content starts.
+	fmLineOffset := parsed.FrontmatterLine - 1
+	for _, w := range info.Warnings {
+		warnLine := fmLineOffset + w.Line - 1
+		lines := strings.Split(content, "\n")
+		lineLen := 0
+		if warnLine < len(lines) {
+			lineLen = len(lines[warnLine])
+		}
+		lspDiags = append(lspDiags, map[string]any{
+			"range": map[string]any{
+				"start": map[string]any{"line": warnLine, "character": 0},
+				"end":   map[string]any{"line": warnLine, "character": lineLen},
+			},
+			"severity": diagnosticSeverityWarning,
+			"message":  fmt.Sprintf("warning: %s", w.Message),
+			"source":   "gastro",
+		})
+	}
+
 	for _, d := range templateDiags {
 		severity := d.Severity
 		if severity == 0 {
-			severity = 1 // Default to Error
+			severity = diagnosticSeverityError
 		}
 		lspDiags = append(lspDiags, map[string]any{
 			"range": map[string]any{

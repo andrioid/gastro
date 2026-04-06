@@ -44,7 +44,7 @@ func main() {
 		fmt.Println(version)
 		return
 	case "generate":
-		if err := runGenerate(); err != nil {
+		if err := runGenerate(true); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro generate: %v\n", err)
 			os.Exit(1)
 		}
@@ -314,13 +314,18 @@ func collectGastroFiles(root string) ([]string, error) {
 	return files, err
 }
 
-func runGenerate() error {
+func runGenerate(strict bool) error {
 	projectDir := "."
 	outputDir := filepath.Join(projectDir, ".gastro")
 
 	fmt.Println("gastro: generating code...")
-	if err := compiler.Compile(projectDir, outputDir); err != nil {
+	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{Strict: strict})
+	if err != nil {
 		return err
+	}
+
+	for _, w := range result.Warnings {
+		fmt.Fprintf(os.Stderr, "gastro: warning: %s:%d: %s\n", w.File, w.Line, w.Message)
 	}
 
 	fmt.Println("gastro: done")
@@ -328,7 +333,7 @@ func runGenerate() error {
 }
 
 func runBuild() error {
-	if err := runGenerate(); err != nil {
+	if err := runGenerate(true); err != nil {
 		return err
 	}
 
@@ -364,7 +369,7 @@ func runNew() error {
 	// Run code generation so the project is immediately runnable.
 	projectDir := targetDir
 	outputDir := filepath.Join(projectDir, ".gastro")
-	if err := compiler.Compile(projectDir, outputDir); err != nil {
+	if _, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{}); err != nil {
 		fmt.Fprintf(os.Stderr, "gastro: initial generate failed (run 'gastro generate' in the project dir): %v\n", err)
 	}
 
@@ -410,8 +415,8 @@ func runDev() error {
 		port = p
 	}
 
-	// Initial generation
-	if err := runGenerate(); err != nil {
+	// Initial generation (non-strict in dev mode — warnings don't block)
+	if err := runGenerate(false); err != nil {
 		return err
 	}
 
@@ -482,7 +487,7 @@ func runDev() error {
 
 	debounced := watcher.Debounce(debounceDelay, func() {
 		fmt.Println("gastro: changes detected, regenerating...")
-		if err := runGenerate(); err != nil {
+		if err := runGenerate(false); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro: generate failed: %v\n", err)
 			return
 		}
