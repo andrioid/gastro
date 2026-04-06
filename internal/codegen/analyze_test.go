@@ -1,6 +1,7 @@
 package codegen_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/andrioid/gastro/internal/codegen"
@@ -278,6 +279,70 @@ Title := "Hello"`
 
 	if info.IsPage {
 		t.Error("expected IsPage to be false when gastro.Context() is only in a comment")
+	}
+}
+
+func TestHoistTypeDeclarations_BacktickStringWithType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		frontmatter  string
+		wantInBody   []string // substrings that must be in body
+		wantInTypes  []string // substrings that must be in typeDecls
+		wantNotTypes []string // substrings that must NOT be in typeDecls
+	}{
+		{
+			name:         "normal type declaration",
+			frontmatter:  "type Props struct {\n\tTitle string\n}\n\nTitle := \"hello\"",
+			wantInBody:   []string{"Title"},
+			wantInTypes:  []string{"type Props struct", "Title string"},
+			wantNotTypes: nil,
+		},
+		{
+			name:         "type inside backtick string not hoisted",
+			frontmatter:  "example := `\ntype Foo struct {\n\tBar string\n}\n`\n\nTitle := \"hello\"",
+			wantInBody:   []string{"example", "type Foo struct", "Title"},
+			wantInTypes:  nil,
+			wantNotTypes: []string{"type Foo"},
+		},
+		{
+			name:         "fake type in backtick then real type after",
+			frontmatter:  "example := `\ntype BadStruct struct {\n\tBad string\n}\n`\n\ntype Props struct {\n\tTitle string\n}\n\nTitle := \"hello\"",
+			wantInBody:   []string{"example", "type BadStruct", "Title"},
+			wantInTypes:  []string{"type Props struct"},
+			wantNotTypes: []string{"BadStruct"},
+		},
+		{
+			name:         "backtick string with braces after type",
+			frontmatter:  "type Props struct {\n\tTitle string\n}\n\nexample := `\n{\n  \"key\": \"value\"\n}\n`\nTitle := \"hello\"",
+			wantInBody:   []string{"example", "Title"},
+			wantInTypes:  []string{"type Props struct"},
+			wantNotTypes: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			body, typeDecls := codegen.HoistTypeDeclarations(tt.frontmatter)
+
+			for _, want := range tt.wantInBody {
+				if !strings.Contains(body, want) {
+					t.Errorf("body should contain %q, got:\n%s", want, body)
+				}
+			}
+			for _, want := range tt.wantInTypes {
+				if !strings.Contains(typeDecls, want) {
+					t.Errorf("typeDecls should contain %q, got:\n%s", want, typeDecls)
+				}
+			}
+			for _, notWant := range tt.wantNotTypes {
+				if strings.Contains(typeDecls, notWant) {
+					t.Errorf("typeDecls should NOT contain %q, got:\n%s", notWant, typeDecls)
+				}
+			}
+		})
 	}
 }
 

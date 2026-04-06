@@ -199,10 +199,29 @@ func HoistTypeDeclarations(frontmatter string) (body string, typeDecls string) {
 	var bodyLines []string
 	var typeLines []string
 	inType := false
+	inBacktick := false
 	braceDepth := 0
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
+
+		// Track backtick string state to avoid falsely matching
+		// "type " lines inside multi-line raw string literals.
+		if !inType {
+			if inBacktick {
+				// Inside a backtick string — don't look for type declarations
+				if hasUnclosedBacktick(line) {
+					inBacktick = false
+				}
+				bodyLines = append(bodyLines, line)
+				continue
+			}
+			if hasUnclosedBacktick(line) {
+				inBacktick = true
+				bodyLines = append(bodyLines, line)
+				continue
+			}
+		}
 
 		if !inType && strings.HasPrefix(trimmed, "type ") {
 			inType = true
@@ -221,4 +240,10 @@ func HoistTypeDeclarations(frontmatter string) (body string, typeDecls string) {
 	}
 
 	return strings.Join(bodyLines, "\n"), strings.Join(typeLines, "\n") + "\n"
+}
+
+// hasUnclosedBacktick returns true if the line has an odd number of backticks,
+// indicating a raw string literal boundary.
+func hasUnclosedBacktick(line string) bool {
+	return strings.Count(line, "`")%2 != 0
 }
