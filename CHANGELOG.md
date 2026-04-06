@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/andrioid/gastro/compare/v0.1.11...v0.1.12) (2026-04-06)
+
+
+### Features
+
+* detect missing Go, gopls, and gastro with actionable prompts ([19a3a95](https://github.com/andrioid/gastro/commit/19a3a95c2663de3907843d14d86f9d14526dc5a6))
+
 ## [0.1.11](https://github.com/andrioid/gastro/compare/v0.1.10...v0.1.11) (2026-04-06)
 
 
