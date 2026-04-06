@@ -3,17 +3,23 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"io/fs"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/andrioid/gastro/internal/compiler"
+	"github.com/andrioid/gastro/internal/format"
 	"github.com/andrioid/gastro/internal/lsp"
 	"github.com/andrioid/gastro/internal/scaffold"
 	"github.com/andrioid/gastro/internal/watcher"
@@ -57,6 +63,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "gastro new: %v\n", err)
 			os.Exit(1)
 		}
+	case "fmt":
+		if err := runFmt(); err != nil {
+			fmt.Fprintf(os.Stderr, "gastro fmt: %v\n", err)
+			os.Exit(1)
+		}
 	case "lsp":
 		lsp.Serve(version)
 	default:
@@ -76,7 +87,231 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  generate    Compile .gastro files to .gastro/ directory")
 	fmt.Fprintln(os.Stderr, "  build       Generate + go build -> single binary")
 	fmt.Fprintln(os.Stderr, "  dev         Watch mode with hot reload (port 4242 or PORT env)")
+	fmt.Fprintln(os.Stderr, "  fmt         Format .gastro files")
 	fmt.Fprintln(os.Stderr, "  version     Print version")
+}
+
+var skipDirs = map[string]bool{
+	".gastro":      true,
+	".git":         true,
+	"node_modules": true,
+	"vendor":       true,
+}
+
+func runFmt() error {
+	args := os.Args[2:]
+
+	check := false
+	stdinFilepath := "<stdin>"
+	var targets []string
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--check":
+			check = true
+		case "--stdin-filepath":
+			if i+1 < len(args) {
+				i++
+				stdinFilepath = args[i]
+			}
+		default:
+			targets = append(targets, args[i])
+		}
+	}
+
+	// Stdin mode: no targets and stdin is a pipe
+	if len(targets) == 0 {
+		stat, _ := os.Stdin.Stat()
+		if (stat.Mode() & os.ModeCharDevice) == 0 {
+			return fmtStdin(stdinFilepath, check)
+		}
+		// No targets and no stdin — default to current directory
+		targets = []string{"."}
+	}
+
+	// Collect all .gastro files from targets
+	var files []string
+	for _, target := range targets {
+		info, err := os.Stat(target)
+		if err != nil {
+			return fmt.Errorf("cannot access %s: %w", target, err)
+		}
+		if info.IsDir() {
+			found, err := collectGastroFiles(target)
+			if err != nil {
+				return err
+			}
+			files = append(files, found...)
+		} else if strings.HasSuffix(target, ".gastro") {
+			files = append(files, target)
+		}
+	}
+
+	if len(files) == 0 {
+		return nil
+	}
+
+	return fmtFiles(files, check)
+}
+
+func fmtStdin(filepath string, check bool) error {
+	content, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return fmt.Errorf("read stdin: %w", err)
+	}
+
+	formatted, changed, err := format.FormatFile(filepath, string(content))
+	if err != nil {
+		return err
+	}
+
+	if check {
+		if changed {
+			fmt.Fprintln(os.Stderr, filepath)
+			return fmt.Errorf("not formatted")
+		}
+		return nil
+	}
+
+	_, err = os.Stdout.WriteString(formatted)
+	return err
+}
+
+func fmtFiles(files []string, check bool) error {
+	maxWorkers := runtime.NumCPU()
+	if maxWorkers > 8 {
+		maxWorkers = 8
+	}
+
+	type result struct {
+		file    string
+		changed bool
+		err     error
+	}
+
+	results := make(chan result, len(files))
+	sem := make(chan struct{}, maxWorkers)
+
+	var wg sync.WaitGroup
+	for _, file := range files {
+		wg.Add(1)
+		go func(f string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			content, err := os.ReadFile(f)
+			if err != nil {
+				results <- result{file: f, err: err}
+				return
+			}
+
+			formatted, changed, err := format.FormatFile(f, string(content))
+			if err != nil {
+				results <- result{file: f, err: err}
+				return
+			}
+
+			if !changed {
+				results <- result{file: f}
+				return
+			}
+
+			if !check {
+				if err := atomicWriteFile(f, []byte(formatted)); err != nil {
+					results <- result{file: f, err: err}
+					return
+				}
+			}
+
+			results <- result{file: f, changed: true}
+		}(file)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var hadErrors int32
+	var changedCount int32
+	var errMsgs []string
+
+	for res := range results {
+		if res.err != nil {
+			atomic.AddInt32(&hadErrors, 1)
+			errMsgs = append(errMsgs, fmt.Sprintf("%s: %v", res.file, res.err))
+			fmt.Fprintf(os.Stderr, "Error: %s: %v\n", res.file, res.err)
+			continue
+		}
+		if res.changed {
+			atomic.AddInt32(&changedCount, 1)
+			if check {
+				fmt.Fprintln(os.Stderr, res.file)
+			} else {
+				fmt.Printf("formatted %s\n", res.file)
+			}
+		}
+	}
+
+	if hadErrors > 0 {
+		return fmt.Errorf("%d file(s) had errors", hadErrors)
+	}
+
+	if check && changedCount > 0 {
+		return fmt.Errorf("%d file(s) not formatted", changedCount)
+	}
+
+	return nil
+}
+
+// atomicWriteFile writes data to a file atomically using a temp file + rename.
+func atomicWriteFile(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".gastro-fmt-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+
+	defer func() {
+		tmp.Close()
+		os.Remove(tmpPath)
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		return err
+	}
+
+	// Preserve original file permissions
+	if info, statErr := os.Stat(path); statErr == nil {
+		tmp.Chmod(info.Mode())
+	}
+
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tmpPath, path)
+}
+
+// collectGastroFiles recursively finds all .gastro files in a directory,
+// skipping generated/hidden/vendor directories.
+func collectGastroFiles(root string) ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && skipDirs[d.Name()] {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".gastro") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	return files, err
 }
 
 func runGenerate() error {
