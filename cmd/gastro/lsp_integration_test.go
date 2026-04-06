@@ -1260,3 +1260,107 @@ func TestLSP_NoFrontmatterNoDiagnostics(t *testing.T) {
 		t.Errorf("expected no error diagnostics for no-frontmatter file, got: %v", errorDiags)
 	}
 }
+
+func TestLSP_Formatting(t *testing.T) {
+	projectDir := setupTestProject(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	resp := client.recv(t, 10*time.Second)
+
+	// Verify the server advertises documentFormattingProvider
+	result, _ := resp["result"].(map[string]any)
+	caps, _ := result["capabilities"].(map[string]any)
+	if caps["documentFormattingProvider"] != true {
+		t.Fatalf("expected documentFormattingProvider=true, got %v", caps["documentFormattingProvider"])
+	}
+
+	client.notify("initialized", map[string]any{})
+
+	// Open an unformatted .gastro file (messy indentation, no trailing newline)
+	// The formatter should normalize indentation to tabs and ensure a trailing newline.
+	unformatted := "---\nTitle := \"Hello\"\n---\n  <div>\n      <h1>{{ .Title }}</h1>\n  </div>"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       unformatted,
+		},
+	})
+
+	// Request formatting
+	client.send("textDocument/formatting", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"options":      map[string]any{"tabSize": 4, "insertSpaces": false},
+	})
+
+	resp = client.recv(t, 10*time.Second)
+	edits, ok := resp["result"].([]any)
+	if !ok || len(edits) == 0 {
+		t.Fatalf("expected formatting edits, got: %v", resp["result"])
+	}
+
+	edit, _ := edits[0].(map[string]any)
+	newText, _ := edit["newText"].(string)
+
+	if newText == "" {
+		t.Fatal("expected non-empty newText in formatting edit")
+	}
+
+	// The formatted output should end with a newline
+	if !strings.HasSuffix(newText, "\n") {
+		t.Errorf("formatted text should end with newline, got: %q", newText[len(newText)-20:])
+	}
+
+	// The formatted output should differ from the input
+	if newText == unformatted {
+		t.Error("formatted text should differ from unformatted input")
+	}
+}
+
+func TestLSP_Formatting_NoOp(t *testing.T) {
+	projectDir := setupTestProject(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// Open an already-formatted file
+	formatted := "---\nTitle := \"Hello\"\n---\n<div>\n\t<h1>{{ .Title }}</h1>\n</div>\n"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       formatted,
+		},
+	})
+
+	client.send("textDocument/formatting", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"options":      map[string]any{"tabSize": 4, "insertSpaces": false},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+
+	// Should return empty edits (no changes needed)
+	edits, ok := resp["result"].([]any)
+	if !ok {
+		t.Fatalf("expected result to be an array, got: %T (%v)", resp["result"], resp["result"])
+	}
+	if len(edits) != 0 {
+		t.Errorf("expected empty edits for already-formatted file, got %d edits", len(edits))
+	}
+}

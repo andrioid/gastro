@@ -36,8 +36,9 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 				"completionProvider": map[string]any{
 					"triggerCharacters": []string{".", "{", "|"},
 				},
-				"hoverProvider":      true,
-				"definitionProvider": true,
+				"hoverProvider":              true,
+				"definitionProvider":         true,
+				"documentFormattingProvider": true,
 			},
 			"serverInfo": map[string]any{
 				"name":    "gastro-lsp",

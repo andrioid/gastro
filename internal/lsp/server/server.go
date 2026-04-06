@@ -156,6 +156,8 @@ func (s *server) handleMessage(msg *jsonRPCMessage) *jsonRPCMessage {
 		return s.handleHover(msg)
 	case "textDocument/definition":
 		return s.handleDefinition(msg)
+	case "textDocument/formatting":
+		return s.handleFormatting(msg)
 	case "shutdown":
 		s.shutdown()
 		return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: nil}
