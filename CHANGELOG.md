@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/andrioid/gastro/compare/v0.1.8...v0.1.9) (2026-04-06)
+
+
+### Features
+
+* wire formatting into LSP server for editor support ([958a97f](https://github.com/andrioid/gastro/commit/958a97ffcbf061d51c0122d7d8af8a37378778b9))
+
 ## [0.1.8](https://github.com/andrioid/gastro/compare/v0.1.7...v0.1.8) (2026-04-06)
 
 
