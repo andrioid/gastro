@@ -6,7 +6,8 @@ import (
 	"go/parser"
 	"go/token"
 	"strings"
-	"unicode"
+
+	gastroParser "github.com/andrioid/gastro/internal/parser"
 )
 
 // VarInfo represents a variable declared in the frontmatter.
@@ -144,18 +145,11 @@ func classifyVar(info *FrontmatterInfo, ident *ast.Ident, fset *token.FileSet, p
 		Line: pos.Line - prefixLineCount,
 	}
 
-	if isExported(ident.Name) {
+	if token.IsExported(ident.Name) {
 		info.ExportedVars = append(info.ExportedVars, vi)
 	} else {
 		info.PrivateVars = append(info.PrivateVars, vi)
 	}
-}
-
-func isExported(name string) bool {
-	if name == "" {
-		return false
-	}
-	return unicode.IsUpper(rune(name[0]))
 }
 
 // detectGastroMarkers checks if a call expression is gastro.Context() or
@@ -210,13 +204,13 @@ func HoistTypeDeclarations(frontmatter string) (body string, typeDecls string) {
 		if !inType {
 			if inBacktick {
 				// Inside a backtick string — don't look for type declarations
-				if hasUnclosedBacktick(line) {
+				if gastroParser.HasUnclosedBacktick(line) {
 					inBacktick = false
 				}
 				bodyLines = append(bodyLines, line)
 				continue
 			}
-			if hasUnclosedBacktick(line) {
+			if gastroParser.HasUnclosedBacktick(line) {
 				inBacktick = true
 				bodyLines = append(bodyLines, line)
 				continue
@@ -240,10 +234,4 @@ func HoistTypeDeclarations(frontmatter string) (body string, typeDecls string) {
 	}
 
 	return strings.Join(bodyLines, "\n"), strings.Join(typeLines, "\n") + "\n"
-}
-
-// hasUnclosedBacktick returns true if the line has an odd number of backticks,
-// indicating a raw string literal boundary.
-func hasUnclosedBacktick(line string) bool {
-	return strings.Count(line, "`")%2 != 0
 }

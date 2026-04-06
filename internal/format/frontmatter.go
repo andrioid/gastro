@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/parser"
 )
 
@@ -78,7 +79,7 @@ func formatGoBody(code string) (string, error) {
 		return "", nil
 	}
 
-	bodyLines, typeDecls := hoistTypeDeclarations(code)
+	bodyLines, typeDecls := codegen.HoistTypeDeclarations(code)
 
 	if strings.TrimSpace(bodyLines) == "" && strings.TrimSpace(typeDecls) == "" {
 		return "", nil
@@ -161,66 +162,9 @@ func unwrapFormattedGo(formatted string, hasTypeDecls, hasBody bool) (string, er
 func dedentOneLevel(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
-		if strings.HasPrefix(line, "\t") {
-			lines[i] = line[1:]
+		if after, ok := strings.CutPrefix(line, "\t"); ok {
+			lines[i] = after
 		}
 	}
 	return strings.Join(lines, "\n")
-}
-
-// hoistTypeDeclarations extracts `type ... struct { ... }` declarations from
-// frontmatter and returns them separately, since they need to be at package
-// level for go/parser to accept them.
-//
-// Duplicated from internal/codegen/analyze.go to avoid cross-package
-// dependencies. If that logic changes, this copy must be updated too.
-func hoistTypeDeclarations(frontmatter string) (body string, typeDecls string) {
-	lines := strings.Split(frontmatter, "\n")
-	var bodyLines []string
-	var typeLines []string
-	inType := false
-	inBacktick := false
-	braceDepth := 0
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-
-		// Track backtick string state to avoid falsely matching
-		// "type " lines inside multi-line raw string literals.
-		if !inType {
-			if inBacktick {
-				if hasUnclosedBacktick(line) {
-					inBacktick = false
-				}
-				bodyLines = append(bodyLines, line)
-				continue
-			}
-			if hasUnclosedBacktick(line) {
-				inBacktick = true
-				bodyLines = append(bodyLines, line)
-				continue
-			}
-		}
-
-		if !inType && strings.HasPrefix(trimmed, "type ") {
-			inType = true
-			braceDepth = 0
-		}
-
-		if inType {
-			typeLines = append(typeLines, line)
-			braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
-			if braceDepth <= 0 {
-				inType = false
-			}
-		} else {
-			bodyLines = append(bodyLines, line)
-		}
-	}
-
-	return strings.Join(bodyLines, "\n"), strings.Join(typeLines, "\n") + "\n"
-}
-
-func hasUnclosedBacktick(line string) bool {
-	return strings.Count(line, "`")%2 != 0
 }

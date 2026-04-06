@@ -257,31 +257,9 @@ func syncStatic(projectDir, outputDir string) error {
 	return copyDir(src, dst)
 }
 
-// copyDir recursively copies src into dst, preserving file modes.
+// copyDir recursively copies src into dst using os.CopyFS.
 func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
-		}
-		return copyFile(path, target, info.Mode())
-	})
-}
-
-// copyFile copies a single file preserving its mode bits.
-func copyFile(src, dst string, mode os.FileMode) error {
-	content, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, content, mode)
+	return os.CopyFS(dst, os.DirFS(src))
 }
 
 // embedData is the data passed to embedTmpl.

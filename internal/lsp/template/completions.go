@@ -2,6 +2,7 @@ package template
 
 import (
 	"fmt"
+	"go/token"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -260,7 +261,7 @@ func diagnoseUnknownComponentsAST(tree *parse.Tree, templateBody string, knownCo
 			return
 		}
 		name := ident.Ident
-		if !isPascalCase(name) || knownComponents[name] {
+		if !token.IsExported(name) || knownComponents[name] {
 			return
 		}
 		offset := int(ident.Position())
@@ -296,11 +297,6 @@ func diagnoseUnknownComponentsRegex(templateBody string, knownComponents map[str
 		}
 	}
 	return diags
-}
-
-// isPascalCase returns true if the string starts with an uppercase letter.
-func isPascalCase(s string) bool {
-	return len(s) > 0 && s[0] >= 'A' && s[0] <= 'Z'
 }
 
 // walkNodes recursively visits all nodes in a parse tree, calling fn for each.
@@ -423,13 +419,13 @@ func extractComponentCalls(tree *parse.Tree, templateBody string, knownComponent
 		if ident0.Ident == "wrap" && len(cmd.Args) >= 2 {
 			// {{ wrap Layout (dict ...) }}
 			ident1, ok := cmd.Args[1].(*parse.IdentifierNode)
-			if !ok || !isPascalCase(ident1.Ident) {
+			if !ok || !token.IsExported(ident1.Ident) {
 				return
 			}
 			compName = ident1.Ident
 			compIdent = ident1
 			dictArgIndex = 2
-		} else if isPascalCase(ident0.Ident) {
+		} else if token.IsExported(ident0.Ident) {
 			// {{ Card (dict ...) }} or {{ Card }}
 			compName = ident0.Ident
 			compIdent = ident0

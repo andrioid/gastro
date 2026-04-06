@@ -2,8 +2,9 @@ package parser
 
 import (
 	"fmt"
+	"go/token"
+	"strconv"
 	"strings"
-	"unicode"
 )
 
 // UseDeclaration represents a component import: `import ComponentName "path/to/component.gastro"`.
@@ -81,9 +82,9 @@ func splitSections(content string) (frontmatter, body string, fmLine, bodyLine i
 	inString := false
 	for i := openDelim + 1; i < len(lines); i++ {
 		if !inString {
-			inString = hasUnclosedBacktick(lines[i])
+			inString = HasUnclosedBacktick(lines[i])
 		} else {
-			if hasUnclosedBacktick(lines[i]) {
+			if HasUnclosedBacktick(lines[i]) {
 				inString = false
 			}
 			continue
@@ -121,9 +122,9 @@ func splitSections(content string) (frontmatter, body string, fmLine, bodyLine i
 	return frontmatter, body, fmLine, bodyLine, nil
 }
 
-// hasUnclosedBacktick returns true if the line has an odd number of backticks,
+// HasUnclosedBacktick returns true if the line has an odd number of backticks,
 // indicating a raw string literal that spans multiple lines.
-func hasUnclosedBacktick(line string) bool {
+func HasUnclosedBacktick(line string) bool {
 	return strings.Count(line, "`")%2 != 0
 }
 
@@ -151,9 +152,9 @@ func extractImports(frontmatter string) ([]string, []UseDeclaration, error) {
 	for i := 0; i < len(lines); i++ {
 		// Skip lines inside raw string literals (backtick strings).
 		if !inString {
-			inString = hasUnclosedBacktick(lines[i])
+			inString = HasUnclosedBacktick(lines[i])
 		} else {
-			if hasUnclosedBacktick(lines[i]) {
+			if HasUnclosedBacktick(lines[i]) {
 				inString = false
 			}
 			continue
@@ -240,7 +241,7 @@ func parseImportSpec(spec string) (goImport string, use *UseDeclaration, err err
 		if alias == "_" {
 			return "", nil, fmt.Errorf("blank imports are not allowed for component imports (%s)", path)
 		}
-		if !isExportedName(alias) {
+		if !token.IsExported(alias) {
 			return "", nil, fmt.Errorf("component import alias %q must start with an uppercase letter", alias)
 		}
 		return "", &UseDeclaration{Name: alias, Path: path}, nil
@@ -250,14 +251,6 @@ func parseImportSpec(spec string) (goImport string, use *UseDeclaration, err err
 	// we preserve the path for the generated import block. The alias is
 	// not tracked because the codegen emits the raw import path.
 	return path, nil, nil
-}
-
-// isExportedName returns true if the name starts with an uppercase letter.
-func isExportedName(name string) bool {
-	if name == "" {
-		return false
-	}
-	return unicode.IsUpper(rune(name[0]))
 }
 
 // stripImports removes all import declarations from frontmatter, returning
@@ -273,9 +266,9 @@ func stripImports(frontmatter string) string {
 
 		// Preserve lines inside raw string literals (backtick strings).
 		if !inString {
-			inString = hasUnclosedBacktick(line)
+			inString = HasUnclosedBacktick(line)
 		} else {
-			if hasUnclosedBacktick(line) {
+			if HasUnclosedBacktick(line) {
 				inString = false
 			}
 			kept = append(kept, line)
@@ -307,10 +300,13 @@ func stripImports(frontmatter string) string {
 	return result
 }
 
-// unquote strips surrounding double quotes from a string.
+// unquote strips surrounding quotes from a string using Go's strconv.Unquote,
+// which handles escape sequences correctly. Returns "" if the string is not
+// a valid Go quoted string.
 func unquote(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
+	result, err := strconv.Unquote(s)
+	if err != nil {
+		return ""
 	}
-	return ""
+	return result
 }
