@@ -66,6 +66,16 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 		return nil
 	}
 
+	// Convert cursor position to byte offset within the template body
+	cursorOffset := cursorPosToBodyOffset(content, pos, templateBodyLine)
+
+	// Only offer completions when the cursor is inside a {{ }} action.
+	// The "{" trigger character fires on a single brace, but we should not
+	// suggest template variables/functions in plain HTML or CSS contexts.
+	if !isInsideAction(parsed.TemplateBody, cursorOffset) {
+		return nil
+	}
+
 	info, err := codegen.AnalyzeFrontmatter(parsed.Frontmatter)
 	if err != nil {
 		return nil
@@ -74,9 +84,6 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	// Find the dot position so variable completions can use textEdit
 	// to replace from the dot through the cursor, avoiding double-dot insertion.
 	dotChar := findDotStart(content, pos.Line, pos.Character)
-
-	// Convert cursor position to byte offset within the template body
-	cursorOffset := cursorPosToBodyOffset(content, pos, templateBodyLine)
 
 	// Determine cursor scope by parsing the template body into an AST
 	// and checking if the cursor is inside a range/with block.
@@ -183,11 +190,13 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 		})
 	}
 
-	// Un-imported component completions (with auto-import edit)
+	// Un-imported component completions (with auto-import edit).
+	// Uses getComponents() which re-scans the components/ directory if the
+	// cache is stale, so newly created files are picked up without restart.
 	tcInst := s.instanceForURI(uri)
 	var tcComponents []componentInfo
 	if tcInst != nil {
-		tcComponents = tcInst.components
+		tcComponents = tcInst.getComponents()
 	}
 	for _, comp := range tcComponents {
 		if importedNames[comp.Name] {

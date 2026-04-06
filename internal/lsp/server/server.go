@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/lsp/proxy"
@@ -32,7 +33,9 @@ type projectInstance struct {
 	workspace           *shadow.Workspace
 	gopls               *proxy.GoplsProxy
 	goplsError          error // non-nil if gopls failed to start
+	componentsMu        sync.RWMutex
 	components          []componentInfo
+	componentsScannedAt time.Time
 	componentPropsCache map[string][]codegen.StructField // componentPath -> Props struct fields
 	goplsOpenFiles      map[string]int                   // virtualURI -> version
 }

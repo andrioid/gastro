@@ -3,11 +3,13 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/lsp/proxy"
@@ -45,6 +47,22 @@ func findDotStart(content string, line, character int) int {
 		}
 	}
 	return -1
+}
+
+// isInsideAction checks whether the cursor (byte offset into the template body)
+// is between an opening {{ and a closing }}. It scans backward from the cursor
+// to find the most recent delimiter pair and returns true only if the last
+// seen delimiter was an opening {{.
+func isInsideAction(templateBody string, cursorOffset int) bool {
+	if cursorOffset < 0 || cursorOffset > len(templateBody) {
+		return false
+	}
+
+	text := templateBody[:cursorOffset]
+	lastOpen := strings.LastIndex(text, "{{")
+	lastClose := strings.LastIndex(text, "}}")
+
+	return lastOpen >= 0 && lastOpen > lastClose
 }
 
 // cursorPosToBodyOffset converts a cursor position (line/character in the .gastro file)
@@ -160,6 +178,7 @@ func (s *server) initInstance(inst *projectInstance) error {
 	}
 
 	inst.components = discoverComponentsIn(inst.root)
+	inst.componentsScannedAt = time.Now()
 
 	inst.gopls, err = proxy.NewGoplsProxy(inst.workspace.Dir(), func(method string, params json.RawMessage) {
 		s.handleGoplsNotification(method, params, inst)
@@ -176,25 +195,68 @@ func (s *server) initInstance(inst *projectInstance) error {
 	return nil
 }
 
-// discoverComponentsIn scans the components/ directory under a project root
-// for .gastro files. This enables auto-import completions when the user types
-// a component name for a component that isn't yet imported.
-func discoverComponentsIn(projectRoot string) []componentInfo {
-	componentsDir := filepath.Join(projectRoot, "components")
-	entries, err := os.ReadDir(componentsDir)
-	if err != nil {
-		return nil
+// getComponents returns discovered components, re-scanning the components/
+// directory if the cache is older than 2 seconds. This ensures newly created
+// component files are picked up without requiring an LSP restart.
+func (inst *projectInstance) getComponents() []componentInfo {
+	const cacheTTL = 2 * time.Second
+
+	inst.componentsMu.RLock()
+	if time.Since(inst.componentsScannedAt) < cacheTTL {
+		components := inst.components
+		inst.componentsMu.RUnlock()
+		return components
+	}
+	inst.componentsMu.RUnlock()
+
+	inst.componentsMu.Lock()
+	defer inst.componentsMu.Unlock()
+
+	// Double-check: another goroutine may have refreshed while we waited
+	if time.Since(inst.componentsScannedAt) < cacheTTL {
+		return inst.components
 	}
 
+	inst.components = discoverComponentsIn(inst.root)
+	inst.componentsScannedAt = time.Now()
+	return inst.components
+}
+
+// discoverComponentsIn recursively scans the components/ directory under a
+// project root for .gastro files. This enables auto-import completions when
+// the user types a component name for a component that isn't yet imported.
+func discoverComponentsIn(projectRoot string) []componentInfo {
+	componentsDir := filepath.Join(projectRoot, "components")
 	var components []componentInfo
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gastro") {
-			continue
+
+	filepath.WalkDir(componentsDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
 
-		name := strings.TrimSuffix(entry.Name(), ".gastro")
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") && path != componentsDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// Skip symlinks to avoid infinite loops
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+
+		if !strings.HasSuffix(d.Name(), ".gastro") {
+			return nil
+		}
+
+		relPath, err := filepath.Rel(projectRoot, path)
+		if err != nil {
+			return nil
+		}
 
 		// Convert kebab-case filename to PascalCase component name
+		name := strings.TrimSuffix(d.Name(), ".gastro")
 		parts := strings.Split(name, "-")
 		var pascal strings.Builder
 		for _, part := range parts {
@@ -206,9 +268,11 @@ func discoverComponentsIn(projectRoot string) []componentInfo {
 
 		components = append(components, componentInfo{
 			Name: pascal.String(),
-			Path: "components/" + entry.Name(),
+			Path: relPath,
 		})
-	}
+
+		return nil
+	})
 
 	return components
 }
