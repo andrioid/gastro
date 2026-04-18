@@ -380,6 +380,42 @@ For short inline mentions, use inline form: `<code>{{ raw }}{{ .Children }}{{ en
 
 Raw blocks cannot nest. The first `{{ endraw }}` always closes the block.
 
+## Markdown
+
+Use `{{ markdown "path/to/file.md" }}` to inline the rendered HTML of a markdown file into a `.gastro` template. The directive is **expanded at compile time** by `gastro generate`: the file is read, parsed with goldmark (GFM + footnotes), syntax-highlighted with chroma, and baked into the generated template. There is no runtime markdown parsing and no new runtime dependencies.
+
+### Path rules
+
+- `./foo.md` or `../shared/foo.md` — resolved relative to the `.gastro` file's directory. Paths may reach outside the project root (e.g. a shared `docs/` directory).
+- `content/foo.md`, `pages/docs/foo.md` — any other path is resolved relative to the project root.
+- Absolute paths are rejected.
+- The file must have a `.md` extension.
+
+### Usage
+
+```gastro
+---
+import DocsLayout "components/docs-layout.gastro"
+
+Title := "Getting Started"
+---
+{{ wrap DocsLayout (dict "Title" .Title) }}
+    {{ markdown "./getting-started.md" }}
+{{ end }}
+```
+
+The argument **must be a string literal** — it is evaluated at compile time, not runtime. Dynamic paths (`{{ markdown .Slug }}`) are not supported.
+
+### Constraints
+
+- Markdown files are **pure content**: no frontmatter, no template interpolation, no component embedding. If you need dynamic data, put it in the `.gastro` shell around the `markdown` call.
+- Code fences (and inline `` `code` ``) are automatically protected — any `{{`/`}}` inside them is escaped so `html/template` won't re-parse them. You don't need `{{ raw }}` inside markdown.
+- Syntax highlighting uses chroma's `github` theme with classed output. Users must include matching CSS (`gastro new` projects ship with `static/chroma.css`).
+
+### Dev loop
+
+The dev watcher tracks `.md` files anywhere in the project (skipping hidden directories, `node_modules`, `vendor`, `tmp`). Changes trigger a regenerate + reload, same as template edits to a `.gastro` file.
+
 ## Static Assets
 
 - Place files in `static/`

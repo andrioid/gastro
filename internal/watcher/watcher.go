@@ -58,6 +58,33 @@ func CollectGastroFiles(dir string) ([]string, error) {
 	return files, err
 }
 
+// CollectMarkdownFiles walks a directory and returns all .md file paths,
+// skipping hidden directories (names starting with '.') and common
+// non-source directories like node_modules. Used for watching markdown
+// content referenced by {{ markdown "..." }} directives.
+func CollectMarkdownFiles(dir string) ([]string, error) {
+	var files []string
+
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			name := info.Name()
+			if path != dir && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "tmp") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".md") {
+			files = append(files, path)
+		}
+		return nil
+	})
+
+	return files, err
+}
+
 // CollectAllFiles walks a directory and returns all file paths.
 // Used for watching static asset directories where any file type is relevant.
 func CollectAllFiles(dir string) ([]string, error) {

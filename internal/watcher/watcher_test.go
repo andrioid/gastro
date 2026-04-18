@@ -49,6 +49,30 @@ func TestCollectGastroFiles(t *testing.T) {
 	}
 }
 
+func TestCollectMarkdownFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "pages", "docs"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "content"), 0o755)
+	os.MkdirAll(filepath.Join(dir, ".gastro", "generated"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o755)
+	os.MkdirAll(filepath.Join(dir, "tmp"), 0o755)
+
+	os.WriteFile(filepath.Join(dir, "pages", "docs", "a.md"), []byte("# a"), 0o644)
+	os.WriteFile(filepath.Join(dir, "content", "b.md"), []byte("# b"), 0o644)
+	os.WriteFile(filepath.Join(dir, ".gastro", "generated", "ignored.md"), []byte("# x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "node_modules", "pkg", "ignored.md"), []byte("# y"), 0o644)
+	os.WriteFile(filepath.Join(dir, "tmp", "ignored.md"), []byte("# z"), 0o644)
+	os.WriteFile(filepath.Join(dir, "pages", "docs", "not-md.txt"), []byte("hi"), 0o644)
+
+	files, err := watcher.CollectMarkdownFiles(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 .md files, got %d: %v", len(files), files)
+	}
+}
+
 func TestDetectChangedSection_TemplateOnly(t *testing.T) {
 	old := "---\nTitle := \"Hello\"\n---\n<h1>Old</h1>"
 	new_ := "---\nTitle := \"Hello\"\n---\n<h1>New</h1>"

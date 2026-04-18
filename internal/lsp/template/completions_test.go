@@ -71,17 +71,60 @@ func TestComponentCompletions(t *testing.T) {
 }
 
 func TestFuncMapCompletions(t *testing.T) {
-	completions := lsptemplate.FuncMapCompletions()
+	completions := lsptemplate.FuncMapCompletions(false)
 
-	// Should include built-in functions
+	// Should include built-in functions, Go template builtins, and
+	// compile-time directives.
 	names := make(map[string]bool)
 	for _, c := range completions {
 		names[c.Label] = true
 	}
 
-	for _, want := range []string{"upper", "lower", "join", "dict", "safeHTML", "timeFormat"} {
+	for _, want := range []string{
+		// gastro runtime funcs
+		"upper", "lower", "join", "dict", "safeHTML", "timeFormat",
+		// Go template builtins
+		"and", "or", "eq", "printf", "len",
+		// compile-time directives
+		"wrap", "markdown", "raw", "endraw",
+	} {
 		if !names[want] {
-			t.Errorf("expected built-in function %q in completions", want)
+			t.Errorf("expected %q in completions", want)
+		}
+	}
+}
+
+func TestFuncMapCompletions_DirectiveDetails(t *testing.T) {
+	// Without snippet support: directives insert plain text.
+	plain := lsptemplate.FuncMapCompletions(false)
+	byName := map[string]lsptemplate.CompletionItem{}
+	for _, c := range plain {
+		byName[c.Label] = c
+	}
+
+	for _, name := range []string{"wrap", "markdown", "raw", "endraw"} {
+		c, ok := byName[name]
+		if !ok {
+			t.Fatalf("expected %q in completions", name)
+		}
+		if c.IsSnippet {
+			t.Errorf("%q: IsSnippet should be false when snippetSupport=false", name)
+		}
+		if !strings.Contains(c.Detail, "compile-time directive") {
+			t.Errorf("%q: expected detail to mention 'compile-time directive', got %q", name, c.Detail)
+		}
+	}
+
+	// With snippet support: directives use snippet syntax for wrap/markdown.
+	snip := lsptemplate.FuncMapCompletions(true)
+	for _, c := range snip {
+		if c.Label == "wrap" || c.Label == "markdown" {
+			if !c.IsSnippet {
+				t.Errorf("%q: IsSnippet should be true when snippetSupport=true", c.Label)
+			}
+			if !strings.Contains(c.InsertText, "$") {
+				t.Errorf("%q: expected snippet placeholder in insertText, got %q", c.Label, c.InsertText)
+			}
 		}
 	}
 }

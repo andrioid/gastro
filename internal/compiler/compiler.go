@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -27,6 +28,10 @@ type FileWarning struct {
 // CompileResult contains the output of a successful compilation.
 type CompileResult struct {
 	Warnings []FileWarning
+	// MarkdownDeps lists absolute paths to every .md file referenced by a
+	// {{ markdown "..." }} directive during this compile. Useful for the
+	// dev watcher so changes to these files can trigger a regenerate.
+	MarkdownDeps []string
 }
 
 // Compile reads all .gastro files from a project directory, processes them
@@ -55,9 +60,14 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	var components []componentMeta
 	var templates []templateMeta
 	var allWarnings []FileWarning
+	var allMarkdownDeps []string
+	absProjectDir, err := filepath.Abs(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving project dir: %w", err)
+	}
 	for _, relPath := range allFiles {
 		absPath := filepath.Join(projectDir, relPath)
-		result, err := compileFile(absPath, relPath, outputDir)
+		result, err := compileFile(absPath, relPath, absProjectDir, outputDir)
 		if err != nil {
 			return nil, fmt.Errorf("compiling %s: %w", relPath, err)
 		}
@@ -78,6 +88,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		if result.component != nil {
 			components = append(components, *result.component)
 		}
+		allMarkdownDeps = append(allMarkdownDeps, result.markdownDeps...)
 	}
 
 	// Detect static asset directory (ignore dotfiles like .gitkeep, .DS_Store)
@@ -120,7 +131,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		}
 	}
 
-	return &CompileResult{Warnings: allWarnings}, nil
+	return &CompileResult{Warnings: allWarnings, MarkdownDeps: dedupeStrings(allMarkdownDeps)}, nil
 }
 
 // discoverFiles walks a directory and returns relative paths of all .gastro files.
@@ -167,12 +178,13 @@ type componentMeta struct {
 // compileResult is returned by compileFile. It always contains template
 // metadata and optionally component metadata (nil for pages).
 type compileResult struct {
-	template  templateMeta
-	component *componentMeta
-	warnings  []codegen.Warning
+	template     templateMeta
+	component    *componentMeta
+	warnings     []codegen.Warning
+	markdownDeps []string
 }
 
-func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
+func compileFile(absPath, relPath, absProjectDir, outputDir string) (compileResult, error) {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return compileResult{}, err
@@ -193,8 +205,20 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 	// Check for children usage before template transformation
 	hasChildren := strings.Contains(file.TemplateBody, "{{ .Children }}")
 
+	// Expand {{ markdown "path" }} directives before template transformation
+	// so the resulting HTML is treated as part of the template body by all
+	// downstream passes ({{ raw }}, {{ wrap }}, etc.).
+	mdCtx := codegen.MarkdownContext{
+		ProjectRoot: absProjectDir,
+		SourceDir:   filepath.Dir(absPath),
+	}
+	bodyWithMarkdown, markdownDeps, err := codegen.ProcessMarkdownDirectives(file.TemplateBody, mdCtx)
+	if err != nil {
+		return compileResult{}, err
+	}
+
 	// Transform template body
-	transformedBody, err := codegen.TransformTemplate(file.TemplateBody, file.Uses)
+	transformedBody, err := codegen.TransformTemplate(bodyWithMarkdown, file.Uses)
 	if err != nil {
 		return compileResult{}, err
 	}
@@ -251,7 +275,7 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 
 	// Pages have no component metadata
 	if !isComponent {
-		return compileResult{template: tmplMeta, warnings: info.Warnings}, nil
+		return compileResult{template: tmplMeta, warnings: info.Warnings, markdownDeps: markdownDeps}, nil
 	}
 
 	_, hoistedTypes := codegen.HoistTypeDeclarations(file.Frontmatter)
@@ -271,7 +295,7 @@ func compileFile(absPath, relPath, outputDir string) (compileResult, error) {
 		HasChildren:   hasChildren,
 	}
 
-	return compileResult{template: tmplMeta, component: compMeta, warnings: info.Warnings}, nil
+	return compileResult{template: tmplMeta, component: compMeta, warnings: info.Warnings, markdownDeps: markdownDeps}, nil
 }
 
 // syncStatic copies the project's static/ directory into outputDir/static/.
@@ -579,4 +603,22 @@ func generateRoutesFile(routes []router.Route, templates []templateMeta, hasStat
 		Templates: templates,
 		HasStatic: hasStatic,
 	})
+}
+
+// dedupeStrings returns a sorted deduplicated copy of in.
+func dedupeStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(in))
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
 }

@@ -9,14 +9,14 @@ import (
 
 ctx := gastro.Context()
 
-Title := "Plain"
-Active := "forms"
+Title := "Guestbook (Plain)"
+Active := "guestbook-plain"
 Entries := demo.ListEntries()
 Error := ctx.Query("error")
 Success := ctx.Query("success")
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
-    <h1>Plain</h1>
+    <h1>Guestbook (Plain)</h1>
     <p>A guestbook using traditional HTML forms and the Post/Redirect/Get pattern. No JavaScript, no libraries &mdash; just a <code>&lt;form&gt;</code> with <code>method="POST"</code>.</p>
 
     <div class="demo-section">
@@ -76,14 +76,14 @@ func handleGuestbookPost(w http.ResponseWriter, r *http.Request) {
 
     if name == "" {
         http.Redirect(w, r,
-            "/docs/forms?error=Name+is+required",
+            "/examples/guestbook-plain?error=Name+is+required",
             http.StatusSeeOther)
         return
     }
 
     demo.AddEntry(name, message)
     http.Redirect(w, r,
-        "/docs/forms?success=Entry+added",
+        "/examples/guestbook-plain?success=Entry+added",
         http.StatusSeeOther)
 }</code></pre>
         </div>
@@ -107,7 +107,7 @@ func handleGuestbookPost(w http.ResponseWriter, r *http.Request) {
 {{ endraw }}
 </code></pre>
         </div>
-        <p>See the <a href="/docs/demo">Datastar</a> and <a href="/docs/htmx">HTMX</a> examples for these patterns in action.</p>
+        <p>See the <a href="/examples/guestbook-datastar">Datastar</a> and <a href="/examples/guestbook-htmx">HTMX</a> examples for these patterns in action.</p>
     </div>
 
     <div class="docs-nav">
@@ -115,9 +115,9 @@ func handleGuestbookPost(w http.ResponseWriter, r *http.Request) {
             <div class="docs-nav-label">Previous</div>
             <div class="docs-nav-title">Comparison</div>
         </a>
-        <a href="/docs/demo" class="next">
+        <a href="/examples/guestbook-datastar" class="next">
             <div class="docs-nav-label">Next</div>
-            <div class="docs-nav-title">Datastar</div>
+            <div class="docs-nav-title">Guestbook (Datastar)</div>
         </a>
     </div>
 {{ end }}

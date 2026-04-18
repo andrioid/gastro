@@ -663,6 +663,31 @@ h3 code {
 }
 
 /* -------------------------------------------------------
+   Markdown-rendered code blocks (chroma)
+   -------------------------------------------------------
+   Syntax highlighting token colors live in static/chroma.css
+   (github theme, shared with the gastro new scaffold). Only
+   layout tweaks live here.
+   ------------------------------------------------------- */
+
+.docs-content pre.chroma {
+    margin: 1.25rem 0;
+    padding: 1.2rem;
+    border-radius: var(--radius);
+    border: 1px solid rgba(42, 37, 32, 0.08);
+    overflow-x: auto;
+    font-size: 0.84rem;
+    line-height: 1.65;
+}
+
+.docs-content pre.chroma code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+}
+
+/* -------------------------------------------------------
    Tables (Docs)
    ------------------------------------------------------- */
 
