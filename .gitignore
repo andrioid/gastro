@@ -14,6 +14,7 @@ examples/blog/.gastro/
 # Example binaries
 examples/sse/sse-example
 examples/dashboard/dashboard
+examples/gastro/app
 
 # Node.js
 node_modules/
