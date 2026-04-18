@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.1.13](https://github.com/andrioid/gastro/compare/v0.1.12...v0.1.13) (2026-04-18)
+
+
+### Features
+
+* **chromalexer:** add Chroma lexer for .gastro files ([0457b39](https://github.com/andrioid/gastro/commit/0457b393590a39d56a4cf1645c13ef25e3fd49db))
+* compile-time {{ markdown }} directive + website docs consolidation ([4980dc2](https://github.com/andrioid/gastro/commit/4980dc20c87513081905ab28f84364a5b69cab35))
+* compile-time {{ markdown }} directive for .gastro templates ([32158e5](https://github.com/andrioid/gastro/commit/32158e58d5e3e245c89f00c29395b00e812247c7))
+* **dev:** watch out-of-tree markdown deps via compiler-reported paths ([3c7eb0a](https://github.com/andrioid/gastro/commit/3c7eb0a65e235c6ed52da1f0531d686ae49cca46))
+
+
+### Bug Fixes
+
+* **lsp:** complete & parse compile-time directives (wrap, raw, endraw, markdown) ([d5b02c7](https://github.com/andrioid/gastro/commit/d5b02c7f8d7aedce72f521dd0c60a7f9d4c58d36))
+
+
+### Refactoring
+
+* **codegen:** remove redundant dedup in ProcessMarkdownDirectives ([35204ed](https://github.com/andrioid/gastro/commit/35204edd4f9219aef585e21b6e6e608269fcb330))
+* **codegen:** remove unused markdownPlaceholder constant ([323879e](https://github.com/andrioid/gastro/commit/323879ed5cff5d3efa4472e7961e17c487b07d8c))
+* **examples/gastro:** consolidate docs into /docs/*.md, namespace guestbook examples ([1ec4b5c](https://github.com/andrioid/gastro/commit/1ec4b5c23e6493583fa8e9e6d8c70190e87ce381))
+
+
+### Documentation
+
+* **components:** label code fences as html instead of go ([58c35b4](https://github.com/andrioid/gastro/commit/58c35b4b7e347c0ecbf9b73c2cf41df3c8bbe3c4))
+* use ```gastro fences for page and component examples ([f7ea1ad](https://github.com/andrioid/gastro/commit/f7ea1ad371456f50d6334afe1e260ba5853249ca))
+
 ## [0.1.12](https://github.com/andrioid/gastro/compare/v0.1.11...v0.1.12) (2026-04-06)
 
 
