@@ -118,7 +118,11 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	// variable completions handle it (they already work via fall-through).
 	if propValCtx := lsptemplate.DetectPropValueContext(parsed.TemplateBody, cursorOffset); propValCtx != nil {
 		if propValCtx.AfterPipe {
-			for _, c := range lsptemplate.FuncMapCompletions() {
+			// Pipe position — only runtime functions make sense here, not
+			// compile-time directives (wrap/markdown/raw/endraw). Disable
+			// snippet mode so we don't insert argument skeletons where they
+			// wouldn't parse.
+			for _, c := range lsptemplate.FuncMapCompletions(false) {
 				items = append(items, map[string]any{
 					"label":      c.Label,
 					"kind":       completionKindFunction,
@@ -259,13 +263,17 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 		items = append(items, item)
 	}
 
-	for _, c := range lsptemplate.FuncMapCompletions() {
-		items = append(items, map[string]any{
+	for _, c := range lsptemplate.FuncMapCompletions(s.snippetSupport) {
+		item := map[string]any{
 			"label":      c.Label,
 			"kind":       completionKindFunction,
 			"detail":     c.Detail,
 			"insertText": c.InsertText,
-		})
+		}
+		if c.IsSnippet {
+			item["insertTextFormat"] = insertTextFormatSnippet
+		}
+		items = append(items, item)
 	}
 
 	return items

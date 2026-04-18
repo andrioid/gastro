@@ -72,11 +72,53 @@ func ComponentCompletions(uses []parser.UseDeclaration) []CompletionItem {
 	return items
 }
 
+// compileTimeDirective describes a keyword handled by the gastro code
+// generator (not the runtime FuncMap). These are stripped or expanded at
+// compile time, so they don't appear in gastro.DefaultFuncs() and need to
+// be surfaced separately for completion.
+type compileTimeDirective struct {
+	name        string
+	detail      string
+	plain       string // insertText when snippet support is disabled
+	snippet     string // insertText when snippet support is enabled
+}
+
+var compileTimeDirectives = []compileTimeDirective{
+	{
+		name:    "wrap",
+		detail:  "compile-time directive — wraps children in a layout component",
+		plain:   "wrap ",
+		snippet: "wrap ${1:Component} (dict \"${2:key}\" ${3:value})$0",
+	},
+	{
+		name:    "markdown",
+		detail:  "compile-time directive — inlines rendered markdown (path must be a string literal)",
+		plain:   "markdown \"\"",
+		snippet: "markdown \"${1:path.md}\"$0",
+	},
+	{
+		name:    "raw",
+		detail:  "compile-time directive — begins a block whose contents bypass template parsing",
+		plain:   "raw }}$0{{ endraw",
+		snippet: "raw }}$0{{ endraw",
+	},
+	{
+		name:    "endraw",
+		detail:  "compile-time directive — closes a {{ raw }} block",
+		plain:   "endraw",
+		snippet: "endraw",
+	},
+}
+
 // FuncMapCompletions returns completion items for template functions
-// available in {{ }} expressions (gastro functions + Go template builtins).
-func FuncMapCompletions() []CompletionItem {
+// available in {{ }} expressions (gastro functions + Go template builtins
+// + gastro compile-time directives).
+//
+// When snippetSupport is true, compile-time directives are returned with
+// snippet placeholders (e.g. wrap/markdown insert a useful argument skeleton).
+func FuncMapCompletions(snippetSupport bool) []CompletionItem {
 	funcs := gastro.DefaultFuncs()
-	items := make([]CompletionItem, 0, len(funcs)+len(goTemplateBuiltins))
+	items := make([]CompletionItem, 0, len(funcs)+len(goTemplateBuiltins)+len(compileTimeDirectives))
 	for name := range funcs {
 		items = append(items, CompletionItem{
 			Label:      name,
@@ -90,6 +132,19 @@ func FuncMapCompletions() []CompletionItem {
 			Detail:     "Go template builtin",
 			InsertText: name,
 		})
+	}
+	for _, d := range compileTimeDirectives {
+		item := CompletionItem{
+			Label:  d.name,
+			Detail: d.detail,
+		}
+		if snippetSupport {
+			item.InsertText = d.snippet
+			item.IsSnippet = true
+		} else {
+			item.InsertText = d.plain
+		}
+		items = append(items, item)
 	}
 	return items
 }
