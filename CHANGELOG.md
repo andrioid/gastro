@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.14](https://github.com/andrioid/gastro/compare/v0.1.13...v0.1.14) (2026-04-18)
+
+
+### Bug Fixes
+
+* **examples/gastro:** copy docs/ into Docker build context ([a93c96c](https://github.com/andrioid/gastro/commit/a93c96c6f0d4b2be89a1cb5814bbc6a401730696))
+
+
+### Miscellaneous
+
+* gitignore examples/gastro/app build artifact ([a37b88c](https://github.com/andrioid/gastro/commit/a37b88cb17dcaec46afef2366aa0a353ad6fd574))
+
 ## [0.1.13](https://github.com/andrioid/gastro/compare/v0.1.12...v0.1.13) (2026-04-18)
 
 
