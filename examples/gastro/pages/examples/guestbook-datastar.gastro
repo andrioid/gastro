@@ -10,12 +10,12 @@ import (
 ctx := gastro.Context()
 _ = ctx
 
-Title := "Datastar"
-Active := "demo"
+Title := "Guestbook (Datastar)"
+Active := "guestbook-datastar"
 Entries := demo.ListEntries()
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
-    <h1>Datastar</h1>
+    <h1>Guestbook (Datastar)</h1>
     <p>A working guestbook powered by <a href="https://data-star.dev/" target="_blank" rel="noopener">Datastar<span class="sr-only"> (opens in new tab)</span></a> and server-sent events. Search, add entries, and edit inline &mdash; all without page reloads.</p>
 
     <div class="demo-section">
@@ -109,13 +109,13 @@ Entries := demo.ListEntries()
     </div>
 
     <div class="docs-nav">
-        <a href="/docs/forms">
+        <a href="/examples/guestbook-plain">
             <div class="docs-nav-label">Previous</div>
-            <div class="docs-nav-title">Plain</div>
+            <div class="docs-nav-title">Guestbook (Plain)</div>
         </a>
-        <a href="/docs/htmx" class="next">
+        <a href="/examples/guestbook-htmx" class="next">
             <div class="docs-nav-label">Next</div>
-            <div class="docs-nav-title">HTMX</div>
+            <div class="docs-nav-title">Guestbook (HTMX)</div>
         </a>
     </div>
 {{ end }}

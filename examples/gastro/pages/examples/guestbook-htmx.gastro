@@ -10,13 +10,13 @@ import (
 ctx := gastro.Context()
 _ = ctx
 
-Title := "HTMX"
-Active := "htmx"
+Title := "Guestbook (HTMX)"
+Active := "guestbook-htmx"
 Entries := demo.ListEntries()
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
-    <h1>HTMX</h1>
-    <p>The same guestbook from the <a href="/docs/demo">Datastar</a> example, but powered by <a href="https://htmx.org/" target="_blank" rel="noopener">HTMX<span class="sr-only"> (opens in new tab)</span></a> instead. HTMX uses plain HTML fragment responses rather than SSE, making the server handlers simpler at the cost of some reactivity features.</p>
+    <h1>Guestbook (HTMX)</h1>
+    <p>The same guestbook from the <a href="/examples/guestbook-datastar">Datastar</a> example, but powered by <a href="https://htmx.org/" target="_blank" rel="noopener">HTMX<span class="sr-only"> (opens in new tab)</span></a> instead. HTMX uses plain HTML fragment responses rather than SSE, making the server handlers simpler at the cost of some reactivity features.</p>
 
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous"></script>
 
@@ -194,9 +194,9 @@ func handleDsSearch(w http.ResponseWriter, r *http.Request) {
     </div>
 
     <div class="docs-nav">
-        <a href="/docs/demo">
+        <a href="/examples/guestbook-datastar">
             <div class="docs-nav-label">Previous</div>
-            <div class="docs-nav-title">Datastar</div>
+            <div class="docs-nav-title">Guestbook (Datastar)</div>
         </a>
         <div></div>
     </div>

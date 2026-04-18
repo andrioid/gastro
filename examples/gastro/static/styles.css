@@ -663,6 +663,40 @@ h3 code {
 }
 
 /* -------------------------------------------------------
+   Markdown-rendered code blocks (chroma, classed output)
+   ------------------------------------------------------- */
+
+.docs-content pre.chroma {
+    margin: 1.25rem 0;
+    padding: 1.2rem;
+    border-radius: var(--radius);
+    border: 1px solid rgba(42, 37, 32, 0.08);
+    overflow-x: auto;
+    background: var(--color-code-bg);
+    color: var(--color-code-text);
+    font-size: 0.84rem;
+    line-height: 1.65;
+}
+
+.docs-content pre.chroma code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+}
+
+/* Chroma token colors — muted palette that works on dark code bg */
+.chroma .k,  .chroma .kd, .chroma .kn, .chroma .kp, .chroma .kr, .chroma .kt { color: #c98dff; } /* keyword */
+.chroma .s,  .chroma .sa, .chroma .sb, .chroma .sc, .chroma .s1, .chroma .s2 { color: #a5d96b; } /* string */
+.chroma .c,  .chroma .c1, .chroma .cm, .chroma .cs, .chroma .cp              { color: #8a8170; font-style: italic; } /* comment */
+.chroma .n,  .chroma .nx, .chroma .nv                                        { color: var(--color-code-text); }
+.chroma .nf, .chroma .nc                                                     { color: #7ec4ff; } /* function/class names */
+.chroma .nb                                                                  { color: #7ec4ff; } /* builtin */
+.chroma .m,  .chroma .mi, .chroma .mf                                        { color: #e8a860; } /* numbers */
+.chroma .o,  .chroma .p                                                      { color: #d6c9b4; } /* operators/punct */
+.chroma .err                                                                 { color: #ff8b6e; }
+
+/* -------------------------------------------------------
    Tables (Docs)
    ------------------------------------------------------- */
 

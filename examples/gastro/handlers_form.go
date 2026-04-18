@@ -9,10 +9,10 @@ import (
 
 // handleGuestbookPost handles traditional HTML form submissions using
 // the Post/Redirect/Get pattern. Validates input, adds an entry,
-// and redirects back to the forms page with status query parameters.
+// and redirects back to the guestbook page with status query parameters.
 func handleGuestbookPost(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		http.Redirect(w, r, "/docs/forms?error=Invalid+form+data", http.StatusSeeOther)
+		http.Redirect(w, r, "/examples/guestbook-plain?error=Invalid+form+data", http.StatusSeeOther)
 		return
 	}
 
@@ -20,14 +20,14 @@ func handleGuestbookPost(w http.ResponseWriter, r *http.Request) {
 	message := strings.TrimSpace(r.FormValue("message"))
 
 	if name == "" {
-		http.Redirect(w, r, "/docs/forms?error=Name+is+required", http.StatusSeeOther)
+		http.Redirect(w, r, "/examples/guestbook-plain?error=Name+is+required", http.StatusSeeOther)
 		return
 	}
 	if message == "" {
-		http.Redirect(w, r, "/docs/forms?error=Message+is+required", http.StatusSeeOther)
+		http.Redirect(w, r, "/examples/guestbook-plain?error=Message+is+required", http.StatusSeeOther)
 		return
 	}
 
 	demo.AddEntry(name, message)
-	http.Redirect(w, r, "/docs/forms?success=Entry+added", http.StatusSeeOther)
+	http.Redirect(w, r, "/examples/guestbook-plain?success=Entry+added", http.StatusSeeOther)
 }
