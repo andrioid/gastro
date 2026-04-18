@@ -142,6 +142,13 @@ Provides:
 - `DetectChangedSection(old, new)` -- determine if frontmatter or template changed
 - `ClassifyChange(file, section)` -- decide if change needs restart or reload
 - `Debounce(duration, fn)` -- rate-limit rapid file changes
+- `ExternalDeps` -- shared, concurrency-safe set of markdown files referenced
+  by `{{ markdown "..." }}` directives; the compiler populates it from
+  `CompileResult.MarkdownDeps` after each successful compile and the dev
+  watcher polls those paths. This supports out-of-tree markdown files (e.g.
+  a shared `docs/` directory above the project root) and avoids watching
+  unreferenced `.md` files. Paths are canonicalized via `EvalSymlinks` so a
+  symlink and its target dedupe to one watched file.
 
 ### `pkg/gastro/`
 

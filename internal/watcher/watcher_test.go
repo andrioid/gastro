@@ -49,28 +49,85 @@ func TestCollectGastroFiles(t *testing.T) {
 	}
 }
 
-func TestCollectMarkdownFiles(t *testing.T) {
+func TestExternalDeps_SetSnapshot(t *testing.T) {
+	var deps watcher.ExternalDeps
+
+	if paths, ver := deps.Snapshot(); len(paths) != 0 || ver != 0 {
+		t.Fatalf("zero value: want empty/0, got %v/%d", paths, ver)
+	}
+
+	deps.Set([]string{"/tmp/b.md", "/tmp/a.md"})
+	paths, ver := deps.Snapshot()
+	if ver != 1 {
+		t.Errorf("version after first Set = %d, want 1", ver)
+	}
+	// Sorted & preserved.
+	if len(paths) != 2 || paths[0] != "/tmp/a.md" || paths[1] != "/tmp/b.md" {
+		t.Errorf("paths = %v, want sorted [a,b]", paths)
+	}
+}
+
+func TestExternalDeps_Dedupe(t *testing.T) {
+	var deps watcher.ExternalDeps
+	deps.Set([]string{"/tmp/a.md", "/tmp/a.md", "/tmp/b.md"})
+	paths, _ := deps.Snapshot()
+	if len(paths) != 2 {
+		t.Errorf("expected dedupe to 2 paths, got %d: %v", len(paths), paths)
+	}
+}
+
+func TestExternalDeps_VersionUnchangedOnEqualSet(t *testing.T) {
+	var deps watcher.ExternalDeps
+	deps.Set([]string{"/tmp/a.md", "/tmp/b.md"})
+	_, v1 := deps.Snapshot()
+
+	// Same set, different order — should not bump version.
+	deps.Set([]string{"/tmp/b.md", "/tmp/a.md"})
+	_, v2 := deps.Snapshot()
+	if v1 != v2 {
+		t.Errorf("version bumped for equal set: %d -> %d", v1, v2)
+	}
+
+	// Actual change — should bump.
+	deps.Set([]string{"/tmp/a.md"})
+	_, v3 := deps.Snapshot()
+	if v3 != v2+1 {
+		t.Errorf("version after real change: %d, want %d", v3, v2+1)
+	}
+}
+
+func TestExternalDeps_Symlink(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "pages", "docs"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "content"), 0o755)
-	os.MkdirAll(filepath.Join(dir, ".gastro", "generated"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "node_modules", "pkg"), 0o755)
-	os.MkdirAll(filepath.Join(dir, "tmp"), 0o755)
-
-	os.WriteFile(filepath.Join(dir, "pages", "docs", "a.md"), []byte("# a"), 0o644)
-	os.WriteFile(filepath.Join(dir, "content", "b.md"), []byte("# b"), 0o644)
-	os.WriteFile(filepath.Join(dir, ".gastro", "generated", "ignored.md"), []byte("# x"), 0o644)
-	os.WriteFile(filepath.Join(dir, "node_modules", "pkg", "ignored.md"), []byte("# y"), 0o644)
-	os.WriteFile(filepath.Join(dir, "tmp", "ignored.md"), []byte("# z"), 0o644)
-	os.WriteFile(filepath.Join(dir, "pages", "docs", "not-md.txt"), []byte("hi"), 0o644)
-
-	files, err := watcher.CollectMarkdownFiles(dir)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	target := filepath.Join(dir, "real.md")
+	link := filepath.Join(dir, "link.md")
+	if err := os.WriteFile(target, []byte("# real"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if len(files) != 2 {
-		t.Fatalf("expected 2 .md files, got %d: %v", len(files), files)
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
 	}
+
+	var deps watcher.ExternalDeps
+	deps.Set([]string{target, link})
+	paths, _ := deps.Snapshot()
+	if len(paths) != 1 {
+		t.Errorf("symlink + target should dedupe to 1 path, got %d: %v", len(paths), paths)
+	}
+}
+
+func TestExternalDeps_ConcurrentAccess(t *testing.T) {
+	var deps watcher.ExternalDeps
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 1000; i++ {
+			deps.Set([]string{"/tmp/a.md", "/tmp/b.md"})
+		}
+		close(done)
+	}()
+	for i := 0; i < 1000; i++ {
+		_, _ = deps.Snapshot()
+	}
+	<-done
 }
 
 func TestDetectChangedSection_TemplateOnly(t *testing.T) {

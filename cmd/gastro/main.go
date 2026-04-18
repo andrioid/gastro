@@ -44,7 +44,7 @@ func main() {
 		fmt.Println(version)
 		return
 	case "generate":
-		if err := runGenerate(true); err != nil {
+		if _, err := runGenerate(true); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro generate: %v\n", err)
 			os.Exit(1)
 		}
@@ -314,14 +314,14 @@ func collectGastroFiles(root string) ([]string, error) {
 	return files, err
 }
 
-func runGenerate(strict bool) error {
+func runGenerate(strict bool) (*compiler.CompileResult, error) {
 	projectDir := "."
 	outputDir := filepath.Join(projectDir, ".gastro")
 
 	fmt.Println("gastro: generating code...")
 	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{Strict: strict})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	for _, w := range result.Warnings {
@@ -329,11 +329,11 @@ func runGenerate(strict bool) error {
 	}
 
 	fmt.Println("gastro: done")
-	return nil
+	return result, nil
 }
 
 func runBuild() error {
-	if err := runGenerate(true); err != nil {
+	if _, err := runGenerate(true); err != nil {
 		return err
 	}
 
@@ -415,10 +415,19 @@ func runDev() error {
 		port = p
 	}
 
+	// extDeps tracks markdown files referenced by {{ markdown "..." }}
+	// directives, as reported by the compiler. It is the single source of
+	// truth for which .md files the dev watcher polls. Out-of-tree paths
+	// (e.g. shared docs one directory above the project) are supported
+	// because the compiler reports absolute paths.
+	extDeps := &watcher.ExternalDeps{}
+
 	// Initial generation (non-strict in dev mode — warnings don't block)
-	if err := runGenerate(false); err != nil {
+	initialResult, err := runGenerate(false)
+	if err != nil {
 		return err
 	}
+	extDeps.Set(initialResult.MarkdownDeps)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -487,10 +496,14 @@ func runDev() error {
 
 	debounced := watcher.Debounce(debounceDelay, func() {
 		fmt.Println("gastro: changes detected, regenerating...")
-		if err := runGenerate(false); err != nil {
+		result, err := runGenerate(false)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "gastro: generate failed: %v\n", err)
+			// Retain last-known-good extDeps so .md edits keep reloading
+			// while the user fixes a broken .gastro file.
 			return
 		}
+		extDeps.Set(result.MarkdownDeps)
 
 		ct := consumePending()
 		if ct == watcher.ChangeRestart {
@@ -531,24 +544,39 @@ func runDev() error {
 			}
 		}
 
-		// Markdown files can live anywhere in the project, so walking the
-		// whole tree on every poll is wasteful. Cache the discovered list
-		// and rewalk only every markdownRescanEvery ticks; stat the cached
-		// list every tick for fast change detection.
+		// Markdown files to watch come from extDeps, populated by the
+		// compiler from {{ markdown "..." }} directives. This is the sole
+		// source of markdown paths — files not referenced by any .gastro
+		// are intentionally not watched. Paths may live outside the project
+		// root (e.g. a shared docs directory resolved via "../").
 		var markdownCache []string
-		var markdownTick uint
-		const markdownRescanEvery = 10
+		var markdownDepsVersion uint64
 
-		rescanMarkdown := func() {
-			files, err := watcher.CollectMarkdownFiles(".")
-			if err != nil {
+		// syncMarkdownCache pulls the latest dep list from extDeps when its
+		// version has changed. Paths that were dropped from extDeps (e.g.
+		// because a directive was removed) are silently removed from
+		// modTimes so the deletion loop below doesn't misclassify them as a
+		// file deletion and escalate to a restart.
+		syncMarkdownCache := func() {
+			paths, ver := extDeps.Snapshot()
+			if ver == markdownDepsVersion && markdownCache != nil {
 				return
 			}
-			markdownCache = files
+			newSet := make(map[string]struct{}, len(paths))
+			for _, p := range paths {
+				newSet[p] = struct{}{}
+			}
+			for _, old := range markdownCache {
+				if _, ok := newSet[old]; !ok {
+					delete(modTimes, old)
+				}
+			}
+			markdownCache = paths
+			markdownDepsVersion = ver
 		}
 
 		seedMarkdown := func() {
-			rescanMarkdown()
+			syncMarkdownCache()
 			for _, f := range markdownCache {
 				info, err := os.Stat(f)
 				if err != nil {
@@ -625,14 +653,12 @@ func runDev() error {
 				}
 			}
 
-			// Watch markdown files anywhere in the project (referenced by
-			// {{ markdown "..." }} directives in .gastro files). Rewalking
-			// the whole tree every tick is expensive, so rescan only every
-			// markdownRescanEvery ticks; in between, stat the cached list.
-			markdownTick++
-			if markdownTick%markdownRescanEvery == 0 {
-				rescanMarkdown()
-			}
+			// Watch markdown files referenced by {{ markdown "..." }}
+			// directives. The dep list is refreshed from extDeps only when
+			// the version counter changes (i.e. after a successful compile
+			// produced a different set of deps), so this is essentially
+			// free between compiles.
+			syncMarkdownCache()
 			for _, f := range markdownCache {
 				currentFiles[f] = true
 				info, err := os.Stat(f)

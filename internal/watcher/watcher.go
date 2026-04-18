@@ -3,6 +3,7 @@ package watcher
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -58,31 +59,88 @@ func CollectGastroFiles(dir string) ([]string, error) {
 	return files, err
 }
 
-// CollectMarkdownFiles walks a directory and returns all .md file paths,
-// skipping hidden directories (names starting with '.') and common
-// non-source directories like node_modules. Used for watching markdown
-// content referenced by {{ markdown "..." }} directives.
-func CollectMarkdownFiles(dir string) ([]string, error) {
-	var files []string
+// ExternalDeps holds the set of markdown files referenced by
+// {{ markdown "..." }} directives across all compiled .gastro files. The
+// dev watcher polls these paths for changes; the compiler populates them
+// from CompileResult.MarkdownDeps after each successful compile.
+//
+// Paths are canonicalized via filepath.EvalSymlinks where possible so the
+// same file reached through a symlink and its target is tracked only once.
+// If EvalSymlinks fails (e.g. broken link, transient fs error), the input
+// path is used as-is.
+//
+// ExternalDeps is safe for concurrent Set/Snapshot calls.
+type ExternalDeps struct {
+	mu      sync.Mutex
+	paths   []string // canonicalized, sorted, deduped
+	version uint64
+}
 
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			name := info.Name()
-			if path != dir && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "tmp") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if strings.HasSuffix(path, ".md") {
-			files = append(files, path)
-		}
-		return nil
-	})
+// Set replaces the tracked dependency list. The version counter is bumped
+// only if the canonicalized, deduped list differs from the previous state,
+// so consumers can cheaply detect real changes. Callers should invoke Set
+// only after a successful compile; on compile failure, skip the call to
+// retain the last-known-good dep list.
+func (e *ExternalDeps) Set(paths []string) {
+	canon := canonicalizePaths(paths)
 
-	return files, err
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if stringSlicesEqual(e.paths, canon) {
+		return
+	}
+	e.paths = canon
+	e.version++
+}
+
+// Snapshot returns a copy of the current dep list and the version counter.
+// Consumers can compare the returned version against a previously observed
+// one to skip redundant work when nothing has changed.
+func (e *ExternalDeps) Snapshot() (paths []string, version uint64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	out := make([]string, len(e.paths))
+	copy(out, e.paths)
+	return out, e.version
+}
+
+// canonicalizePaths resolves symlinks where possible, deduplicates, and
+// returns a sorted slice.
+func canonicalizePaths(paths []string) []string {
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		cp := canonicalizePath(p)
+		if _, ok := seen[cp]; ok {
+			continue
+		}
+		seen[cp] = struct{}{}
+		out = append(out, cp)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// canonicalizePath returns filepath.EvalSymlinks(p) when it succeeds,
+// otherwise the input path. This keeps the function total even when the
+// target file is missing or the symlink is broken.
+func canonicalizePath(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return p
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // CollectAllFiles walks a directory and returns all file paths.
