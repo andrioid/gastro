@@ -49,65 +49,63 @@ func gastroRules() chroma.Rules {
 			// Frontmatter must appear at the very start of the document.
 			// Note: we do NOT consume the trailing newline, so the closing
 			// delimiter's leading \n can still match in the "frontmatter" state.
-			{`\A---`, chroma.CommentPreproc, chroma.Push("frontmatter")},
+			{Pattern: `\A---`, Type: chroma.CommentPreproc, Mutator: chroma.Push("frontmatter")},
 
 			// Go template expression: {{ ... }}. Kept opaque on purpose to
 			// match the tree-sitter grammar's @embedded region.
-			{`\{\{.*?\}\}`, chroma.CommentPreproc, nil},
+			{Pattern: `\{\{.*?\}\}`, Type: chroma.CommentPreproc},
 
 			// Opening component tag: <PascalCase ...> or <PascalCase ... />
-			{`(<)([A-Z][A-Za-z0-9]*)`, chroma.ByGroups(chroma.Punctuation, chroma.NameClass), chroma.Push("component")},
+			{Pattern: `(<)([A-Z][A-Za-z0-9]*)`, Type: chroma.ByGroups(chroma.Punctuation, chroma.NameClass), Mutator: chroma.Push("component")},
 
 			// Closing component tag: </PascalCase>
-			{`(</)([A-Z][A-Za-z0-9]*)(>)`, chroma.ByGroups(chroma.Punctuation, chroma.NameClass, chroma.Punctuation), nil},
+			{Pattern: `(</)([A-Z][A-Za-z0-9]*)(>)`, Type: chroma.ByGroups(chroma.Punctuation, chroma.NameClass, chroma.Punctuation)},
 
 			// Everything else is delegated to the HTML lexer by the outer
 			// DelegatingLexer.
-			{`[^<{]+`, chroma.Other, nil},
-			{`[<{]`, chroma.Other, nil},
+			{Pattern: `[^<{]+`, Type: chroma.Other},
+			{Pattern: `[<{]`, Type: chroma.Other},
 		},
 		"frontmatter": {
 			// Closing delimiter ends frontmatter. Tried first so it wins over
 			// the catch-all rules below.
-			{`\n---\n`, chroma.CommentPreproc, chroma.Pop(1)},
+			{Pattern: `\n---\n`, Type: chroma.CommentPreproc, Mutator: chroma.Pop(1)},
 			// Everything inside is Go. Split into two rules so both newlines
 			// and non-newline runs are consumed.
-			{`\n`, chroma.Using("go"), nil},
-			{`[^\n]+`, chroma.Using("go"), nil},
+			{Pattern: `\n`, Type: chroma.Using("go")},
+			{Pattern: `[^\n]+`, Type: chroma.Using("go")},
 		},
 		"component": {
 			// Self-closing or regular close of the opening tag.
-			{`\s*/>`, chroma.Punctuation, chroma.Pop(1)},
-			{`\s*>`, chroma.Punctuation, chroma.Pop(1)},
+			{Pattern: `\s*/>`, Type: chroma.Punctuation, Mutator: chroma.Pop(1)},
+			{Pattern: `\s*>`, Type: chroma.Punctuation, Mutator: chroma.Pop(1)},
 
-			{`\s+`, chroma.Text, nil},
+			{Pattern: `\s+`, Type: chroma.Text},
 
 			// prop={go-expr}
 			{
-				`([A-Za-z][A-Za-z0-9]*)(=)(\{)([^}]*)(\})`,
-				chroma.ByGroups(
+				Pattern: `([A-Za-z][A-Za-z0-9]*)(=)(\{)([^}]*)(\})`,
+				Type: chroma.ByGroups(
 					chroma.NameAttribute,
 					chroma.Operator,
 					chroma.Punctuation,
 					chroma.Using("go"),
 					chroma.Punctuation,
 				),
-				nil,
 			},
 
 			// prop="literal"
 			{
-				`([A-Za-z][A-Za-z0-9]*)(=)("[^"]*")`,
-				chroma.ByGroups(
+				Pattern: `([A-Za-z][A-Za-z0-9]*)(=)("[^"]*")`,
+				Type: chroma.ByGroups(
 					chroma.NameAttribute,
 					chroma.Operator,
 					chroma.LiteralString,
 				),
-				nil,
 			},
 
 			// Bare attribute (no value).
-			{`[A-Za-z][A-Za-z0-9]*`, chroma.NameAttribute, nil},
+			{Pattern: `[A-Za-z][A-Za-z0-9]*`, Type: chroma.NameAttribute},
 		},
 	}
 }
