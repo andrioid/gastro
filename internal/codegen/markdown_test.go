@@ -175,7 +175,10 @@ func TestProcessMarkdownDirectives_NonMdExtensionRejected(t *testing.T) {
 	}
 }
 
-func TestProcessMarkdownDirectives_MultipleDirectivesDedupedDeps(t *testing.T) {
+func TestProcessMarkdownDirectives_MultipleDirectivesReturnAllDeps(t *testing.T) {
+	// ProcessMarkdownDirectives returns one dep entry per directive
+	// occurrence. Deduplication is the caller's responsibility (the
+	// compiler aggregates across files and dedupes centrally).
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "a.md"), "A")
 	writeFile(t, filepath.Join(root, "b.md"), "B")
@@ -190,8 +193,16 @@ func TestProcessMarkdownDirectives_MultipleDirectivesDedupedDeps(t *testing.T) {
 	if !strings.Contains(got, "A") || !strings.Contains(got, "B") {
 		t.Errorf("expected both A and B in output, got: %q", got)
 	}
-	if len(deps) != 2 {
-		t.Errorf("expected 2 unique deps, got %v", deps)
+	if len(deps) != 3 {
+		t.Errorf("expected 3 dep entries (pre-dedup), got %d: %v", len(deps), deps)
+	}
+	// Verify both files appear.
+	seen := map[string]bool{}
+	for _, d := range deps {
+		seen[filepath.Base(d)] = true
+	}
+	if !seen["a.md"] || !seen["b.md"] {
+		t.Errorf("expected both a.md and b.md in deps, got %v", deps)
 	}
 }
 

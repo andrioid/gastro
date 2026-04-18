@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
@@ -44,7 +43,9 @@ type MarkdownContext struct {
 // not re-parse any template-looking content inside code fences.
 //
 // Returns the transformed body and the list of absolute markdown file paths
-// referenced (for dependency tracking by the dev watcher).
+// referenced (for dependency tracking by the dev watcher). The returned dep
+// list may contain duplicates; callers that aggregate across files (e.g. the
+// compiler) handle dedup centrally.
 func ProcessMarkdownDirectives(body string, ctx MarkdownContext) (string, []string, error) {
 	var deps []string
 	var firstErr error
@@ -74,20 +75,6 @@ func ProcessMarkdownDirectives(body string, ctx MarkdownContext) (string, []stri
 
 	if firstErr != nil {
 		return "", nil, firstErr
-	}
-
-	// De-duplicate deps.
-	if len(deps) > 1 {
-		sort.Strings(deps)
-		unique := deps[:0]
-		var prev string
-		for i, d := range deps {
-			if i == 0 || d != prev {
-				unique = append(unique, d)
-			}
-			prev = d
-		}
-		deps = unique
 	}
 
 	return result, deps, nil
