@@ -6,6 +6,9 @@ COPY go.mod go.sum* ./
 COPY cmd/ cmd/
 COPY internal/ internal/
 COPY pkg/ pkg/
+# Markdown source referenced by {{ markdown "../../../../docs/*.md" }}
+# directives in examples/gastro/pages/docs/*.gastro.
+COPY docs/ docs/
 
 # Build the gastro CLI
 RUN go build -o /usr/local/bin/gastro ./cmd/gastro/
