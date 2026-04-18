@@ -284,6 +284,13 @@ parser.File {
      |         IsPage: true
      |     }
      |
+     +---> codegen.ProcessMarkdownDirectives()
+     |         |
+     |         v
+     |     (inline HTML for each {{ markdown "..." }}, rendered with
+     |      goldmark + chroma at compile time; collects .md dep paths
+     |      so the dev watcher can trigger regen on change)
+     |
      +---> codegen.TransformTemplate()
      |         |
      |         v

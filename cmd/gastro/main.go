@@ -531,10 +531,25 @@ func runDev() error {
 			}
 		}
 
+		seedMarkdown := func() {
+			files, err := watcher.CollectMarkdownFiles(".")
+			if err != nil {
+				return
+			}
+			for _, f := range files {
+				info, err := os.Stat(f)
+				if err != nil {
+					continue
+				}
+				modTimes[f] = info.ModTime()
+			}
+		}
+
 		for _, dir := range []string{"pages", "components"} {
 			seedFiles(dir, true)
 		}
 		seedFiles("static", false)
+		seedMarkdown()
 
 		for {
 			select {
@@ -592,6 +607,35 @@ func runDev() error {
 						fileContents[f] = newContent
 						modTimes[f] = info.ModTime()
 						escalate(ct)
+						changed = true
+					}
+				}
+			}
+
+			// Watch markdown files anywhere in the project (referenced by
+			// {{ markdown "..." }} directives in .gastro files). Changes
+			// require regeneration but not a full restart.
+			if files, err := watcher.CollectMarkdownFiles("."); err == nil {
+				for _, f := range files {
+					currentFiles[f] = true
+					info, err := os.Stat(f)
+					if err != nil {
+						continue
+					}
+
+					prev, known := modTimes[f]
+					if !known {
+						fmt.Printf("gastro: new file %s\n", f)
+						modTimes[f] = info.ModTime()
+						escalate(watcher.ChangeReload)
+						changed = true
+						continue
+					}
+
+					if info.ModTime().After(prev) {
+						fmt.Printf("gastro: %s changed (markdown)\n", f)
+						modTimes[f] = info.ModTime()
+						escalate(watcher.ChangeReload)
 						changed = true
 					}
 				}

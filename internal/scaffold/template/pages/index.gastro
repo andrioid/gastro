@@ -7,6 +7,7 @@ Title := "Welcome to Gastro"
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Title }}</title>
+    <link rel="stylesheet" href="/static/chroma.css">
 </head>
 <body>
     <h1>{{ .Title }}</h1>
