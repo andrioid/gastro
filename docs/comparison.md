@@ -23,7 +23,7 @@ The biggest difference between these tools is how you write HTML. Here's the sam
 
 A `.gastro` file with Go frontmatter and html/template markup. If you know HTML and Go, you can read it immediately:
 
-```go
+```gastro
 ---
 type Props struct {
     Name    string

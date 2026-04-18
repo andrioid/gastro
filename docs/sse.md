@@ -66,7 +66,7 @@ func handleIncrement(w http.ResponseWriter, r *http.Request) {
 
 Add Datastar attributes to your `.gastro` pages to trigger SSE connections:
 
-```go
+```gastro
 ---
 import Layout "components/layout.gastro"
 Title := "Counter"

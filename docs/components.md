@@ -6,7 +6,7 @@ Components are reusable `.gastro` files in the `components/` directory. They acc
 
 A component uses `gastro.Props()` to declare its props type. The `Props` struct defines what the component accepts:
 
-```html
+```gastro
 ---
 type Props struct {
     Title  string
@@ -28,7 +28,7 @@ Author := gastro.Props().Author
 
 When you need derived values from multiple props, assign the whole struct first:
 
-```html
+```gastro
 ---
 import "fmt"
 
@@ -48,7 +48,7 @@ CX := fmt.Sprintf("%d", p.X + 135)
 
 Import components in the frontmatter with the `.gastro` file extension. The identifier is the local name used in the template:
 
-```html
+```gastro
 ---
 import (
     Layout "components/layout.gastro"
@@ -66,7 +66,7 @@ ctx := gastro.Context()
 
 Props are passed as attributes on the component tag:
 
-```html
+```gastro
 <!-- Template expression -->
 {{ PostCard (dict "Title" .Title "Slug" .Slug) }}
 
@@ -98,7 +98,7 @@ Gastro automatically coerces prop values to match struct field types:
 
 Children let a component render content provided by its parent. Place `{{ .Children }}` where children should appear:
 
-```html
+```gastro
 ---
 type Props struct {
     Title string
@@ -120,7 +120,7 @@ Title := gastro.Props().Title
 
 The parent passes children by wrapping content in the component tags:
 
-```html
+```gastro
 {{ wrap Layout (dict "Title" "Home") }}
     <h1>Welcome</h1>
     <p>This becomes the children content.</p>

@@ -6,7 +6,7 @@ Pages are `.gastro` files in the `pages/` directory. Each page becomes an HTTP r
 
 A page has two sections separated by `---` delimiters: Go frontmatter and an HTML template body.
 
-```go
+```gastro
 ---
 ctx := gastro.Context()
 
@@ -21,7 +21,7 @@ Call `gastro.Context()` in the frontmatter to mark the file as a page and get ac
 
 Pages that don't need request access can omit `gastro.Context()`. These are static pages that only use component imports and exported variables:
 
-```go
+```gastro
 ---
 import Layout "components/layout.gastro"
 
@@ -39,7 +39,7 @@ Variables follow Go's export convention:
 - **Uppercase** variables (`Title`, `Posts`) are exported to the template
 - **Lowercase** variables (`err`, `slug`) are private to the frontmatter
 
-```go
+```gastro
 ---
 ctx := gastro.Context()
 posts, err := db.ListPublished()
@@ -61,7 +61,7 @@ Title := "Blog"
 
 Use Go `import` for both packages and components. Component imports are distinguished by the `.gastro` file extension:
 
-```go
+```gastro
 ---
 import (
     "myblog/db"
@@ -98,7 +98,7 @@ Square brackets denote dynamic segments: `[slug]` becomes `{slug}` in Go 1.22+ r
 
 Access URL parameters with `ctx.Param()`:
 
-```go
+```gastro
 ---
 import (
     "myblog/db"
@@ -132,7 +132,7 @@ Title := post.Title
 
 ### Query Parameters
 
-```go
+```gastro
 ---
 ctx := gastro.Context()
 Name := ctx.Query("name")
@@ -144,7 +144,7 @@ Name := ctx.Query("name")
 
 Always call `return` after a redirect to prevent the template from rendering:
 
-```go
+```gastro
 ---
 ctx := gastro.Context()
 
@@ -161,7 +161,7 @@ Name := user.Name
 
 ### Response Headers
 
-```go
+```gastro
 ---
 ctx := gastro.Context()
 ctx.Header("Cache-Control", "public, max-age=3600")
