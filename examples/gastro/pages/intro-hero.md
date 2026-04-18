@@ -1,0 +1,15 @@
+```gastro
+---
+type Props struct {
+    Name string
+}
+
+p := gastro.Props()
+Name := p.Name
+Greeting := "Welcome, " + p.Name
+---
+<section>
+    <h1>{{ .Greeting }}</h1>
+    <p>Hello {{ .Name }}, nice to see you.</p>
+</section>
+```

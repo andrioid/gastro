@@ -1,107 +1,92 @@
 ---
 import (
-    Layout "components/layout.gastro"
-    Hero "components/hero.gastro"
+	Hero "components/hero.gastro"
+	Layout "components/layout.gastro"
 )
 
 Title := "Home"
 ---
 {{ wrap Layout (dict "Title" .Title) }}
-    {{ Hero (dict) }}
+	{{ Hero (dict) }}
 
-    <main id="main-content">
-        <section class="features-section">
-            <div class="features-header">
-                <h2>Why Gastro?</h2>
-                <p>Everything you need for productive server-rendered Go web development. No magic, no surprises.</p>
-            </div>
-            <div class="features-grid">
-                <div class="feature-card feature-card--featured">
-                    <span class="feature-tag">Core</span>
-                    <h3>File-Based Routing</h3>
-                    <p>Pages in your <code>pages/</code> directory automatically become routes. Dynamic parameters with <code>[slug]</code> syntax. No configuration needed &mdash; just create a file and it&rsquo;s live.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>Type-Safe Components</h3>
-                    <p>Define Props as Go structs. The compiler checks every prop at build time. No runtime surprises.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>Go Frontmatter</h3>
-                    <p>Server-side Go code and HTML templates live in one file. Uppercase variables are automatically exported.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>LSP &amp; Editor Support</h3>
-                    <p>Full language server with completions, diagnostics, and go-to-definition. Extensions for VS Code, Neovim, and Zed.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>Single Binary Deploy</h3>
-                    <p>Templates and static assets are embedded at build time. Zero runtime dependencies. Ship one file anywhere.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>SSE &amp; Real-time</h3>
-                    <p>Built-in Server-Sent Events with Datastar integration. Type-safe component rendering for SSE handlers.</p>
-                </div>
-                <div class="feature-card">
-                    <h3>Idiomatic Go</h3>
-                    <p>Standard Go syntax you already know. <code>html/template</code>, <code>net/http</code>, <code>go:embed</code> &mdash; no new language to learn, full type-safety throughout.</p>
-                </div>
-            </div>
-        </section>
+	<main id="main-content">
+		<section class="features-section">
+			<div class="features-header">
+				<h2>Why Gastro?</h2>
+				<p>Your programming language has strict types. Why doesn't that extend to templates and routing?</p>
+			</div>
+			<div class="features-grid">
+				<div class="feature-card feature-card--featured">
+					<h3>File-Based Routing</h3>
+					<p>Pages in your <code>pages/</code> directory automatically become routes. Dynamic parameters with <code>[slug]</code> syntax. No configuration needed &mdash; just create a file and it&rsquo;s live.</p>
+				</div>
+				<div class="feature-card">
+					<h3>Go Frontmatter</h3>
+					<p>Write type-safe Go in the frontmatter, import libraries or services and make variables and functions available to your template.</p>
+				</div>
+				<div class="feature-card">
+					<h3>HTML Body, using <code>html/template</code></h3>
+					<p>Uses the standard Go templating engine. Syntax validation and autocomplete for variables and functions.</p>
+				</div>
 
-        <section class="quickstart-section">
-            <div class="quickstart-container">
-                <div class="quickstart-header">
-                    <h2>Quick Start</h2>
-                    <p>Get a Gastro project running in under a minute.</p>
-                </div>
-                <div class="quickstart-steps">
-                    <div class="quickstart-step">
-                        <h3>Write a component</h3>
-                        <div class="code-block">
-                            <pre><code class="language-go">
-{{ raw }}
----
-type Props struct {
-    Title  string
-    Author string
-}
-
-p := gastro.Props()
-Title := p.Title
-Author := p.Author
----
-<article>
-    <h2>{{ .Title }}</h2>
-    <p>By {{ .Author }}</p>
-</article>
-{{ endraw }}
-</code></pre>
-                        </div>
-                    </div>
-                    <div class="quickstart-step">
-                        <h3>Develop</h3>
-                        <div class="code-block">
-                            <pre><code class="language-bash"># Start the dev server
+				<div class="feature-card">
+					<h3>Editors &amp; Coding Agents</h3>
+					<p>Full language server (LSP) with completions, diagnostics, and go-to-definition. For both frontmatter Go in the frontmatter, and HTML templates in the body.</p>
+					<p>Extensions for VS Code, Zed and Nevim. More can be created as interest grows.</p>
+				</div>
+				<div class="feature-card">
+					<h3>Single Binary Deploy</h3>
+					<p>Templates and static assets are embedded at build time. Zero runtime dependencies. Ship one file anywhere.</p>
+				</div>
+				<div class="feature-card">
+					<h3>Idiomatic Go</h3>
+					<p>Standard Go syntax you already know. <code>html/template</code>, <code>net/http</code>, <code>go:embed</code> &mdash; no new language to learn, full type-safety throughout.</p>
+					<p>The project is still a Go project and you can build it as you see fit. We just take away the pain of managing page handlers and templates.</p>
+				</div>
+				<div class="feature-card">
+					<h3>Hypermedia Ready</h3>
+					<p>Use with <a href="examples/guestbook-datastar">Datastar</a> or <a href="examples/guestbook-htmx">htmx</a> for awesome user-experience and dynamic functionality that was once reserved for single-page-applications.</p>
+				</div>
+			</div>
+		</section>
+		<section class="quickstart-section">
+			<div class="quickstart-container">
+				<div class="quickstart-header">
+					<h2>Quick Start</h2>
+					<p>Get a Gastro project running in under a minute.</p>
+				</div>
+				<div class="quickstart-steps">
+					<div class="quickstart-step">
+						<h3>Write a component</h3>
+						<div class="code-block">
+							{{ markdown "pages/intro-component.md" }}
+						</div>
+					</div>
+					<div class="quickstart-step">
+						<h3>Develop</h3>
+						<div class="code-block">
+							<pre><code class="language-bash"># Start the dev server
 gastro dev
 
 # Watches for changes, rebuilds,
 # and restarts automatically.
-# Template changes are hot-reloaded.</code></pre>
-                        </div>
-                    </div>
-                    <div class="quickstart-step">
-                        <h3>Deploy</h3>
-                        <div class="code-block">
-                            <pre><code class="language-bash"># Build a single binary
+# Template changes are hot-reloaded.
+                        </code></pre>
+						</div>
+					</div>
+					<div class="quickstart-step">
+						<h3>Deploy</h3>
+						<div class="code-block">
+							<pre><code class="language-bash"># Build a single binary
 gastro build
 
 # Templates and static assets are
 # embedded. Ship one file anywhere.
 ./app</code></pre>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    </main>
+						</div>
+					</div>
+				</div>
+			</div>
+		</section>
+	</main>
 {{ end }}
