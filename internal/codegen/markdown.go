@@ -19,11 +19,6 @@ import (
 // The argument must be a double-quoted string literal with no embedded quotes.
 var markdownDirectiveRegex = regexp.MustCompile(`\{\{\s*markdown\s+"([^"]+)"\s*\}\}`)
 
-// markdownPlaceholder is the null-delimited placeholder used to stash
-// rendered markdown during template transformation. It parallels the
-// commentPlaceholder mechanism in template.go.
-const markdownPlaceholder = "\x00__GASTRO_MARKDOWN_"
-
 // MarkdownContext provides the path information needed to resolve
 // {{ markdown "..." }} directive arguments to absolute file paths.
 type MarkdownContext struct {
