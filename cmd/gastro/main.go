@@ -531,12 +531,25 @@ func runDev() error {
 			}
 		}
 
-		seedMarkdown := func() {
+		// Markdown files can live anywhere in the project, so walking the
+		// whole tree on every poll is wasteful. Cache the discovered list
+		// and rewalk only every markdownRescanEvery ticks; stat the cached
+		// list every tick for fast change detection.
+		var markdownCache []string
+		var markdownTick uint
+		const markdownRescanEvery = 10
+
+		rescanMarkdown := func() {
 			files, err := watcher.CollectMarkdownFiles(".")
 			if err != nil {
 				return
 			}
-			for _, f := range files {
+			markdownCache = files
+		}
+
+		seedMarkdown := func() {
+			rescanMarkdown()
+			for _, f := range markdownCache {
 				info, err := os.Stat(f)
 				if err != nil {
 					continue
@@ -613,31 +626,38 @@ func runDev() error {
 			}
 
 			// Watch markdown files anywhere in the project (referenced by
-			// {{ markdown "..." }} directives in .gastro files). Changes
-			// require regeneration but not a full restart.
-			if files, err := watcher.CollectMarkdownFiles("."); err == nil {
-				for _, f := range files {
-					currentFiles[f] = true
-					info, err := os.Stat(f)
-					if err != nil {
-						continue
-					}
+			// {{ markdown "..." }} directives in .gastro files). Rewalking
+			// the whole tree every tick is expensive, so rescan only every
+			// markdownRescanEvery ticks; in between, stat the cached list.
+			markdownTick++
+			if markdownTick%markdownRescanEvery == 0 {
+				rescanMarkdown()
+			}
+			for _, f := range markdownCache {
+				currentFiles[f] = true
+				info, err := os.Stat(f)
+				if err != nil {
+					// Stale cache entry (file deleted between rewalks).
+					// Unmark so the deletion loop below drops it from
+					// modTimes.
+					delete(currentFiles, f)
+					continue
+				}
 
-					prev, known := modTimes[f]
-					if !known {
-						fmt.Printf("gastro: new file %s\n", f)
-						modTimes[f] = info.ModTime()
-						escalate(watcher.ChangeReload)
-						changed = true
-						continue
-					}
+				prev, known := modTimes[f]
+				if !known {
+					fmt.Printf("gastro: new file %s\n", f)
+					modTimes[f] = info.ModTime()
+					escalate(watcher.ChangeReload)
+					changed = true
+					continue
+				}
 
-					if info.ModTime().After(prev) {
-						fmt.Printf("gastro: %s changed (markdown)\n", f)
-						modTimes[f] = info.ModTime()
-						escalate(watcher.ChangeReload)
-						changed = true
-					}
+				if info.ModTime().After(prev) {
+					fmt.Printf("gastro: %s changed (markdown)\n", f)
+					modTimes[f] = info.ModTime()
+					escalate(watcher.ChangeReload)
+					changed = true
 				}
 			}
 
