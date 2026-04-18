@@ -272,8 +272,8 @@ h3 code {
     background: var(--color-code-bg);
     border-radius: var(--radius-lg);
     overflow: hidden;
-    box-shadow:
-        0 20px 40px -12px rgba(44, 36, 24, 0.45),
+    color: var(--color-accent-light);
+    box-shadow: 0 20px 40px -12px rgba(44, 36, 24, 0.45),
         0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
@@ -291,9 +291,17 @@ h3 code {
     border-radius: 50%;
 }
 
-.code-dot.red { background: #e85c4a; }
-.code-dot.yellow { background: #e8a73e; }
-.code-dot.green { background: #5eb86c; }
+.code-dot.red {
+    background: #e85c4a;
+}
+
+.code-dot.yellow {
+    background: #e8a73e;
+}
+
+.code-dot.green {
+    background: #5eb86c;
+}
 
 .code-window-title {
     margin-left: 0.5rem;
@@ -566,7 +574,7 @@ h3 code {
     line-height: 1.2;
 }
 
-.docs-content h1 + p {
+.docs-content h1+p {
     font-size: 1.05rem;
     color: var(--color-text-muted);
     margin-bottom: 2rem;
@@ -690,18 +698,84 @@ h3 code {
 }
 
 /* Chroma token colors — muted palette that works on dark code bg */
-.chroma .k,  .chroma .kd, .chroma .kn, .chroma .kp, .chroma .kr, .chroma .kt { color: #c98dff; } /* keyword */
-.chroma .s,  .chroma .sa, .chroma .sb, .chroma .sc, .chroma .s1, .chroma .s2 { color: #a5d96b; } /* string */
-.chroma .c,  .chroma .c1, .chroma .cm, .chroma .cs                           { color: #8a8170; font-style: italic; } /* comment */
-.chroma .cp                                                                  { color: #8a8170; font-style: italic; } /* preproc — used for gastro frontmatter --- and {{ ... }} */
-.chroma .n,  .chroma .nx, .chroma .nv                                        { color: var(--color-code-text); }
-.chroma .nf, .chroma .nc                                                     { color: #7ec4ff; } /* function / component names */
-.chroma .nb                                                                  { color: #7ec4ff; } /* builtin */
-.chroma .nt                                                                  { color: #ff9e75; } /* HTML tag name */
-.chroma .na                                                                  { color: #e8a860; } /* HTML / component attribute name */
-.chroma .m,  .chroma .mi, .chroma .mf                                        { color: #e8a860; } /* numbers */
-.chroma .o,  .chroma .p                                                      { color: #d6c9b4; } /* operators / punctuation */
-.chroma .err                                                                 { color: #ff8b6e; }
+.chroma .k,
+.chroma .kd,
+.chroma .kn,
+.chroma .kp,
+.chroma .kr,
+.chroma .kt {
+    color: #c98dff;
+}
+
+/* keyword */
+.chroma .s,
+.chroma .sa,
+.chroma .sb,
+.chroma .sc,
+.chroma .s1,
+.chroma .s2 {
+    color: #a5d96b;
+}
+
+/* string */
+.chroma .c,
+.chroma .c1,
+.chroma .cm,
+.chroma .cs {
+    color: #8a8170;
+    font-style: italic;
+}
+
+/* comment */
+.chroma .cp {
+    color: #8a8170;
+    font-style: italic;
+}
+
+/* preproc — used for gastro frontmatter --- and {{ ... }} */
+.chroma .n,
+.chroma .nx,
+.chroma .nv {
+    color: var(--color-code-text);
+}
+
+.chroma .nf,
+.chroma .nc {
+    color: #7ec4ff;
+}
+
+/* function / component names */
+.chroma .nb {
+    color: #7ec4ff;
+}
+
+/* builtin */
+.chroma .nt {
+    color: #ff9e75;
+}
+
+/* HTML tag name */
+.chroma .na {
+    color: #e8a860;
+}
+
+/* HTML / component attribute name */
+.chroma .m,
+.chroma .mi,
+.chroma .mf {
+    color: #e8a860;
+}
+
+/* numbers */
+.chroma .o,
+.chroma .p {
+    color: #d6c9b4;
+}
+
+/* operators / punctuation */
+.chroma .err {
+    color: #ff8b6e;
+}
 
 /* -------------------------------------------------------
    Tables (Docs)
@@ -992,7 +1066,9 @@ h3 code {
 }
 
 @keyframes spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* HTMX loading indicator pattern */
@@ -1091,6 +1167,7 @@ h3 code {
         opacity: 0;
         transform: translateY(12px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -1109,12 +1186,29 @@ h3 code {
     animation: fade-up 0.4s ease-out both;
 }
 
-.feature-card:nth-child(1) { animation-delay: 0.05s; }
-.feature-card:nth-child(2) { animation-delay: 0.1s; }
-.feature-card:nth-child(3) { animation-delay: 0.15s; }
-.feature-card:nth-child(4) { animation-delay: 0.2s; }
-.feature-card:nth-child(5) { animation-delay: 0.25s; }
-.feature-card:nth-child(6) { animation-delay: 0.3s; }
+.feature-card:nth-child(1) {
+    animation-delay: 0.05s;
+}
+
+.feature-card:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+.feature-card:nth-child(3) {
+    animation-delay: 0.15s;
+}
+
+.feature-card:nth-child(4) {
+    animation-delay: 0.2s;
+}
+
+.feature-card:nth-child(5) {
+    animation-delay: 0.25s;
+}
+
+.feature-card:nth-child(6) {
+    animation-delay: 0.3s;
+}
 
 /* -------------------------------------------------------
    Responsive
@@ -1180,7 +1274,7 @@ h3 code {
         transition: transform 0.15s ease;
     }
 
-    .docs-sidebar-menu[open] > .docs-sidebar-toggle::before {
+    .docs-sidebar-menu[open]>.docs-sidebar-toggle::before {
         transform: rotate(90deg);
     }
 
@@ -1221,6 +1315,7 @@ h3 code {
    ------------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
+
     *,
     *::before,
     *::after {
