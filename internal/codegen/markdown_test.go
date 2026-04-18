@@ -223,3 +223,24 @@ func TestProcessMarkdownDirectives_SyntaxHighlightingClasses(t *testing.T) {
 		t.Errorf("expected chroma-highlighted output to contain 'chroma' class, got: %q", got)
 	}
 }
+
+func TestProcessMarkdownDirectives_GastroFenceHighlighting(t *testing.T) {
+	root := t.TempDir()
+	// A ```gastro fence that exercises frontmatter, a template expression,
+	// and a component tag.
+	md := "```gastro\n---\nprops: struct{ Name string }\n---\n<Card title={.Name}>{{ .Name }}</Card>\n```\n"
+	writeFile(t, filepath.Join(root, "code.md"), md)
+
+	body := `{{ markdown "code.md" }}`
+	got, _, err := codegen.ProcessMarkdownDirectives(body, codegen.MarkdownContext{
+		ProjectRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// If the gastro lexer were missing, goldmark-highlighting would fall back
+	// to a plain <pre> with no chroma class.
+	if !strings.Contains(got, "chroma") {
+		t.Errorf("expected gastro fence to be highlighted via chroma; output: %q", got)
+	}
+}

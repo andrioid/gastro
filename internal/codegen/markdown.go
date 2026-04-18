@@ -12,6 +12,10 @@ import (
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/extension"
+
+	// Side-effect import: registers the "gastro" lexer with Chroma's global
+	// registry so ```gastro fenced code blocks get syntax highlighting.
+	_ "github.com/andrioid/gastro/pkg/chromalexer/gastro"
 )
 
 // markdownDirectiveRegex matches {{ markdown "..." }} directives.
