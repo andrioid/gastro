@@ -112,14 +112,25 @@ Available in all templates without registration:
 Register custom helpers in `main.go`:
 
 ```go
-gastro.Routes(
+router := gastro.New(
     gastro.WithFuncs(template.FuncMap{
         "formatEUR": func(cents int) string {
             return fmt.Sprintf("%.2f EUR", float64(cents)/100)
         },
     }),
 )
+http.ListenAndServe(":4242", router.Handler())
 ```
+
+`gastro.New(opts...)` returns a `*Router` whose `Handler()` you mount on
+your HTTP server. Other options include `WithDeps[T]` for typed dependency
+injection into pages and `WithOverride(pattern, handler)` for replacing
+an auto-generated route with a Go handler. See
+[Pages & Routing](docs/pages.md) for the full API.
+
+> The legacy `gastro.Routes(opts...) http.Handler` one-shot is retained as
+> a deprecated shim around `gastro.New(opts...).Handler()`. Prefer `New()`
+> in new code.
 
 ### Deployment
 

@@ -85,7 +85,7 @@ These functions mark content as safe for specific contexts, bypassing `html/temp
 Register custom template functions in your `main.go` using `gastro.WithFuncs()`:
 
 ```go
-routes := gastro.Routes(
+router := gastro.New(
     gastro.WithFuncs(template.FuncMap{
         "formatEUR": func(cents int) string {
             return fmt.Sprintf("%.2f EUR", float64(cents)/100)
@@ -95,6 +95,7 @@ routes := gastro.Routes(
         },
     }),
 )
+http.ListenAndServe(":4242", router.Handler())
 ```
 
 Custom functions are available in all pages and components, just like the built-in helpers.

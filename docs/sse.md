@@ -107,11 +107,18 @@ func main() {
     mux.HandleFunc("GET /api/clock", handleClock)
 
     // Gastro page routes (catch-all)
-    mux.Handle("/", gastro.Routes())
+    router := gastro.New()
+    mux.Handle("/", router.Handler())
 
     http.ListenAndServe(":4242", mux)
 }
 ```
+
+`gastro.Routes()` (the legacy one-shot) still works and is equivalent to
+`gastro.New().Handler()`; new code should prefer `New()` because it
+returns a `*Router` value that exposes typed dependency injection
+(`WithDeps`), per-route overrides (`WithOverride`), and direct mux
+access (`Mux()`).
 
 ## Type-Safe Rendering
 

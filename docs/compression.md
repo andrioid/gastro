@@ -20,9 +20,9 @@ gzip_types text/html text/css application/javascript application/json image/svg+
 
 ## Option B: Stdlib Gzip Middleware
 
-If you serve directly without a reverse proxy, you can wrap `gastro.Routes()`
-with a middleware that compresses responses using `compress/gzip` from the
-standard library.
+If you serve directly without a reverse proxy, you can wrap the gastro
+router's handler with a middleware that compresses responses using
+`compress/gzip` from the standard library.
 
 ```go
 package main
@@ -37,7 +37,8 @@ import (
 )
 
 func main() {
-	http.ListenAndServe(":8080", GzipMiddleware(gastro.Routes()))
+	router := gastro.New()
+	http.ListenAndServe(":8080", GzipMiddleware(router.Handler()))
 }
 
 // GzipMiddleware compresses responses for clients that accept gzip.
@@ -147,7 +148,8 @@ For better performance, brotli support, or fewer lines of code, consider:
   drop-in handler wrapper with automatic content-type detection:
 
   ```go
-  http.ListenAndServe(":8080", gzhttp.GzipHandler(gastro.Routes()))
+  router := gastro.New()
+  http.ListenAndServe(":8080", gzhttp.GzipHandler(router.Handler()))
   ```
 
 ## Caveats
@@ -165,6 +167,6 @@ that is the same size or larger.
 versions for compressed and uncompressed responses.
 
 **Composition with dev-mode middleware.** The compression middleware wraps
-`gastro.Routes()` from the outside, which means it composes correctly with the
-dev-mode `DevReloader.Middleware` that runs inside `Routes()`. No special
-handling is needed.
+`router.Handler()` from the outside, which means it composes correctly with
+the dev-mode `DevReloader.Middleware` that the router applies internally.
+No special handling is needed.

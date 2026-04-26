@@ -131,7 +131,7 @@ matching the naming in `codegen.handlerFuncName`.
 1. Discovers all `.gastro` files in `pages/` and `components/`
 2. For each file: parse -> analyse -> transform template -> generate handler
 3. Writes generated `.go` files and template `.html` files to output directory
-4. Generates `routes.go` with the `Routes()` function and route registrations
+4. Generates `routes.go` with the `*Router` type, `New()` constructor, and route registrations. Each generated page handler and component renderer is a method on `*Router` so it can read the per-router template registry and dependency map. The legacy package-level `Routes(opts...) http.Handler` is kept as a deprecated shim around `New(opts...).Handler()`.
 
 ### `internal/watcher/`
 
