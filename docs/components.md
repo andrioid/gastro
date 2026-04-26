@@ -128,3 +128,60 @@ The parent passes children by wrapping content in the component tags:
 ```
 
 Children are rendered in the **parent's** data context, so they can reference the parent's template data. Only one `{{ .Children }}` is supported per component.
+
+## Calling Components from Go
+
+Components can be rendered directly from Go code — useful for SSE handlers that
+patch the DOM with fresh component markup, for tests, or for any handler that
+produces HTML outside the page-routing flow.
+
+For every component in `components/`, gastro generates a typed method on the
+package-level `Render` value:
+
+```go
+import gastro "myapp/.gastro"
+
+html, err := gastro.Render.Card(gastro.CardProps{
+    Title: "Hello",
+    Body:  "World",
+})
+if err != nil {
+    // handle
+}
+```
+
+Components with children take an optional `template.HTML` argument:
+
+```go
+html, err := gastro.Render.Layout(
+    gastro.LayoutProps{Title: "Home"},
+    template.HTML("<h1>Welcome</h1>"),
+)
+```
+
+`Render` lives in the generated `.gastro/render.go`. Each method calls the same
+underlying component function used by the template renderer, so frontmatter
+logic (computed values, validation) runs identically whether a component is
+invoked from a template or from Go.
+
+### When to use Render vs Routes
+
+| Goal | Use |
+|------|-----|
+| Mount file-based page routes on an HTTP server | `gastro.Routes()` |
+| Render a single component to an HTML string | `gastro.Render.<Name>(...)` |
+
+A typical SSE example combines both:
+
+```go
+mux := http.NewServeMux()
+mux.HandleFunc("GET /api/increment", func(w http.ResponseWriter, r *http.Request) {
+    n := count.Add(1)
+    html, _ := gastro.Render.Counter(gastro.CounterProps{Count: int(n)})
+    sse := datastar.NewSSE(w, r)
+    sse.PatchElements(html)
+})
+mux.Handle("/", gastro.Routes())
+```
+
+See `examples/sse/` for the full version.

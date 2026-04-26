@@ -167,9 +167,15 @@ var _ = log.Println
 {{- if .PropsTypeName }}
 
 // {{ .ExportedName }}Props is the exported type alias for use with Render.
+//
+// To call this component from Go code (e.g. an SSE handler), use
+// gastro.Render.{{ .ExportedName }}(props) which returns an HTML string.
 type {{ .ExportedName }}Props = {{ .PropsTypeName }}
 {{- end }}
 
+// {{ .FuncName }} is the unexported component function used by templates.
+// To render this component from Go (handlers, SSE patches), call
+// gastro.Render.{{ .ExportedName }}(...) instead. See render.go.
 func {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	var __children template.HTML
 	if __c, __ok := propsMap["__children"]; __ok {
