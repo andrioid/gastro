@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.1.14](https://github.com/andrioid/gastro/compare/v0.1.13...v0.1.14) (2026-04-26)
+
+
+### Features
+
+* **cli:** add 'gastro check' for CI drift detection ([c8fc130](https://github.com/andrioid/gastro/commit/c8fc130a799d8192875ebfa461523314f443f0e0))
+* **codegen:** warn when ctx is used without gastro.Context() marker ([a72475b](https://github.com/andrioid/gastro/commit/a72475bbe92ba46e11ed2576489a51f1c5c0056c))
+* handler-instance Router with WithDeps and WithOverride ([e5c25eb](https://github.com/andrioid/gastro/commit/e5c25eb3a7d0901084aa3fddcd8f93b23c013cbb))
+* **pkg/gastro:** typed dependency injection for handlers ([caf4633](https://github.com/andrioid/gastro/commit/caf46335016bd75fa22b6531a24befcbf48e4186))
+
+
+### Bug Fixes
+
+* **cli:** derive module name from path basename in 'gastro new' ([cbccc57](https://github.com/andrioid/gastro/commit/cbccc5732bc8b49e82f389e3c36fb63c607f702e))
+* **examples/gastro:** copy docs/ into Docker build context ([a93c96c](https://github.com/andrioid/gastro/commit/a93c96c6f0d4b2be89a1cb5814bbc6a401730696))
+
+
+### Documentation
+
+* **decisions:** record handler-instance Router refactor ([86639ad](https://github.com/andrioid/gastro/commit/86639adb60142093d110a2b6a1afcef2ee44fc7d))
+* **design:** add evolution-from-original-API addendum (Section 21) ([e118a61](https://github.com/andrioid/gastro/commit/e118a61ac8e5b1551ce0ebe729d2b7b664039ca4))
+* improve Render API discoverability ([611d632](https://github.com/andrioid/gastro/commit/611d632e03cddb95bac22ce8d8a6afe7d86de3ce))
+* surface New(), WithDeps, WithOverride, gastro check across docs ([bb76e42](https://github.com/andrioid/gastro/commit/bb76e4201cbc7678e18c57f7c661ba113a3f93c6))
+
+
+### Miscellaneous
+
+* gitignore examples/gastro/app build artifact ([a37b88c](https://github.com/andrioid/gastro/commit/a37b88cb17dcaec46afef2366aa0a353ad6fd574))
+
 ## [0.1.13](https://github.com/andrioid/gastro/compare/v0.1.12...v0.1.13) (2026-04-18)
 
 
