@@ -68,6 +68,15 @@ func main() {
 			fmt.Fprintf(os.Stderr, "gastro fmt: %v\n", err)
 			os.Exit(1)
 		}
+	case "check":
+		if err := runCheck(); err != nil {
+			if err == errDrift {
+				// Drift: the diff has already been printed by runCheck.
+				os.Exit(1)
+			}
+			fmt.Fprintf(os.Stderr, "gastro check: %v\n", err)
+			os.Exit(2)
+		}
 	case "lsp":
 		lsp.Serve(version)
 	default:
@@ -88,6 +97,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  build       Generate + go build -> single binary")
 	fmt.Fprintln(os.Stderr, "  dev         Watch mode with hot reload (port 4242 or PORT env)")
 	fmt.Fprintln(os.Stderr, "  fmt         Format .gastro files")
+	fmt.Fprintln(os.Stderr, "  check       Verify .gastro/ matches the source (CI gate)")
 	fmt.Fprintln(os.Stderr, "  version     Print version")
 }
 

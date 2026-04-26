@@ -81,3 +81,40 @@ The Docker image works with any container platform:
 - **Any VPS** — copy the binary directly with `scp`
 
 Since Gastro builds a static binary with no runtime dependencies, you can also deploy without Docker by copying the binary to any Linux server.
+
+## CI: detecting stale `.gastro/` (`gastro check`)
+
+If your repository commits the generated `.gastro/` directory (some teams do
+for editor convenience; the default `gastro new` template gitignores it),
+add a CI gate to catch contributors who edit a `.gastro` file without
+regenerating:
+
+```bash
+gastro check
+```
+
+Exit codes:
+
+| Code | Meaning |
+|------|---------|
+| `0`  | `.gastro/` matches what `gastro generate` would produce |
+| `1`  | Drift detected. Stderr lists the differing files |
+| `2`  | The check itself failed (no `.gastro/` directory, generate error, etc.) |
+
+A typical GitHub Actions step:
+
+```yaml
+- name: Verify .gastro is up to date
+  run: gastro check
+```
+
+You can also wire it into `go generate`:
+
+```go
+//go:generate gastro generate
+```
+
+…and run `go generate ./... && git diff --exit-code` in CI for the same effect
+without the `gastro` binary needing a separate subcommand. Both approaches are
+fine; `gastro check` is faster (no `go` invocation) and produces a friendlier
+diff summary.
