@@ -6,11 +6,20 @@ set -euo pipefail
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
+GASTRO_REPO="$(cd "$(dirname "$0")/.." && pwd)"
+
 echo "Building gastro binary..."
-go build -o "$TEMP_DIR/gastro" -ldflags "-X main.version=0.1.0" ./cmd/gastro/
+(cd "$GASTRO_REPO" && go build -o "$TEMP_DIR/gastro" -ldflags "-X main.version=0.1.0" ./cmd/gastro/)
 
 echo "Scaffolding new project..."
 "$TEMP_DIR/gastro" new "$TEMP_DIR/testproject"
+
+# Point the scaffolded project at the local working tree so the test
+# exercises the in-progress code rather than whatever is on the module
+# proxy. Without this, scaffolds that depend on unreleased runtime APIs
+# (e.g. AttachDeps, From[T]) fail until a release goes out.
+echo "Adding local replace directive..."
+(cd "$TEMP_DIR/testproject" && go mod edit -replace="github.com/andrioid/gastro=$GASTRO_REPO")
 
 echo "Running go mod tidy..."
 (cd "$TEMP_DIR/testproject" && go mod tidy)

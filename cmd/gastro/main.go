@@ -364,14 +364,22 @@ func runNew() error {
 		return fmt.Errorf("missing project name\n\nUsage: gastro new <name>")
 	}
 
-	name := os.Args[2]
-	targetDir := name
+	arg := os.Args[2]
+	targetDir := arg
+
+	// When the user passes a path like /tmp/foo or ./examples/foo, use the
+	// final path component as the Go module name. Module paths cannot start
+	// with a slash, so passing the full path would generate an invalid
+	// go.mod. Users who want a fully-qualified module path
+	// (github.com/user/repo) can edit go.mod afterwards or pass the basename
+	// and rename the module manually.
+	name := filepath.Base(filepath.Clean(arg))
 
 	if info, err := os.Stat(targetDir); err == nil && info.IsDir() {
 		return fmt.Errorf("directory %q already exists", targetDir)
 	}
 
-	fmt.Printf("gastro: creating project %q...\n", name)
+	fmt.Printf("gastro: creating project %q at %s...\n", name, targetDir)
 	if err := scaffold.Generate(name, targetDir, version); err != nil {
 		return err
 	}
