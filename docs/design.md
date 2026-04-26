@@ -7,6 +7,17 @@ provides editor intelligence.
 
 Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 
+> **Note on this document.** This is the original design document. Code
+> samples below show the runtime API as it was first proposed
+> (`gastro.Routes(opts...) http.Handler`). The shipped API has since
+> evolved — most notably to a `*Router` instance returned by
+> `gastro.New(opts...)` — while preserving the original intent. See
+> [Section 21: Evolution from the original API](#21-evolution-from-the-original-api)
+> at the bottom for the diff between this document and current behaviour.
+> For day-to-day reference use [pages.md](pages.md), [components.md](components.md),
+> and [README](../README.md); this doc remains for design rationale and
+> historical context.
+
 ---
 
 ## Current Implementation Status
@@ -112,6 +123,9 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 16. [Resolved Design Decisions](#16-resolved-design-decisions)
 17. [Implementation Phases](#17-implementation-phases)
 18. [Repository Structure](#18-repository-structure)
+19. [Interfacing with Existing Code](#interfacing-with-existing-code)
+20. [Future Considerations](#20-future-considerations)
+21. [Evolution from the original API](#21-evolution-from-the-original-api) — *post-hoc addendum*
 
 ---
 
@@ -968,3 +982,134 @@ authentication guards).
   unified template would force pages to buffer unnecessarily and add conditional
   complexity without meaningful benefit. Instead, both templates now handle
   `Execute` errors (previously silently discarded).
+
+---
+
+## 21. Evolution from the original API
+
+The sections above describe the design as originally proposed. A friction
+report from a downstream consumer (git-pm, building a kanban board page)
+surfaced four problems that needed real API changes; rather than rewrite
+the document, this section records the deltas in one place and points at
+the authoritative current docs.
+
+### Original intent
+
+The original design optimised for a one-line setup in `main.go`:
+
+```go
+http.ListenAndServe(":4242", gastro.Routes(
+    gastro.WithFuncs(...),
+))
+```
+
+`Routes()` returned an `http.Handler` directly, which made the smallest
+possible "hello world" footprint. State (template registry, dev flag,
+user FuncMap) lived in package-level variables inside the generated
+`.gastro/routes.go`.
+
+### What changed and why
+
+**The shipped entry point is `gastro.New(opts...) *Router`.** `Routes()`
+remains as a deprecated thin shim around `New(opts...).Handler()` so the
+original one-line setup still compiles, but new code is encouraged to
+bind a `*Router` and call `router.Handler()` (or `router.Mux()` for
+fine-grained control).
+
+Three concrete reasons drove the change:
+
+1. **Package globals broke isolation.** Because `Routes()` wrote into
+   package-level vars, calling it twice in the same process clobbered
+   the first router's state. Tests that wanted a fresh handler with
+   different options needed process isolation, and downstream consumers
+   were forced to wrap calls in `sync.Once`. Moving state onto a
+   `*Router` instance made multi-router scenarios legal and removed the
+   workaround burden.
+
+2. **Pages had no path to typed dependencies.** A page handler is
+   `func(w, r)` — anything else (DB handle, service client, projected
+   state) had to be smuggled in through `r.Context()` with untyped keys
+   or via global template `WithFuncs`. The shipped API adds
+   `gastro.WithDeps[T any](T)` (registers a typed dependency, keyed by
+   `reflect.Type`) and `gastro.From[T](ctx) T` / `gastro.FromContext[T]`
+   (retrieves it). The router wraps every request with a deps-attachment
+   middleware so frontmatter can pull what it needs:
+
+   ```gastro
+   ---
+   ctx := gastro.Context()
+   deps := gastro.From[BoardDeps](ctx)
+   Tasks := deps.State().ByStatus(StatusTodo)
+   ---
+   ```
+
+3. **No clean override of a single auto-route.** The original design
+   assumed every route under `pages/` would be served by the auto-
+   generated handler. In practice some pages need full Go control
+   (streaming, content negotiation, complex error paths). The shipped
+   API adds `gastro.WithOverride(pattern, http.Handler)` which replaces
+   exactly one auto-route, and panics at `New()` time when the pattern
+   does not match a known auto-route to catch typos loudly.
+
+### Render API discoverability
+
+A generated `Render` struct (with typed methods per component) was
+mentioned only in passing in section 9. In practice the only documentation
+hint was a one-line comment inside generated code, which led the
+downstream consumer to mis-read the public API and propose forking.
+`docs/components.md` now has a *Calling Components from Go* section, the
+generated `render.go` has a top-of-file package doc, and each generated
+`componentX` carries a comment pointing at `Render.X`.
+
+### `gastro.Context()` clarification
+
+Section 9 introduced `gastro.Context()` as the page marker. The fact
+that it is a *compile-time* marker — the codegen strips the line and
+injects `ctx := gastroRuntime.NewContext(w, r)` — was implicit. Forgetting
+the marker but writing `ctx.Param(...)` produced an opaque
+`undefined: ctx` error from `go build`. The compiler now emits a
+friendlier diagnostic surfaced through the LSP, and `docs/pages.md` has
+a *Why the marker?* subsection. Ambient-locals (dropping the marker
+entirely) is deferred to v1.0 because the marker is currently the
+strongest signal that distinguishes a page from a static template.
+
+### `gastro check` for committed `.gastro/`
+
+The original design assumed `.gastro/` would be gitignored; the default
+scaffold and `.gitignore` reflect that. Some downstream projects commit
+the directory anyway for editor convenience, which makes drift between
+source `.gastro` files and generated output a real CI hazard. A
+`gastro check` subcommand byte-compares the on-disk `.gastro/` against
+fresh codegen output and exits non-zero on drift. Documented in
+`docs/deployment.md` with a CI workflow example.
+
+### Items considered but deferred
+
+Two items from the friction report were not addressed in this iteration:
+
+- **Typed Render bypassing the `map[string]any` round-trip.**
+  `Render.Layout(props)` currently copies `props` into a map, calls the
+  unexported `componentLayout(map)`, and that function reverses the trip
+  via `MapToStruct[T]`. The cost is invisible on a normal page render
+  but becomes measurable in SSE hot paths that re-render single
+  components per event. Deferred until a benchmark identifies a real
+  bottleneck.
+
+- **Frontmatter `Deps := gastro.Deps[T]()` declaration.** A nicer-looking
+  alternative to the runtime `gastro.From[T](ctx)` accessor, but it
+  requires cross-package type resolution in the compiler. Deferred
+  pending real-world feedback on the runtime form.
+
+### Authoritative reference
+
+For the current API, defer to:
+
+- [README](../README.md) — quick start and main-package wiring.
+- [pages.md](pages.md) — frontmatter, `gastro.Context()`, `WithDeps` /
+  `From[T]`, `WithOverride`.
+- [components.md](components.md) — component authoring and the `Render`
+  API.
+- [deployment.md](deployment.md) — `gastro check` and CI integration.
+- [DECISIONS.md](../DECISIONS.md) — dated entries for each design
+  choice landed since this document was written, including the
+  refactor described in this section.
