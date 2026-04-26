@@ -17,6 +17,20 @@ Title := "Hello"
 
 Call `gastro.Context()` in the frontmatter to mark the file as a page and get access to the HTTP request.
 
+### Why the marker?
+
+`gastro.Context()` is a compile-time signal, not a runtime call. The code
+generator strips that line and replaces it with a real `ctx :=
+gastroRuntime.NewContext(w, r)` at the top of the generated handler. The
+name `ctx` is therefore implicitly declared inside the page body whenever
+the marker is present.
+
+The practical consequence: **referencing `ctx` without writing
+`ctx := gastro.Context()` first is an error**. Because the marker is what
+tells gastro to inject `ctx`, omitting it leaves `ctx` undefined and the
+Go compiler will fail the build with `undefined: ctx`. The LSP detects
+this and emits a warning before the build runs.
+
 ## Static Pages
 
 Pages that don't need request access can omit `gastro.Context()`. These are static pages that only use component imports and exported variables:
@@ -56,6 +70,80 @@ Title := "Blog"
 <p>{{ .Title }}</p>
 {{ end }}
 ```
+
+## Typed Dependencies
+
+Pages frequently need access to runtime values that aren't part of the
+request — a database handle, a service client, a snapshot of application
+state. Inject these typed dependencies via `gastro.WithDeps` at router
+construction time and retrieve them in the page frontmatter with
+`gastro.From[T]`:
+
+```go
+// main.go
+package main
+
+import (
+	"net/http"
+
+	gastro "myapp/.gastro"
+	"myapp/internal/board"
+)
+
+func main() {
+	deps := board.BoardDeps{State: board.NewState(), Store: openStore()}
+	router := gastro.New(
+		gastro.WithDeps(deps),
+	)
+	http.ListenAndServe(":4242", router.Handler())
+}
+```
+
+```gastro
+---
+import (
+	"myapp/internal/board"
+)
+
+ctx := gastro.Context()
+deps := gastro.From[board.BoardDeps](ctx)
+
+state := deps.State()
+Tasks := state.ByStatus(board.StatusTodo)
+---
+<h1>Board</h1>
+{{ range .Tasks }}<p>{{ .Title }}</p>{{ end }}
+```
+
+Deps are keyed by their Go type. Each Go type can have at most one
+instance per router; calling `WithDeps` twice with the same type panics
+at startup. To register multiple dependency groups, use distinct types:
+
+```go
+router := gastro.New(
+	gastro.WithDeps(BoardDeps{...}),
+	gastro.WithDeps(AuthDeps{...}),
+)
+```
+
+`gastro.From[T]` panics if no value of type `T` is registered. Use
+`gastro.FromOK[T]` for a safe variant that returns `(T, false)` instead.
+
+### When to override an auto-generated route
+
+When a page's logic outgrows what frontmatter can express comfortably
+(streaming responses, content negotiation, complex error handling),
+replace the auto-generated handler with a Go handler via
+`gastro.WithOverride`:
+
+```go
+router := gastro.New(
+	gastro.WithOverride("GET /", board.NewHomeHandler(deps)),
+)
+```
+
+The pattern must match an existing auto-route; `New` panics with the
+list of valid patterns when it does not, so typos fail loudly.
 
 ## Imports
 
