@@ -23,6 +23,10 @@ type depsMap map[reflect.Type]any
 // If the parent context already carries a deps map, the returned context
 // carries a merged copy (child entries win on key collision). A nil or empty
 // deps argument returns the parent context unchanged.
+//
+// The supplied map is treated as immutable: when the parent context carries
+// no existing deps, the same map reference is reused without copying. Callers
+// that intend to mutate the map after attaching must clone it themselves.
 func AttachDeps(parent context.Context, deps map[reflect.Type]any) context.Context {
 	if len(deps) == 0 {
 		return parent
@@ -37,11 +41,7 @@ func AttachDeps(parent context.Context, deps map[reflect.Type]any) context.Conte
 		}
 		return context.WithValue(parent, depsKey{}, merged)
 	}
-	cp := make(depsMap, len(deps))
-	for k, v := range deps {
-		cp[k] = v
-	}
-	return context.WithValue(parent, depsKey{}, cp)
+	return context.WithValue(parent, depsKey{}, depsMap(deps))
 }
 
 // FromContext returns the dependency value of type T attached to ctx.

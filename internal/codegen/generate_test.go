@@ -71,8 +71,9 @@ CSSClass := "card"`,
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should have render function signature, not HTTP handler
-	assertContains(t, output, `func componentCard(propsMap map[string]any) template.HTML`)
+	// Should have render method on *Router (so it can read the per-router
+	// template registry and dependency map), not a free function or an HTTP handler.
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
 	assertNotContains(t, output, `http.ResponseWriter`)
 
 	// Should extract __children from props map
@@ -135,11 +136,11 @@ Tag := props.Tag`,
 	assertNotContains(t, output, `func init()`)
 	assertNotContains(t, output, `template.New("componentCard")`)
 
-	// Should use the registry-based template lookup instead of a package-level var
-	assertContains(t, output, `__gastro_getTemplate("componentCard")`)
+	// Should use the per-router registry-based template lookup
+	assertContains(t, output, `__router.__gastro_getTemplate("componentCard")`)
 
-	// Should still have component render function signature (not HTTP handler)
-	assertContains(t, output, `func componentCard(propsMap map[string]any) template.HTML`)
+	// Should still have component render method (not HTTP handler)
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
 	assertNotContains(t, output, `http.ResponseWriter`)
 
 	// Should still handle props and children
@@ -173,8 +174,8 @@ CSSClass := "card"`,
 	assertContains(t, output, `Title := __props.Title`)
 	assertNotContains(t, output, `gastro.Props`)
 
-	// Should still have component function signature
-	assertContains(t, output, `func componentCard(propsMap map[string]any) template.HTML`)
+	// Should still have component method
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
 	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
 }
 

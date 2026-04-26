@@ -364,6 +364,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -377,12 +378,15 @@ var _ bytes.Buffer
 var _ = fmt.Errorf
 var _ = regexp.Compile
 var _ = strings.Contains
+var _ = reflect.TypeOf
 
-// Option configures the generated router.
+// Option configures the generated router. Pass options to New().
 type Option func(*config)
 
 type config struct {
-	funcs template.FuncMap
+	funcs     template.FuncMap
+	deps      map[reflect.Type]any
+	overrides map[string]http.Handler
 }
 
 // WithFuncs registers additional template helper functions.
@@ -395,18 +399,68 @@ func WithFuncs(fm template.FuncMap) Option {
 	}
 }
 
-// __gastro_templateRegistry stores parsed templates keyed by function name.
-var __gastro_templateRegistry map[string]*template.Template
+// WithDeps registers a typed dependency that page handlers can retrieve via
+// gastro.From[T](ctx) or gastro.FromContext[T](r.Context()).
+//
+// The dependency is keyed by its Go type, so each type can have at most one
+// instance per router. Multiple WithDeps options with different types compose:
+//
+//	router := gastro.New(
+//		gastro.WithDeps(BoardDeps{State: stateFn, Store: store}),
+//		gastro.WithDeps(AuthDeps{Verifier: v}),
+//	)
+//
+// Calling WithDeps twice with the same type panics at New() time.
+func WithDeps[T any](deps T) Option {
+	return func(c *config) {
+		if c.deps == nil {
+			c.deps = make(map[reflect.Type]any)
+		}
+		k := reflect.TypeOf(deps)
+		if _, dup := c.deps[k]; dup {
+			panic(fmt.Sprintf("gastro: WithDeps: duplicate registration for type %s", k))
+		}
+		c.deps[k] = deps
+	}
+}
 
-// __gastro_isDev indicates whether the app is running in dev mode.
-var __gastro_isDev bool
+// WithOverride replaces the auto-generated handler for a route pattern with a
+// user-supplied http.Handler. The pattern must exactly match one of the
+// gastro auto-routes (e.g. "GET /", "GET /blog/{slug}"); New() panics if it
+// does not, to catch typos early.
+//
+// Use this when a page needs typed dependencies that frontmatter cannot
+// express, or when a handler needs full control over the response (streaming,
+// custom status codes, content negotiation).
+func WithOverride(pattern string, h http.Handler) Option {
+	return func(c *config) {
+		if c.overrides == nil {
+			c.overrides = make(map[string]http.Handler)
+		}
+		c.overrides[pattern] = h
+	}
+}
 
-// __gastro_userFuncs holds the configured FuncMap for dev-mode re-parsing.
-var __gastro_userFuncs template.FuncMap
+// Router holds the parsed templates, registered options, and the underlying
+// http.ServeMux for a gastro app. Construct with New(); access the handler
+// via Handler() or, for direct mux mutation, via Mux().
+type Router struct {
+	isDev     bool
+	userFuncs template.FuncMap
+	registry  map[string]*template.Template
+	deps      map[reflect.Type]any
+	mux       *http.ServeMux
+}
+
+// __gastro_active is the most-recently-constructed Router, used by the
+// package-level Render variable so existing single-router callers keep
+// working without code changes. For multi-router scenarios, hold onto the
+// *Router returned by New() and call its methods directly.
+var __gastro_active *Router
 
 // __gastro_buildFuncMap constructs the FuncMap for the named template,
 // merging user functions with per-template component wiring.
-func __gastro_buildFuncMap(name string, userFuncs template.FuncMap) template.FuncMap {
+func (__r *Router) __gastro_buildFuncMap(name string, userFuncs template.FuncMap) template.FuncMap {
 	fm := template.FuncMap{}
 	for k, v := range userFuncs {
 		fm[k] = v
@@ -415,11 +469,11 @@ func __gastro_buildFuncMap(name string, userFuncs template.FuncMap) template.Fun
 {{- range .Templates}}{{- if .Uses}}{{$fn := .FuncName}}
 	case "{{$fn}}":
 {{- range .Uses}}
-		fm["{{ .Name }}"] = {{ .FuncName }}
+		fm["{{ .Name }}"] = __r.{{ .FuncName }}
 {{- end}}
 		fm["__gastro_render_children"] = func(n string, data any) template.HTML {
 			var __buf bytes.Buffer
-			__gastro_getTemplate("{{$fn}}").ExecuteTemplate(&__buf, n, data)
+			__r.__gastro_getTemplate("{{$fn}}").ExecuteTemplate(&__buf, n, data)
 			return template.HTML(__buf.String())
 		}
 {{- end}}{{end}}
@@ -441,12 +495,12 @@ func __gastro_templateFile(name string) string {
 
 // __gastro_parseTemplate reads a template from tfs and parses it with the
 // FuncMap appropriate for its component dependencies.
-func __gastro_parseTemplate(name string, tfs fs.FS, userFuncs template.FuncMap) (*template.Template, error) {
+func (__r *Router) __gastro_parseTemplate(name string, tfs fs.FS, userFuncs template.FuncMap) (*template.Template, error) {
 	content, err := fs.ReadFile(tfs, __gastro_templateFile(name))
 	if err != nil {
 		return nil, fmt.Errorf("gastro: reading template %s: %w", name, err)
 	}
-	tmpl, err := template.New(name).Funcs(__gastro_buildFuncMap(name, userFuncs)).Parse(string(content))
+	tmpl, err := template.New(name).Funcs(__r.__gastro_buildFuncMap(name, userFuncs)).Parse(string(content))
 	if err != nil {
 		return nil, __gastro_enhanceTemplateError(err)
 	}
@@ -471,27 +525,32 @@ func __gastro_enhanceTemplateError(err error) error {
 // __gastro_getTemplate returns the parsed template for the given name.
 // In dev mode, templates are re-parsed from disk on every call so that
 // template changes are reflected immediately without restarting the server.
-func __gastro_getTemplate(name string) *template.Template {
-	if __gastro_isDev {
+func (__r *Router) __gastro_getTemplate(name string) *template.Template {
+	if __r.isDev {
 		tfs := gastroRuntime.GetTemplateFS(templateFS)
-		tmpl, err := __gastro_parseTemplate(name, tfs, __gastro_userFuncs)
+		tmpl, err := __r.__gastro_parseTemplate(name, tfs, __r.userFuncs)
 		if err != nil {
 			log.Fatalf("gastro: %v", err)
 		}
 		return tmpl
 	}
-	return __gastro_templateRegistry[name]
+	return __r.registry[name]
 }
 
-// Routes returns an http.Handler with all gastro page routes and static assets.
+// New constructs a gastro Router from the supplied options.
 //
-// Mount the returned handler on your top-level mux:
+// Mount the router on your HTTP server via Handler() (returns an http.Handler
+// that includes the dev-mode reload middleware in development) or Mux() (the
+// underlying *http.ServeMux for direct manipulation).
 //
-//	mux.Handle("/", gastro.Routes())
+// Example:
 //
-// To call individual components from Go code (e.g. SSE handlers), see the
-// Render API in render.go.
-func Routes(opts ...Option) http.Handler {
+//	router := gastro.New(
+//		gastro.WithDeps(BoardDeps{...}),
+//		gastro.WithOverride("GET /", customHomeHandler),
+//	)
+//	http.ListenAndServe(":8080", router.Handler())
+func New(opts ...Option) *Router {
 	cfg := &config{
 		funcs: gastroRuntime.DefaultFuncs(),
 	}
@@ -499,8 +558,35 @@ func Routes(opts ...Option) http.Handler {
 		opt(cfg)
 	}
 
-	__gastro_isDev = gastroRuntime.IsDev()
-	__gastro_userFuncs = cfg.funcs
+	__r := &Router{
+		isDev:     gastroRuntime.IsDev(),
+		userFuncs: cfg.funcs,
+		deps:      cfg.deps,
+	}
+
+	// Validate WithOverride patterns: each must match a known auto-route
+	// (or the static prefix). Catches typos at startup rather than letting
+	// the override silently register a brand-new route.
+	knownPatterns := map[string]bool{
+{{- if .HasStatic}}
+		"GET /static/": true,
+{{- end}}
+{{- range .Routes}}
+		"{{ .Pattern }}": true,
+{{- end}}
+	}
+	for pat := range cfg.overrides {
+		if !knownPatterns[pat] {
+			known := make([]string, 0, len(knownPatterns))
+			for p := range knownPatterns {
+				known = append(known, p)
+			}
+			panic(fmt.Sprintf(
+				"gastro: WithOverride: pattern %q does not match any auto-route. known: %v",
+				pat, known,
+			))
+		}
+	}
 
 	// Warn if user-provided functions shadow component names.
 	__gastro_componentNames := make(map[string]bool)
@@ -513,36 +599,82 @@ func Routes(opts ...Option) http.Handler {
 		}
 	}
 
-	// Parse all templates into the registry.
+	// Parse all templates into the router-local registry.
 	tfs := gastroRuntime.GetTemplateFS(templateFS)
-	__gastro_templateRegistry = make(map[string]*template.Template)
+	__r.registry = make(map[string]*template.Template)
 	for _, name := range []string{
 {{- range .Templates}}
 		"{{ .FuncName }}",
 {{- end}}
 	} {
-		tmpl, err := __gastro_parseTemplate(name, tfs, cfg.funcs)
+		tmpl, err := __r.__gastro_parseTemplate(name, tfs, cfg.funcs)
 		if err != nil {
 			log.Fatalf("gastro: %v", err)
 		}
-		__gastro_templateRegistry[name] = tmpl
+		__r.registry[name] = tmpl
 	}
 
+	// Build the mux. Overrides win over auto-routes by matching pattern.
 	mux := http.NewServeMux()
 {{- if .HasStatic}}
-	staticFS := gastroRuntime.GetStaticFS(staticAssetFS)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
+	if h, ok := cfg.overrides["GET /static/"]; ok {
+		mux.Handle("GET /static/", h)
+	} else {
+		staticFS := gastroRuntime.GetStaticFS(staticAssetFS)
+		mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
+	}
 {{- end}}
 {{- range .Routes}}
-	mux.HandleFunc("{{ .Pattern }}", {{ .FuncName }})
+	if h, ok := cfg.overrides["{{ .Pattern }}"]; ok {
+		mux.Handle("{{ .Pattern }}", h)
+	} else {
+		mux.HandleFunc("{{ .Pattern }}", __r.{{ .FuncName }})
+	}
 {{- end}}
 
-	if __gastro_isDev {
-		gastroRuntime.DevReloader.Start()
-		mux.HandleFunc("GET /__gastro/reload", gastroRuntime.DevReloader.HandleSSE)
-		return gastroRuntime.DevReloader.Middleware(mux)
+	__r.mux = mux
+	__gastro_active = __r
+	return __r
+}
+
+// Handler returns the http.Handler that should be mounted on your HTTP
+// server. It wraps the underlying mux with deps-attachment middleware and,
+// in dev mode, the reload middleware.
+func (__r *Router) Handler() http.Handler {
+	var h http.Handler = __r.mux
+	if len(__r.deps) > 0 {
+		h = __r.attachDepsMiddleware(h)
 	}
-	return mux
+	if __r.isDev {
+		gastroRuntime.DevReloader.Start()
+		wrapped := http.NewServeMux()
+		wrapped.Handle("/", h)
+		wrapped.HandleFunc("GET /__gastro/reload", gastroRuntime.DevReloader.HandleSSE)
+		return gastroRuntime.DevReloader.Middleware(wrapped)
+	}
+	return h
+}
+
+// Mux returns the underlying *http.ServeMux. Use this for fine-grained
+// route registration that WithOverride cannot express. Mutations bypass
+// the deps-attachment middleware, so handlers added this way will not see
+// values registered with WithDeps.
+func (__r *Router) Mux() *http.ServeMux { return __r.mux }
+
+func (__r *Router) attachDepsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := gastroRuntime.AttachDeps(r.Context(), __r.deps)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Routes returns an http.Handler with all gastro page routes and static assets.
+//
+// Deprecated: prefer New(opts...).Handler(), which exposes the underlying
+// *Router with typed deps, route overrides, and direct mux access. Routes
+// remains as a thin shim for backward compatibility.
+func Routes(opts ...Option) http.Handler {
+	return New(opts...).Handler()
 }
 `))
 
@@ -611,7 +743,10 @@ func (r *renderAPI) {{ .ExportedName }}({{ if .HasProps }}props {{ .ExportedName
 		propsMap["__children"] = children[0]
 	}
 {{- end }}
-	result := {{ .FuncName }}(propsMap)
+	if __gastro_active == nil {
+		return "", fmt.Errorf("gastro: Render.{{ .ExportedName }}: no router constructed yet (call gastro.New() first)")
+	}
+	result := __gastro_active.{{ .FuncName }}(propsMap)
 	if result == "" {
 		return "", fmt.Errorf("gastro: render {{ .ExportedName }} failed")
 	}

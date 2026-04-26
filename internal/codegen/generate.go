@@ -114,7 +114,7 @@ var _ http.Handler
 var _ = template.Must
 var _ = log.Println
 
-func {{ .FuncName }}(w http.ResponseWriter, r *http.Request) {
+func (__router *Router) {{ .FuncName }}(w http.ResponseWriter, r *http.Request) {
 	defer gastroRuntime.Recover(w, r)
 	{{- if .IsPage }}
 	ctx := gastroRuntime.NewContext(w, r)
@@ -128,7 +128,7 @@ func {{ .FuncName }}(w http.ResponseWriter, r *http.Request) {
 	{{- end }}
 	}
 
-	if __err := __gastro_getTemplate("{{ .FuncName }}").Execute(w, __data); __err != nil {
+	if __err := __router.__gastro_getTemplate("{{ .FuncName }}").Execute(w, __data); __err != nil {
 		log.Printf("gastro: page {{ .FuncName }}: template execution failed: %v", __err)
 	}
 }
@@ -173,10 +173,10 @@ var _ = log.Println
 type {{ .ExportedName }}Props = {{ .PropsTypeName }}
 {{- end }}
 
-// {{ .FuncName }} is the unexported component function used by templates.
+// {{ .FuncName }} is the unexported component method used by templates.
 // To render this component from Go (handlers, SSE patches), call
 // gastro.Render.{{ .ExportedName }}(...) instead. See render.go.
-func {{ .FuncName }}(propsMap map[string]any) template.HTML {
+func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	var __children template.HTML
 	if __c, __ok := propsMap["__children"]; __ok {
 		__children, _ = __c.(template.HTML)
@@ -203,7 +203,7 @@ func {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	}
 
 	var __buf bytes.Buffer
-	if __err := __gastro_getTemplate("{{ .FuncName }}").Execute(&__buf, __data); __err != nil {
+	if __err := __router.__gastro_getTemplate("{{ .FuncName }}").Execute(&__buf, __data); __err != nil {
 		log.Printf("gastro: component {{ .FuncName }}: template execution failed: %v", __err)
 		return ""
 	}

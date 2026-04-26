@@ -213,16 +213,16 @@ func TestCompile_RoutesContainsTemplateFuncMapWiring(t *testing.T) {
 	content, _ := os.ReadFile(filepath.Join(outputDir, "routes.go"))
 	s := string(content)
 
-	// Card template uses Badge -- routes.go should wire it up
-	assertStringContains(t, s, `fm["Badge"] = componentBadge`)
-	// Page template uses Card -- routes.go should wire it up
-	assertStringContains(t, s, `fm["Card"] = componentCard`)
+	// Card template uses Badge -- routes.go should wire it up as a Router method value
+	assertStringContains(t, s, `fm["Badge"] = __r.componentBadge`)
+	// Page template uses Card -- routes.go should wire it up as a Router method value
+	assertStringContains(t, s, `fm["Card"] = __r.componentCard`)
 	// Both templates with uses should get render_children wiring
 	assertStringContains(t, s, `__gastro_render_children`)
 	assertStringContains(t, s, `ExecuteTemplate`)
 
-	// Routes should parse templates from FS and populate the registry
-	assertStringContains(t, s, `__gastro_templateRegistry`)
+	// Routes should parse templates from FS and populate the per-router registry
+	assertStringContains(t, s, `__r.registry`)
 	assertStringContains(t, s, `__gastro_parseTemplate`)
 	assertStringContains(t, s, `gastroRuntime.GetTemplateFS`)
 }
@@ -400,8 +400,10 @@ func TestCompile_ComponentWithoutFrontmatter(t *testing.T) {
 	}
 	s := string(goContent)
 
-	// Should use the component template (returns template.HTML, not an HTTP handler)
-	assertStringContains(t, s, "func componentDivider(propsMap map[string]any) template.HTML")
+	// Should use the component template (returns template.HTML, not an HTTP handler).
+	// Components are now methods on *Router so they can read the per-router
+	// template registry.
+	assertStringContains(t, s, "func (__router *Router) componentDivider(propsMap map[string]any) template.HTML")
 
 	// Should NOT have MapToStruct (no Props struct)
 	if contains(s, "MapToStruct") {
@@ -450,8 +452,9 @@ func TestCompile_PageWithoutFrontmatter(t *testing.T) {
 	}
 	s := string(goContent)
 
-	// Should be an HTTP handler (page), not a component
-	assertStringContains(t, s, "func pageIndex(w http.ResponseWriter, r *http.Request)")
+	// Should be an HTTP handler (page), not a component.
+	// Pages are now methods on *Router so they can read the per-router state.
+	assertStringContains(t, s, "func (__router *Router) pageIndex(w http.ResponseWriter, r *http.Request)")
 
 	// Should generate the template file
 	if _, err := os.Stat(filepath.Join(outputDir, "templates", "pages_index.html")); os.IsNotExist(err) {
