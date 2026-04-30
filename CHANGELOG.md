@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.15](https://github.com/andrioid/gastro/compare/v0.1.14...v0.1.15) (2026-04-30)
+
+
+### Features
+
+* **funcs:** add has, hasKey, set membership helpers ([8253b68](https://github.com/andrioid/gastro/commit/8253b686cf7aa9aaa25cd2c3fb739d1d7d62d2cd))
+
+
+### Bug Fixes
+
+* **codegen:** atomic active-router pointer + per-Router Render() ([31f1ce5](https://github.com/andrioid/gastro/commit/31f1ce57772880ba6f1c0804df380c1fba920c4f))
+* **codegen:** build-time (dict ...) prop validation ([c9b615f](https://github.com/andrioid/gastro/commit/c9b615fc856689c8b97804bcf846aa018aad6962))
+* **codegen:** support inline field comments in Props structs ([cd55683](https://github.com/andrioid/gastro/commit/cd5568337b8f2092f7c22d32bfd283604a2fce15))
+
 ## [0.1.14](https://github.com/andrioid/gastro/compare/v0.1.13...v0.1.14) (2026-04-26)
 
 
