@@ -65,9 +65,18 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	if err != nil {
 		return nil, fmt.Errorf("resolving project dir: %w", err)
 	}
+
+	// Pre-pass: gather every component's Props field list so the per-file
+	// pass can validate (dict ...) keys against the destination schema.
+	// Cheap (parse + frontmatter analyze + struct hoist; no template work).
+	propsByPath, err := gatherComponentSchemas(componentFiles, projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("gathering component schemas: %w", err)
+	}
+
 	for _, relPath := range allFiles {
 		absPath := filepath.Join(projectDir, relPath)
-		result, err := compileFile(absPath, relPath, absProjectDir, outputDir)
+		result, err := compileFile(absPath, relPath, absProjectDir, outputDir, propsByPath)
 		if err != nil {
 			return nil, fmt.Errorf("compiling %s: %w", relPath, err)
 		}
@@ -184,7 +193,39 @@ type compileResult struct {
 	markdownDeps []string
 }
 
-func compileFile(absPath, relPath, absProjectDir, outputDir string) (compileResult, error) {
+// gatherComponentSchemas reads each component file's frontmatter, extracts
+// its hoisted Props type, and returns a map keyed by relative path (the
+// same path that appears in `import X "components/foo.gastro"`). Files
+// without a Props struct are omitted; readers are expected to treat a
+// missing key as "no schema, skip validation".
+func gatherComponentSchemas(componentFiles []string, projectDir string) (map[string][]codegen.StructField, error) {
+	schemas := make(map[string][]codegen.StructField, len(componentFiles))
+	for _, relPath := range componentFiles {
+		absPath := filepath.Join(projectDir, relPath)
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", relPath, err)
+		}
+		file, err := parser.Parse(relPath, string(content))
+		if err != nil {
+			// Parse errors will surface during the main pass with full
+			// context; don't abort the schema gather over them.
+			continue
+		}
+		info, err := codegen.AnalyzeFrontmatter(file.Frontmatter)
+		if err != nil || info.PropsTypeName == "" {
+			continue
+		}
+		_, hoisted := codegen.HoistTypeDeclarations(file.Frontmatter)
+		fields := codegen.ParseStructFields(hoisted)
+		if len(fields) > 0 {
+			schemas[relPath] = fields
+		}
+	}
+	return schemas, nil
+}
+
+func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath map[string][]codegen.StructField) (compileResult, error) {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return compileResult{}, err
@@ -222,6 +263,12 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string) (compileResu
 	if err != nil {
 		return compileResult{}, err
 	}
+
+	// Validate (dict ...) keys against the destination component's Props
+	// schema. Unknown keys produce warnings here; opts.Strict in Compile
+	// promotes them to errors. Falls back to silent no-op if the body
+	// doesn't parse with the stub FuncMap (rare).
+	dictWarnings := codegen.ValidateDictKeys(transformedBody, file.Uses, propsByPath)
 
 	// Write template file
 	templateName := strings.TrimSuffix(relPath, ".gastro")
@@ -273,9 +320,25 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string) (compileResu
 		Uses:         uses,
 	}
 
+	// Combine frontmatter warnings with dict-key validation warnings. The
+	// dict warnings already carry template-body line numbers; rebase them
+	// onto the source file's coordinate system by offsetting by the line
+	// where the template body starts.
+	combinedWarnings := append([]codegen.Warning(nil), info.Warnings...)
+	for _, w := range dictWarnings {
+		line := w.Line
+		if file.TemplateBodyLine > 0 {
+			line = file.TemplateBodyLine + line - 1
+		}
+		combinedWarnings = append(combinedWarnings, codegen.Warning{
+			Line:    line,
+			Message: w.Message,
+		})
+	}
+
 	// Pages have no component metadata
 	if !isComponent {
-		return compileResult{template: tmplMeta, warnings: info.Warnings, markdownDeps: markdownDeps}, nil
+		return compileResult{template: tmplMeta, warnings: combinedWarnings, markdownDeps: markdownDeps}, nil
 	}
 
 	_, hoistedTypes := codegen.HoistTypeDeclarations(file.Frontmatter)
@@ -295,7 +358,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string) (compileResu
 		HasChildren:   hasChildren,
 	}
 
-	return compileResult{template: tmplMeta, component: compMeta, warnings: info.Warnings, markdownDeps: markdownDeps}, nil
+	return compileResult{template: tmplMeta, component: compMeta, warnings: combinedWarnings, markdownDeps: markdownDeps}, nil
 }
 
 // syncStatic copies the project's static/ directory into outputDir/static/.

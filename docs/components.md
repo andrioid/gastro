@@ -129,6 +129,34 @@ The parent passes children by wrapping content in the component tags:
 
 Children are rendered in the **parent's** data context, so they can reference the parent's template data. Only one `{{ .Children }}` is supported per component.
 
+## Compile-time prop validation
+
+Gastro statically validates the literal string keys you pass to `(dict ...)`
+against the destination component's Props schema. A typo in a key surfaces
+as a compile-time warning that names the component, the typo'd key, and
+the valid prop names:
+
+```
+gastro: warning: pages/index.gastro:14: unknown prop "Tite" on component Card (valid: Body, Title)
+```
+
+This catches the "blank card in production" failure mode where
+`MapToStruct` would otherwise silently drop the unknown key at render
+time, leaving the field at its zero value.
+
+The validator skips two cases by design so it doesn't false-positive:
+
+1. **Dynamic dict keys.** If any odd-indexed `dict` argument isn't a
+   string literal (e.g. `(dict $key $value)`) the entire call is
+   skipped — we can't know at compile time which keys it contains.
+2. **Components without a Props struct.** A component that takes no
+   typed props can be invoked with an arbitrary dict; the runtime
+   ignores extra keys.
+
+Warnings are promoted to errors by `gastro generate`, `gastro build`,
+and `gastro check` (i.e. anything CI runs). The dev server (`gastro dev`)
+prints warnings but keeps rendering, so live editing isn't blocked.
+
 ## Calling Components from Go
 
 Components can be rendered directly from Go code — useful for SSE handlers that

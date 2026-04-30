@@ -596,6 +596,131 @@ func goParse(src string) (any, error) {
 	return parser.ParseFile(token.NewFileSet(), "generated.go", src, parser.AllErrors)
 }
 
+// TestCompile_DictKeyTypoSurfacesWarning is the audit P0 #3 reproducer
+// turned into a regression test. A page imports a Card component whose
+// Props has fields {Title, Body}, but invokes it with `dict "Tite" ...`.
+// Before this validator the compile silently produced HTML with an empty
+// Card (the typo'd key was dropped by MapToStruct at render time). Now
+// the compile yields a FileWarning that names the typo'd key, the
+// component, and the valid prop names.
+func TestCompile_DictKeyTypoSurfacesWarning(t *testing.T) {
+	projectDir := t.TempDir()
+	compDir := filepath.Join(projectDir, "components")
+	pagesDir := filepath.Join(projectDir, "pages")
+	os.MkdirAll(compDir, 0o755)
+	os.MkdirAll(pagesDir, 0o755)
+
+	os.WriteFile(filepath.Join(compDir, "card.gastro"), []byte(
+		"---\n"+
+			"type Props struct {\n"+
+			"\tTitle string\n"+
+			"\tBody  string\n"+
+			"}\n\n"+
+			"p := gastro.Props()\n"+
+			"Title := p.Title\n"+
+			"Body := p.Body\n"+
+			"---\n"+
+			`<div><h3>{{ .Title }}</h3><p>{{ .Body }}</p></div>`+"\n"), 0o644)
+
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte(
+		"---\n"+
+			`import Card "components/card.gastro"`+"\n"+
+			"ctx := gastro.Context()\n_ = ctx\n---\n"+
+			`<html><body>{{ Card (dict "Tite" "Hi" "Body" "Hello") }}</body></html>`+"\n"), 0o644)
+
+	outputDir := t.TempDir()
+	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+
+	// Find the dict-typo warning amongst all warnings.
+	var found *compiler.FileWarning
+	for i := range result.Warnings {
+		w := result.Warnings[i]
+		if contains(w.Message, `unknown prop "Tite"`) {
+			found = &result.Warnings[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected an `unknown prop` warning for the typo `Tite`; got: %v", result.Warnings)
+	}
+
+	// Warning must reference the page that contains the call site, not
+	// the component being called.
+	if found.File != "pages/index.gastro" {
+		t.Errorf("warning attributed to wrong file: %q", found.File)
+	}
+
+	// Strict mode promotes the warning to an error.
+	_, err = compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{Strict: true})
+	if err == nil {
+		t.Error("expected strict compile to fail on dict-key typo, but it succeeded")
+	}
+	if err != nil && !contains(err.Error(), `unknown prop "Tite"`) {
+		t.Errorf("strict error doesn't mention typo: %v", err)
+	}
+}
+
+// TestCompile_DictKeyValidationDoesNotFalsePositive guards against the
+// dict-key validator flagging legitimate calls. Covers the cases that
+// the validator must explicitly skip: __children injected by wrap, dynamic
+// dict keys, bare-call form, and components that have no Props schema.
+func TestCompile_DictKeyValidationDoesNotFalsePositive(t *testing.T) {
+	projectDir := t.TempDir()
+	compDir := filepath.Join(projectDir, "components")
+	pagesDir := filepath.Join(projectDir, "pages")
+	os.MkdirAll(compDir, 0o755)
+	os.MkdirAll(pagesDir, 0o755)
+
+	// Component with a Props struct (Card) and one without (Divider).
+	os.WriteFile(filepath.Join(compDir, "card.gastro"), []byte(
+		"---\n"+
+			"type Props struct {\n\tTitle string\n}\n\n"+
+			"p := gastro.Props()\nTitle := p.Title\n---\n"+
+			`<div>{{ .Title }}</div>`+"\n"), 0o644)
+	os.WriteFile(filepath.Join(compDir, "divider.gastro"), []byte(`<hr/>`), 0o644)
+
+	// Layout component that takes children — wrap injects __children at
+	// compile time, validator must not flag it.
+	os.WriteFile(filepath.Join(compDir, "layout.gastro"), []byte(
+		"---\n"+
+			"type Props struct {\n\tTitle string\n}\n\n"+
+			"p := gastro.Props()\nTitle := p.Title\n---\n"+
+			`<main>{{ .Children }}</main>`+"\n"), 0o644)
+
+	// Page exercises every "don't false-positive" branch:
+	//  - Wrap form (validator sees the post-transform body with __children).
+	//  - Bare call without dict.
+	//  - Dynamic dict key (.K resolves at render time).
+	//  - Component with no Props (Divider) called with a dict.
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte(
+		"---\n"+
+			"import (\n"+
+			"\tCard \"components/card.gastro\"\n"+
+			"\tDivider \"components/divider.gastro\"\n"+
+			"\tLayout \"components/layout.gastro\"\n"+
+			")\n"+
+			"ctx := gastro.Context()\nK := \"Title\"\n_ = ctx\n_ = K\n---\n"+
+			"{{ wrap Layout (dict \"Title\" \"Hi\") }}\n"+
+			"  {{ Divider }}\n"+
+			"  {{ Card (dict .K \"Some\") }}\n"+
+			"{{ end }}\n"), 0o644)
+
+	outputDir := t.TempDir()
+	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+
+	for _, w := range result.Warnings {
+		if contains(w.Message, "unknown prop") {
+			t.Errorf("unexpected dict-key warning: %s:%d %s", w.File, w.Line, w.Message)
+		}
+	}
+}
+
 func indexOf(s, substr string) int {
 	for i := 0; i+len(substr) <= len(s); i++ {
 		if s[i:i+len(substr)] == substr {
