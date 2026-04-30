@@ -77,10 +77,10 @@ func ComponentCompletions(uses []parser.UseDeclaration) []CompletionItem {
 // compile time, so they don't appear in gastro.DefaultFuncs() and need to
 // be surfaced separately for completion.
 type compileTimeDirective struct {
-	name        string
-	detail      string
-	plain       string // insertText when snippet support is disabled
-	snippet     string // insertText when snippet support is enabled
+	name    string
+	detail  string
+	plain   string // insertText when snippet support is disabled
+	snippet string // insertText when snippet support is enabled
 }
 
 var compileTimeDirectives = []compileTimeDirective{
