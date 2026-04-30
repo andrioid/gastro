@@ -1,9 +1,11 @@
 package codegen
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"strings"
 	"text/template"
@@ -375,13 +377,26 @@ func rewriteGastroProps(frontmatter string) string {
 // - gastro.Props() calls are replaced with __props
 // - Type declarations are stripped for components (hoisted to package level)
 //
-// Marker detection uses go/ast for precision (no false positives on strings,
-// comments, or similar identifiers). Type stripping uses line-based brace
-// tracking which is correct for Go type declarations.
+// All transformations are AST-driven: gastro markers via go/ast, type
+// stripping via HoistTypeDeclarations. This makes inline comments containing
+// `{`, `}`, or backticks safe inside Props field declarations.
 func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo, isComponent bool) string {
-	contextMarkers := detectMarkerLines(frontmatter)
+	// Rewrite gastro.Props() calls to __props. Same-line substitution, so
+	// line numbers are preserved for the steps below.
+	frontmatter = rewriteGastroProps(frontmatter)
 
-	// Build a set of context marker lines for O(1) lookup
+	// For components, type declarations live at package level (hoisted by the
+	// componentTmpl) and must not appear inside the function body. Strip them
+	// using the AST-based hoister so inline comments with braces or backticks
+	// don't fool the scanner.
+	if isComponent {
+		body, _ := HoistTypeDeclarations(frontmatter)
+		return strings.TrimSpace(body)
+	}
+
+	// Pages: strip lines whose only purpose is to invoke gastro.Context()
+	// (the handlerTmpl injects `ctx := gastroRuntime.NewContext(...)` itself).
+	contextMarkers := detectMarkerLines(frontmatter)
 	contextLines := make(map[int]bool, len(contextMarkers))
 	for _, m := range contextMarkers {
 		if m.kind == markerContext {
@@ -389,41 +404,18 @@ func rewriteFrontmatter(frontmatter string, info *FrontmatterInfo, isComponent b
 		}
 	}
 
-	// Rewrite gastro.Props() calls to __props
-	frontmatter = rewriteGastroProps(frontmatter)
-
-	lines := strings.Split(frontmatter, "\n")
-	var kept []string
-	inType := false
-	braceDepth := 0
-
-	for i, line := range lines {
-		lineNum := i + 1 // 1-indexed
-
-		// For components, skip type declarations (hoisted to package level)
-		if isComponent {
-			trimmed := strings.TrimSpace(line)
-			if !inType && strings.HasPrefix(trimmed, "type ") {
-				inType = true
-				braceDepth = 0
-			}
-			if inType {
-				braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
-				if braceDepth <= 0 {
-					inType = false
-				}
-				continue
-			}
-		}
-
-		// Strip gastro.Context() lines
-		if contextLines[lineNum] {
-			continue
-		}
-
-		kept = append(kept, line)
+	if len(contextLines) == 0 {
+		return strings.TrimSpace(frontmatter)
 	}
 
+	lines := strings.Split(frontmatter, "\n")
+	kept := make([]string, 0, len(lines))
+	for i, line := range lines {
+		if contextLines[i+1] {
+			continue
+		}
+		kept = append(kept, line)
+	}
 	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
@@ -441,7 +433,78 @@ type StructField struct {
 
 // ParseStructFields extracts field names and types from a hoisted type
 // declaration string like "type FooProps struct {\n    Title string\n    Count int\n}".
+// Returns fields from the first struct type encountered.
+//
+// Uses go/parser so inline comments containing `{`, `}`, or backticks, tag
+// literals, and multiple-name fields (`A, B string`) are all handled
+// correctly. Falls back to a line scanner when the input is not parseable.
 func ParseStructFields(hoistedTypes string) []StructField {
+	if strings.TrimSpace(hoistedTypes) == "" {
+		return nil
+	}
+	if fields, ok := parseStructFieldsAST(hoistedTypes); ok {
+		return fields
+	}
+	return parseStructFieldsLegacy(hoistedTypes)
+}
+
+func parseStructFieldsAST(hoistedTypes string) ([]StructField, bool) {
+	src := "package __gastro\n" + hoistedTypes
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "types.go", src, parser.ParseComments)
+	if err != nil {
+		return nil, false
+	}
+
+	var fields []StructField
+	done := false
+	ast.Inspect(file, func(n ast.Node) bool {
+		if done {
+			return false
+		}
+		st, ok := n.(*ast.StructType)
+		if !ok {
+			return true
+		}
+		if st.Fields == nil {
+			done = true
+			return false
+		}
+		for _, field := range st.Fields.List {
+			if len(field.Names) == 0 {
+				// Embedded field — skip; not currently supported by the
+				// runtime MapToStruct path either.
+				continue
+			}
+			typeStr := exprString(fset, field.Type)
+			for _, name := range field.Names {
+				fields = append(fields, StructField{
+					Name: name.Name,
+					Type: typeStr,
+				})
+			}
+		}
+		done = true
+		return false
+	})
+
+	return fields, true
+}
+
+// exprString renders an AST expression back to its source-text form using
+// go/printer. Used to capture field types verbatim, including composite
+// types like `[]string`, `map[string]int`, and qualified identifiers.
+func exprString(fset *token.FileSet, expr ast.Expr) string {
+	var buf bytes.Buffer
+	if err := printer.Fprint(&buf, fset, expr); err != nil {
+		return ""
+	}
+	return buf.String()
+}
+
+// parseStructFieldsLegacy is the original line-based scanner, kept as a
+// fallback for unparseable input (e.g. mid-edit in the LSP).
+func parseStructFieldsLegacy(hoistedTypes string) []StructField {
 	lines := strings.Split(hoistedTypes, "\n")
 	var fields []StructField
 	inStruct := false

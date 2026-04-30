@@ -1,6 +1,8 @@
 package compiler_test
 
 import (
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"testing"
@@ -460,6 +462,102 @@ func TestCompile_PageWithoutFrontmatter(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outputDir, "templates", "pages_index.html")); os.IsNotExist(err) {
 		t.Fatal("template file was not generated for frontmatter-less page")
 	}
+}
+
+// TestCompile_ComponentWithInlineFieldComments is a regression test for the
+// audit's P0 #1: inline comments on Props struct fields containing `{`, `}`,
+// or backticks previously broke the codegen's line-based brace counter,
+// producing invalid Go. The AST-based hoister handles them correctly.
+func TestCompile_ComponentWithInlineFieldComments(t *testing.T) {
+	projectDir := t.TempDir()
+	compDir := filepath.Join(projectDir, "components")
+	pagesDir := filepath.Join(projectDir, "pages")
+	os.MkdirAll(compDir, 0o755)
+	os.MkdirAll(pagesDir, 0o755)
+
+	// Field comments containing every previously-fatal character class:
+	// unbalanced `{`, unbalanced `}`, single backtick, full struct tag.
+	cardSrc := "---\n" +
+		"type Props struct {\n" +
+		"\tID    string `json:\"id,omitempty\"` // ulid format\n" +
+		"\tTitle string                       // task title with `code` markers\n" +
+		"\tNote  string                       // contains { unbalanced open\n" +
+		"\tEnd   string                       // contains } unbalanced close\n" +
+		"}\n\n" +
+		"p := gastro.Props()\n" +
+		"ID := p.ID\n" +
+		"Title := p.Title\n" +
+		"Note := p.Note\n" +
+		"End := p.End\n" +
+		"---\n" +
+		`<div id="{{ .ID }}"><h3>{{ .Title }}</h3><p>{{ .Note }}{{ .End }}</p></div>` + "\n"
+	os.WriteFile(filepath.Join(compDir, "card.gastro"), []byte(cardSrc), 0o644)
+
+	os.WriteFile(filepath.Join(pagesDir, "index.gastro"), []byte("---\n"+
+		"import Card \"components/card.gastro\"\n"+
+		"ctx := gastro.Context()\n_ = ctx\n---\n"+
+		`<html><body>{{ Card (dict "ID" "01K" "Title" "Hi" "Note" "n" "End" "e") }}</body></html>`), 0o644)
+
+	outputDir := t.TempDir()
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+
+	// Generated component must define the struct with all four fields and
+	// preserve the assignment statements that follow it.
+	goSrc, err := os.ReadFile(filepath.Join(outputDir, "components_card.go"))
+	if err != nil {
+		t.Fatalf("reading generated component: %v", err)
+	}
+	s := string(goSrc)
+
+	for _, want := range []string{
+		"type componentCardProps struct",
+		"ID    string",
+		"Title string",
+		"Note  string",
+		"End   string",
+		"// ulid format",
+		"// task title with `code` markers",
+		"// contains { unbalanced open",
+		"// contains } unbalanced close",
+		"p := __props",
+		"ID := p.ID",
+		"Note := p.Note",
+		"End := p.End",
+	} {
+		assertStringContains(t, s, want)
+	}
+
+	// The struct itself must not appear inside the function body.
+	funcStart := indexOf(s, "func (__router *Router) componentCard(")
+	if funcStart < 0 {
+		t.Fatalf("componentCard func not found in:\n%s", s)
+	}
+	if contains(s[funcStart:], "type componentCardProps struct") {
+		t.Error("struct must be hoisted above the function body, not duplicated inside")
+	}
+
+	// Sanity-check: the generated package must compile under go/parser.
+	// Catches the original failure mode where stripped-but-not-hoisted
+	// fields would leave dangling identifiers in the function body.
+	if _, err := goParse(s); err != nil {
+		t.Fatalf("generated component does not parse as Go:\n%v\n\n%s", err, s)
+	}
+}
+
+func goParse(src string) (any, error) {
+	return parser.ParseFile(token.NewFileSet(), "generated.go", src, parser.AllErrors)
+}
+
+func indexOf(s, substr string) int {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
 }
 
 func assertStringContains(t *testing.T, s, substr string) {

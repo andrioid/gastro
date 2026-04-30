@@ -320,6 +320,78 @@ func TestHoistTypeDeclarations_BacktickStringWithType(t *testing.T) {
 			wantInTypes:  []string{"type Props struct"},
 			wantNotTypes: nil,
 		},
+		{
+			// Regression: inline field comments containing `{` previously
+			// threw off the line-based brace counter, causing the closing
+			// `}` to be miscounted and the rest of the frontmatter to be
+			// hoisted into package scope. AST-based hoisting is immune.
+			name:         "inline comment with unbalanced open brace",
+			frontmatter:  "type Props struct {\n\tTitle string // contains { unbalanced\n}\n\nTitle := \"hi\"",
+			wantInBody:   []string{"Title := \"hi\""},
+			wantInTypes:  []string{"type Props struct", "Title string", "unbalanced"},
+			wantNotTypes: []string{"Title := \"hi\""},
+		},
+		{
+			name:         "inline comment with unbalanced close brace",
+			frontmatter:  "type Props struct {\n\tTitle string // contains } unbalanced\n}\n\nTitle := \"hi\"",
+			wantInBody:   []string{"Title := \"hi\""},
+			wantInTypes:  []string{"type Props struct", "Title string", "unbalanced"},
+			wantNotTypes: []string{"Title := \"hi\""},
+		},
+		{
+			// Regression: a comment with a single backtick previously made
+			// the parser think the next line was inside a raw string,
+			// breaking type-decl detection.
+			name:         "inline comment with backtick",
+			frontmatter:  "type Props struct {\n\tTitle string // see `code` here\n}\n\nTitle := \"hi\"",
+			wantInBody:   []string{"Title := \"hi\""},
+			wantInTypes:  []string{"type Props struct", "Title string", "`code`"},
+			wantNotTypes: []string{"Title := \"hi\""},
+		},
+		{
+			name:         "struct tag plus inline comment",
+			frontmatter:  "type Props struct {\n\tTitle string `json:\"t,omitempty\"` // tagged field\n}\n\nTitle := \"hi\"",
+			wantInBody:   []string{"Title := \"hi\""},
+			wantInTypes:  []string{"type Props struct", "json:", "tagged field"},
+			wantNotTypes: []string{"Title := \"hi\""},
+		},
+		{
+			name:         "multiple type declarations",
+			frontmatter:  "type Item struct {\n\tID string\n}\n\ntype Props struct {\n\tItems []Item\n}\n\nTitle := \"hi\"",
+			wantInBody:   []string{"Title := \"hi\""},
+			wantInTypes:  []string{"type Item struct", "type Props struct"},
+			wantNotTypes: []string{"Title := \"hi\""},
+		},
+		{
+			name:         "empty frontmatter",
+			frontmatter:  "",
+			wantInBody:   nil,
+			wantInTypes:  nil,
+			wantNotTypes: nil,
+		},
+		{
+			name:         "only types",
+			frontmatter:  "type Props struct {\n\tTitle string\n}",
+			wantInBody:   nil,
+			wantInTypes:  []string{"type Props struct", "Title string"},
+			wantNotTypes: nil,
+		},
+		{
+			name:         "type alias",
+			frontmatter:  "type StringAlias = string\n\nTitle := \"hi\"",
+			wantInBody:   []string{"Title := \"hi\""},
+			wantInTypes:  []string{"type StringAlias = string"},
+			wantNotTypes: []string{"Title := \"hi\""},
+		},
+		{
+			// Unparseable frontmatter (mid-edit) should still produce
+			// reasonable output via the legacy fallback.
+			name:         "unparseable falls back gracefully",
+			frontmatter:  "type Props struct {\n\tTitle string\n\nleftover := \"oops\"",
+			wantInBody:   nil,
+			wantInTypes:  []string{"type Props"},
+			wantNotTypes: nil,
+		},
 	}
 
 	for _, tt := range tests {

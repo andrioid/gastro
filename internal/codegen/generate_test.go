@@ -388,6 +388,128 @@ func TestParseStructFields_Empty(t *testing.T) {
 	}
 }
 
+func TestParseStructFields_InlineComments(t *testing.T) {
+	hoisted := "type Props struct {\n\tID    string // ulid\n\tTitle string // task title with `code`\n\tCount int    // contains { brace\n}"
+	fields := codegen.ParseStructFields(hoisted)
+
+	want := []codegen.StructField{
+		{Name: "ID", Type: "string"},
+		{Name: "Title", Type: "string"},
+		{Name: "Count", Type: "int"},
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d: %v", len(want), len(fields), fields)
+	}
+	for i, f := range fields {
+		if f.Name != want[i].Name || f.Type != want[i].Type {
+			t.Errorf("field %d: got {%s %s}, want {%s %s}", i, f.Name, f.Type, want[i].Name, want[i].Type)
+		}
+	}
+}
+
+func TestParseStructFields_CompositeTypes(t *testing.T) {
+	hoisted := "type Props struct {\n\tTags    []string\n\tLookup  map[string]int\n\tHandler func(string) error\n}"
+	fields := codegen.ParseStructFields(hoisted)
+
+	want := []codegen.StructField{
+		{Name: "Tags", Type: "[]string"},
+		{Name: "Lookup", Type: "map[string]int"},
+		{Name: "Handler", Type: "func(string) error"},
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d: %v", len(want), len(fields), fields)
+	}
+	for i, f := range fields {
+		if f.Name != want[i].Name || f.Type != want[i].Type {
+			t.Errorf("field %d: got {%s %s}, want {%s %s}", i, f.Name, f.Type, want[i].Name, want[i].Type)
+		}
+	}
+}
+
+func TestParseStructFields_QualifiedTypes(t *testing.T) {
+	hoisted := "type Props struct {\n\tHTML template.HTML\n\tWhen time.Time\n}"
+	fields := codegen.ParseStructFields(hoisted)
+
+	want := []codegen.StructField{
+		{Name: "HTML", Type: "template.HTML"},
+		{Name: "When", Type: "time.Time"},
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d: %v", len(want), len(fields), fields)
+	}
+	for i, f := range fields {
+		if f.Name != want[i].Name || f.Type != want[i].Type {
+			t.Errorf("field %d: got {%s %s}, want {%s %s}", i, f.Name, f.Type, want[i].Name, want[i].Type)
+		}
+	}
+}
+
+func TestParseStructFields_MultipleNamesPerField(t *testing.T) {
+	hoisted := "type Props struct {\n\tA, B string\n\tC    int\n}"
+	fields := codegen.ParseStructFields(hoisted)
+
+	want := []codegen.StructField{
+		{Name: "A", Type: "string"},
+		{Name: "B", Type: "string"},
+		{Name: "C", Type: "int"},
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d: %v", len(want), len(fields), fields)
+	}
+	for i, f := range fields {
+		if f.Name != want[i].Name || f.Type != want[i].Type {
+			t.Errorf("field %d: got {%s %s}, want {%s %s}", i, f.Name, f.Type, want[i].Name, want[i].Type)
+		}
+	}
+}
+
+func TestParseStructFields_StructTags(t *testing.T) {
+	hoisted := "type Props struct {\n\tTitle string `json:\"title,omitempty\"`\n\tCount int    `json:\"count\"`\n}"
+	fields := codegen.ParseStructFields(hoisted)
+
+	want := []codegen.StructField{
+		{Name: "Title", Type: "string"},
+		{Name: "Count", Type: "int"},
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d: %v", len(want), len(fields), fields)
+	}
+	for i, f := range fields {
+		if f.Name != want[i].Name || f.Type != want[i].Type {
+			t.Errorf("field %d: got {%s %s}, want {%s %s}", i, f.Name, f.Type, want[i].Name, want[i].Type)
+		}
+	}
+}
+
+func TestParseStructFields_SkipsEmbedded(t *testing.T) {
+	hoisted := "type Props struct {\n\tBaseProps\n\tTitle string\n}"
+	fields := codegen.ParseStructFields(hoisted)
+
+	want := []codegen.StructField{
+		{Name: "Title", Type: "string"},
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("expected %d fields, got %d: %v", len(want), len(fields), fields)
+	}
+	if fields[0].Name != "Title" || fields[0].Type != "string" {
+		t.Errorf("got %v, want %v", fields[0], want[0])
+	}
+}
+
+func TestParseStructFields_FirstStructWins(t *testing.T) {
+	// When multiple types are hoisted (auxiliary types + Props), the
+	// first struct's fields are returned. Preserves existing behaviour.
+	hoisted := "type Item struct {\n\tID string\n}\n\ntype Props struct {\n\tItems []Item\n}"
+	fields := codegen.ParseStructFields(hoisted)
+
+	if len(fields) != 1 {
+		t.Fatalf("expected 1 field from first struct (Item), got %d: %v", len(fields), fields)
+	}
+	if fields[0].Name != "ID" || fields[0].Type != "string" {
+		t.Errorf("first struct fields: got %v, want {ID string}", fields[0])
+	}
+}
+
 func assertContains(t *testing.T, haystack, needle string) {
 	t.Helper()
 	if !strings.Contains(haystack, needle) {

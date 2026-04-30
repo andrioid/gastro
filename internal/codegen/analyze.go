@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"sort"
 	"strings"
 
 	gastroParser "github.com/andrioid/gastro/internal/parser"
@@ -323,10 +324,120 @@ func isGastroPropsCall(call *ast.CallExpr) bool {
 	return ok && ident.Name == "gastro" && sel.Sel.Name == "Props"
 }
 
-// HoistTypeDeclarations extracts `type ... struct { ... }` declarations from
-// frontmatter and returns them separately, since they need to be at package
-// level for go/parser to accept them.
+// HoistTypeDeclarations extracts top-level `type ...` declarations from
+// frontmatter and returns them separately. Type declarations need to be at
+// package level for go/parser to accept them when the rest of the
+// frontmatter is wrapped in a function body.
+//
+// Uses go/parser to find type declarations precisely so inline comments
+// containing `{`, `}`, or backticks (e.g. `Title string // task `code`
+// here`) are handled correctly. Falls back to a line-based scanner when the
+// frontmatter has syntax errors (e.g. user is mid-edit) so the LSP and
+// formatter stay responsive.
 func HoistTypeDeclarations(frontmatter string) (body string, typeDecls string) {
+	if body, typeDecls, ok := hoistTypeDeclarationsAST(frontmatter); ok {
+		return body, typeDecls
+	}
+	return hoistTypeDeclarationsLegacy(frontmatter)
+}
+
+// hoistTypeDeclarationsAST is the precise AST-based implementation used when
+// the frontmatter parses cleanly. Returns ok=false if parsing fails so the
+// caller can fall back to the legacy line scanner.
+func hoistTypeDeclarationsAST(frontmatter string) (body, typeDecls string, ok bool) {
+	if strings.TrimSpace(frontmatter) == "" {
+		return "", "\n", true
+	}
+
+	// Type declarations are valid as DeclStmt in function bodies, so we can
+	// parse the entire frontmatter inside a synthetic function without
+	// hoisting first. The parser then locates each type decl precisely
+	// regardless of comment contents.
+	prefix := "package __gastro\nfunc __h() {\n"
+	prefixLen := len(prefix)
+	src := prefix + frontmatter + "\n}"
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "frontmatter.go", src, parser.ParseComments)
+	if err != nil {
+		return "", "", false
+	}
+
+	// Collect byte spans of type DeclStmts in the original frontmatter.
+	type span struct{ start, end int }
+	var spans []span
+	var typeBuf strings.Builder
+
+	ast.Inspect(file, func(n ast.Node) bool {
+		ds, ok := n.(*ast.DeclStmt)
+		if !ok {
+			return true
+		}
+		gd, ok := ds.Decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			return true
+		}
+
+		dsStart := fset.Position(ds.Pos()).Offset
+		dsEnd := fset.Position(ds.End()).Offset
+		if dsStart < prefixLen || dsEnd > prefixLen+len(frontmatter) {
+			return true // out-of-bounds; should not happen
+		}
+		fmStart := dsStart - prefixLen
+		fmEnd := dsEnd - prefixLen
+
+		// Expand to whole lines so the body retains its original line
+		// structure after removal. This keeps line numbers reported by
+		// downstream analysis stable.
+		lineStart, lineEnd := expandToWholeLines(frontmatter, fmStart, fmEnd)
+
+		spans = append(spans, span{start: lineStart, end: lineEnd})
+
+		if typeBuf.Len() > 0 {
+			typeBuf.WriteString("\n")
+		}
+		typeBuf.WriteString(frontmatter[fmStart:fmEnd])
+		return false
+	})
+
+	if len(spans) == 0 {
+		return frontmatter, "\n", true
+	}
+
+	// Sort by start descending so byte offsets stay valid as we remove.
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start > spans[j].start })
+	body = frontmatter
+	for _, s := range spans {
+		body = body[:s.start] + body[s.end:]
+	}
+
+	return body, typeBuf.String() + "\n", true
+}
+
+// expandToWholeLines extends [start, end) outward to cover whole lines:
+// start moves back to the byte after the previous newline (or 0), and end
+// moves forward to include the trailing newline (or len(s)).
+func expandToWholeLines(s string, start, end int) (int, int) {
+	lineStart := start
+	for lineStart > 0 && s[lineStart-1] != '\n' {
+		lineStart--
+	}
+	lineEnd := end
+	for lineEnd < len(s) && s[lineEnd] != '\n' {
+		lineEnd++
+	}
+	if lineEnd < len(s) && s[lineEnd] == '\n' {
+		lineEnd++ // include the trailing newline
+	}
+	return lineStart, lineEnd
+}
+
+// hoistTypeDeclarationsLegacy is the original line-based scanner. Kept as a
+// fallback for frontmatter that doesn't parse cleanly (mid-edit in the LSP,
+// formatter input with errors). Has known edge cases around inline comments
+// containing `{`, `}`, or backticks, but that's acceptable for unparseable
+// input — the AST path covers correct code.
+func hoistTypeDeclarationsLegacy(frontmatter string) (body string, typeDecls string) {
 	lines := strings.Split(frontmatter, "\n")
 	var bodyLines []string
 	var typeLines []string
