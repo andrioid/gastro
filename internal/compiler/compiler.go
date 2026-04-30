@@ -367,6 +367,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
@@ -454,9 +455,14 @@ type Router struct {
 
 // __gastro_active is the most-recently-constructed Router, used by the
 // package-level Render variable so existing single-router callers keep
-// working without code changes. For multi-router scenarios, hold onto the
-// *Router returned by New() and call its methods directly.
-var __gastro_active *Router
+// working without code changes. Stored atomically so concurrent New()
+// calls (parallel tests, multi-tenant servers) and concurrent Render
+// access don't race.
+//
+// For multi-router scenarios, prefer holding onto the *Router returned by
+// New() and calling router.Render().X(...) directly — that path never
+// touches the global.
+var __gastro_active atomic.Pointer[Router]
 
 // __gastro_buildFuncMap constructs the FuncMap for the named template,
 // merging user functions with per-template component wiring.
@@ -633,7 +639,7 @@ func New(opts ...Option) *Router {
 {{- end}}
 
 	__r.mux = mux
-	__gastro_active = __r
+	__gastro_active.Store(__r)
 	return __r
 }
 
@@ -696,11 +702,16 @@ var renderTmpl = template.Must(template.New("render").Parse(`// Code generated b
 //                              produces HTML outside the page-routing
 //                              flow (e.g. SSE handlers patching a card).
 //
-// Example:
+// Two ways to call it:
 //
+//	// 1. Package-level Render — simplest, uses the most-recently-
+//	//    constructed Router. Fine for single-router apps.
 //	html, err := gastro.Render.Card(gastro.CardProps{Title: "Hello"})
-//	if err != nil { /* handle */ }
-//	sse.PatchElements(html)
+//
+//	// 2. Router.Render() — prefer this in tests and multi-router setups
+//	//    (parallel tests, multi-tenant servers). Never touches the global.
+//	router := gastro.New(opts...)
+//	html, err := router.Render().Card(gastro.CardProps{Title: "Hello"})
 //
 // Each method takes a typed Props value (and optional children for
 // components that accept them) and returns an HTML string plus an error.
@@ -717,7 +728,9 @@ import (
 var _ = fmt.Errorf
 var _ template.HTML
 
-// Render is the entry point for rendering components from Go code.
+// Render is the package-level entry point for rendering components from
+// Go code. It dispatches to the most-recently-constructed Router (set by
+// gastro.New()).
 //
 // Each method on Render corresponds to a component file in components/ and
 // takes that component's typed Props (plus an optional children argument for
@@ -727,10 +740,37 @@ var _ template.HTML
 // Use Render from HTTP handlers, SSE patch streams, tests — anywhere outside
 // the page-routing flow exposed by Routes().
 //
+// For parallel tests or multi-tenant servers where multiple Routers coexist,
+// prefer router.Render().X(...) over the package-level Render. The router-
+// scoped path never reads the global, so it's race-free regardless of how
+// many Routers are in flight.
+//
 // See the package-level doc for an example.
 var Render = &renderAPI{}
 
-type renderAPI struct{}
+// Render returns a typed component-rendering API bound to this Router.
+// Unlike the package-level gastro.Render, methods on the returned value
+// dispatch directly to this Router's template registry and never read
+// the global __gastro_active pointer — making it safe to use from
+// parallel tests and multi-router setups.
+func (r *Router) Render() *renderAPI { return &renderAPI{router: r} }
+
+// renderAPI dispatches component-rendering calls to a specific Router.
+// A nil router means "use the most-recently-constructed Router" (the
+// package-level Render value); a non-nil router pins dispatch to that
+// instance.
+type renderAPI struct{ router *Router }
+
+// resolve returns the Router this renderAPI should dispatch to. If the
+// renderAPI is bound to a specific Router (via Router.Render()), that's
+// returned; otherwise the most-recently-constructed Router is loaded
+// atomically. Returns nil if no Router has been constructed yet.
+func (r *renderAPI) resolve() *Router {
+	if r.router != nil {
+		return r.router
+	}
+	return __gastro_active.Load()
+}
 {{ range .Components }}
 func (r *renderAPI) {{ .ExportedName }}({{ if .HasProps }}props {{ .ExportedName }}Props{{ if .HasChildren }}, {{ end }}{{ end }}{{ if .HasChildren }}children ...template.HTML{{ end }}) (string, error) {
 	propsMap := map[string]any{
@@ -743,10 +783,11 @@ func (r *renderAPI) {{ .ExportedName }}({{ if .HasProps }}props {{ .ExportedName
 		propsMap["__children"] = children[0]
 	}
 {{- end }}
-	if __gastro_active == nil {
+	rt := r.resolve()
+	if rt == nil {
 		return "", fmt.Errorf("gastro: Render.{{ .ExportedName }}: no router constructed yet (call gastro.New() first)")
 	}
-	result := __gastro_active.{{ .FuncName }}(propsMap)
+	result := rt.{{ .FuncName }}(propsMap)
 	if result == "" {
 		return "", fmt.Errorf("gastro: render {{ .ExportedName }} failed")
 	}

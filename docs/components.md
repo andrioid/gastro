@@ -164,12 +164,30 @@ underlying component function used by the template renderer, so frontmatter
 logic (computed values, validation) runs identically whether a component is
 invoked from a template or from Go.
 
+### Router-bound `Render()` for parallel tests and multi-router setups
+
+The package-level `gastro.Render` dispatches to the most-recently-constructed
+Router via an internal atomic pointer. That's fine for a single-router app,
+but tests that run `t.Parallel()` and construct a Router per test, or servers
+that host multiple tenants on different Routers, should prefer the
+router-bound API:
+
+```go
+router := gastro.New(opts...)
+html, err := router.Render().Card(gastro.CardProps{Title: "Hello"})
+```
+
+Methods on the value returned by `router.Render()` dispatch directly to that
+Router's template registry and never read the global active-router pointer,
+so they're race-free regardless of how many Routers exist concurrently.
+
 ### When to use Render vs Routes
 
 | Goal | Use |
 |------|-----|
-| Mount file-based page routes on an HTTP server | `gastro.Routes()` |
-| Render a single component to an HTML string | `gastro.Render.<Name>(...)` |
+| Mount file-based page routes on an HTTP server | `router := gastro.New(...); router.Handler()` |
+| Render a single component to an HTML string (single-router app) | `gastro.Render.<Name>(...)` |
+| Render a single component to an HTML string (parallel tests, multi-router) | `router.Render().<Name>(...)` |
 
 A typical SSE example combines both:
 

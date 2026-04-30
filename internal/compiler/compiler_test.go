@@ -137,13 +137,58 @@ func TestCompile_GeneratesRenderFile(t *testing.T) {
 
 	// Should have the renderAPI struct and Render var
 	assertStringContains(t, s, "var Render = &renderAPI{}")
-	assertStringContains(t, s, "type renderAPI struct{}")
+	assertStringContains(t, s, "type renderAPI struct{ router *Router }")
 
 	// Should have a Render method for the Layout component (which has Props)
 	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps")
 
 	// Layout uses {{ .Children }}, so it should have children parameter
 	assertStringContains(t, s, "children ...template.HTML")
+
+	// Per-Router Render() should be exposed for race-free multi-router use.
+	assertStringContains(t, s, "func (r *Router) Render() *renderAPI")
+	assertStringContains(t, s, "return &renderAPI{router: r}")
+
+	// Component methods should resolve through r.resolve(), not the global directly.
+	assertStringContains(t, s, "rt := r.resolve()")
+}
+
+// TestCompile_RoutesUsesAtomicActiveRouter is a regression test for the
+// audit's P0 #2: the package-level __gastro_active was a plain *Router,
+// causing data races between concurrent New() calls and concurrent Render
+// reads. It must be an atomic.Pointer[Router] now.
+func TestCompile_RoutesUsesAtomicActiveRouter(t *testing.T) {
+	projectDir := filepath.Join("testdata", "basic")
+	outputDir := t.TempDir()
+
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	routes, err := os.ReadFile(filepath.Join(outputDir, "routes.go"))
+	if err != nil {
+		t.Fatalf("reading routes.go: %v", err)
+	}
+	rs := string(routes)
+
+	// Atomic declaration and store; no plain-pointer assignment.
+	assertStringContains(t, rs, `"sync/atomic"`)
+	assertStringContains(t, rs, "var __gastro_active atomic.Pointer[Router]")
+	assertStringContains(t, rs, "__gastro_active.Store(__r)")
+	if contains(rs, "__gastro_active = __r") {
+		t.Error("routes.go must not contain plain-pointer assignment to __gastro_active (race-prone)")
+	}
+
+	// render.go must load the active router atomically when no Router is bound.
+	render, err := os.ReadFile(filepath.Join(outputDir, "render.go"))
+	if err != nil {
+		t.Fatalf("reading render.go: %v", err)
+	}
+	assertStringContains(t, string(render), "__gastro_active.Load()")
+	if contains(string(render), "if __gastro_active == nil") {
+		t.Error("render.go must not compare __gastro_active to nil directly (race-prone); use Load()")
+	}
 }
 
 func TestCompile_RenderFileWithComposition(t *testing.T) {
