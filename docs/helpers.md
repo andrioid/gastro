@@ -1,6 +1,6 @@
 # Template Helpers
 
-Gastro provides 18 built-in template functions available in all templates without registration. You can also add custom helpers.
+Gastro provides 21 built-in template functions available in all templates without registration. You can also add custom helpers.
 
 ## String Functions
 
@@ -79,6 +79,36 @@ These functions mark content as safe for specific contexts, bypassing `html/temp
 | `json` | JSON-encodes a value |
 | `dict` | Creates a `map[string]any` from key-value pairs |
 | `list` | Creates a `[]any` from arguments |
+
+## Membership and Lookup
+
+Templates often need to ask "is this thing in that thing?" — e.g. "is this
+tab the active one?", "does this dict carry an optional field?". Without
+helpers, authors end up declaring `activeSet := map[string]bool{...}` in
+frontmatter; these helpers let templates ask the question directly.
+
+```go
+// Slice membership
+{{ if has .Tag .ActiveTags }}<span class="active">{{ end }}
+
+// Variadic form (no slice needed)
+{{ if has .Status "open" "in_progress" }}⚠️{{ end }}
+
+// Map key presence (works against any map)
+{{ if hasKey "Avatar" .User }}<img src="{{ .User.Avatar }}">{{ end }}
+
+// The active-set idiom: build a set once, query repeatedly.
+{{ $active := set "home" "about" "contact" }}
+{{ range .Tabs }}
+  <a class="{{ if hasKey . $active }}active{{ end }}">{{ . }}</a>
+{{ end }}
+```
+
+| Function | Description |
+|----------|-------------|
+| `has` | Reports whether `needle` appears in `haystack`. Accepts a slice/array or variadic arguments. Uses `reflect.DeepEqual`. |
+| `hasKey` | Reports whether `key` is present in `m`. Works on any map (string-keyed, int-keyed, `map[any]bool`). Returns false for non-maps rather than panicking. |
+| `set` | Builds a `map[any]bool` from the given items. Combine with `hasKey` for efficient repeated membership tests. Unhashable items (slices, maps, funcs) are skipped silently. |
 
 ## Custom Helpers
 
