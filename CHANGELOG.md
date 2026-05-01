@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.16](https://github.com/andrioid/gastro/compare/v0.1.15...v0.1.16) (2026-05-01)
+
+
+### Features
+
+* **cli:** gastro list with --json, GASTRO_DEV_ROOT, pages/ optional, generate timing ([e0a2bc4](https://github.com/andrioid/gastro/commit/e0a2bc46d3b23f435d514b1602258a672877e464))
+
+
+### Documentation
+
+* add frictions.md backlog (distilled from git-pm audit) ([b2ae9bf](https://github.com/andrioid/gastro/commit/b2ae9bf964cd89233c7ff6e92b5a0f3ef044ae01))
+* surface gastro list, GASTRO_DEV_ROOT, and optional pages/ in skill, README, and getting-started ([62a91d8](https://github.com/andrioid/gastro/commit/62a91d88c8ae5c00f1cb0178eaa1314fe1e258f8))
+
 ## [0.1.15](https://github.com/andrioid/gastro/compare/v0.1.14...v0.1.15) (2026-04-30)
 
 
