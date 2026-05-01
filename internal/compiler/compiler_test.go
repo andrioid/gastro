@@ -721,6 +721,57 @@ func TestCompile_DictKeyValidationDoesNotFalsePositive(t *testing.T) {
 	}
 }
 
+// TestCompile_PagesOptional verifies that a project with only a components/
+// directory (no pages/) compiles without error. This is the "headless" use-case
+// where the host project mounts gastro solely for its component rendering and
+// embedded static assets, not for file-based page routing.
+func TestCompile_PagesOptional(t *testing.T) {
+	projectDir := t.TempDir()
+
+	// Only components/ — no pages/ directory at all.
+	if err := os.MkdirAll(filepath.Join(projectDir, "components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "components", "badge.gastro"),
+		[]byte("---\ntype Props struct { Label string }\np := gastro.Props()\nLabel := p.Label\n---\n<span>{{.Label}}</span>\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	outputDir := t.TempDir()
+	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("expected no error for components-only project, got: %v", err)
+	}
+	if result.PageCount != 0 {
+		t.Errorf("expected 0 pages, got %d", result.PageCount)
+	}
+	if result.ComponentCount != 1 {
+		t.Errorf("expected 1 component, got %d", result.ComponentCount)
+	}
+}
+
+// TestCompile_CountsComponentsAndPages verifies the CompileResult carries
+// accurate component and page counts.
+func TestCompile_CountsComponentsAndPages(t *testing.T) {
+	projectDir := filepath.Join("testdata", "basic")
+	outputDir := t.TempDir()
+
+	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// testdata/basic has 2 pages and 2 components.
+	if result.PageCount != 2 {
+		t.Errorf("expected 2 pages, got %d", result.PageCount)
+	}
+	if result.ComponentCount != 2 {
+		t.Errorf("expected 2 components, got %d", result.ComponentCount)
+	}
+}
+
 func indexOf(s, substr string) int {
 	for i := 0; i+len(substr) <= len(s); i++ {
 		if s[i:i+len(substr)] == substr {

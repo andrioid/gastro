@@ -68,6 +68,11 @@ func main() {
 			fmt.Fprintf(os.Stderr, "gastro fmt: %v\n", err)
 			os.Exit(1)
 		}
+	case "list":
+		if err := runList(); err != nil {
+			fmt.Fprintf(os.Stderr, "gastro list: %v\n", err)
+			os.Exit(1)
+		}
 	case "check":
 		if err := runCheck(); err != nil {
 			if err == errDrift {
@@ -98,6 +103,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  dev         Watch mode with hot reload (port 4242 or PORT env)")
 	fmt.Fprintln(os.Stderr, "  fmt         Format .gastro files")
 	fmt.Fprintln(os.Stderr, "  check       Verify .gastro/ matches the source (CI gate)")
+	fmt.Fprintln(os.Stderr, "  list        List all components and pages with their props (--json for machine output)")
 	fmt.Fprintln(os.Stderr, "  version     Print version")
 }
 
@@ -328,7 +334,7 @@ func runGenerate(strict bool) (*compiler.CompileResult, error) {
 	projectDir := "."
 	outputDir := filepath.Join(projectDir, ".gastro")
 
-	fmt.Println("gastro: generating code...")
+	start := time.Now()
 	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{Strict: strict})
 	if err != nil {
 		return nil, err
@@ -338,7 +344,9 @@ func runGenerate(strict bool) (*compiler.CompileResult, error) {
 		fmt.Fprintf(os.Stderr, "gastro: warning: %s:%d: %s\n", w.File, w.Line, w.Message)
 	}
 
-	fmt.Println("gastro: done")
+	elapsed := time.Since(start).Round(time.Millisecond)
+	fmt.Printf("gastro: done (%d components, %d pages, %s)\n",
+		result.ComponentCount, result.PageCount, elapsed)
 	return result, nil
 }
 

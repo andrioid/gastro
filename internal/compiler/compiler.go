@@ -32,6 +32,10 @@ type CompileResult struct {
 	// {{ markdown "..." }} directive during this compile. Useful for the
 	// dev watcher so changes to these files can trigger a regenerate.
 	MarkdownDeps []string
+	// ComponentCount is the number of component files compiled.
+	ComponentCount int
+	// PageCount is the number of page files compiled.
+	PageCount int
 }
 
 // Compile reads all .gastro files from a project directory, processes them
@@ -46,7 +50,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 
 	// Discover all .gastro files
 	pageFiles, err := discoverFiles(filepath.Join(projectDir, "pages"), "pages")
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("discovering pages: %w", err)
 	}
 
@@ -140,7 +144,22 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		}
 	}
 
-	return &CompileResult{Warnings: allWarnings, MarkdownDeps: dedupeStrings(allMarkdownDeps)}, nil
+	// Count pages vs components.
+	var pageCount, componentCount int
+	for _, r := range allFiles {
+		if strings.HasPrefix(r, "components/") {
+			componentCount++
+		} else if strings.HasPrefix(r, "pages/") {
+			pageCount++
+		}
+	}
+
+	return &CompileResult{
+		Warnings:       allWarnings,
+		MarkdownDeps:   dedupeStrings(allMarkdownDeps),
+		ComponentCount: componentCount,
+		PageCount:      pageCount,
+	}, nil
 }
 
 // discoverFiles walks a directory and returns relative paths of all .gastro files.

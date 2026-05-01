@@ -120,3 +120,61 @@ func TestGetStaticFS_UsesDiskInDev(t *testing.T) {
 		t.Errorf("expected dev content, got: %q", string(content))
 	}
 }
+
+func TestDevRoot_DefaultsToCurrentDir(t *testing.T) {
+	t.Setenv("GASTRO_DEV_ROOT", "")
+	if got := gastro.DevRoot(); got != "." {
+		t.Errorf("DevRoot() = %q, want %q", got, ".")
+	}
+}
+
+func TestDevRoot_HonoursEnvVar(t *testing.T) {
+	t.Setenv("GASTRO_DEV_ROOT", "/some/project")
+	if got := gastro.DevRoot(); got != "/some/project" {
+		t.Errorf("DevRoot() = %q, want %q", got, "/some/project")
+	}
+}
+
+func TestGetTemplateFS_HonoursDevRoot(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(dir+"/.gastro/templates", 0o755)
+	os.WriteFile(dir+"/.gastro/templates/pages_index.html", []byte("<h1>root</h1>"), 0o644)
+
+	t.Setenv("GASTRO_DEV", "1")
+	t.Setenv("GASTRO_DEV_ROOT", dir)
+
+	embedded := fstest.MapFS{
+		"templates/pages_index.html": &fstest.MapFile{Data: []byte("<h1>prod</h1>")},
+	}
+
+	tfs := gastro.GetTemplateFS(embedded)
+	content, err := fs.ReadFile(tfs, "pages_index.html")
+	if err != nil {
+		t.Fatalf("reading from template FS: %v", err)
+	}
+	if string(content) != "<h1>root</h1>" {
+		t.Errorf("expected content from GASTRO_DEV_ROOT, got: %q", content)
+	}
+}
+
+func TestGetStaticFS_HonoursDevRoot(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(dir+"/static", 0o755)
+	os.WriteFile(dir+"/static/styles.css", []byte("body{devroot:1}"), 0o644)
+
+	t.Setenv("GASTRO_DEV", "1")
+	t.Setenv("GASTRO_DEV_ROOT", dir)
+
+	embedded := fstest.MapFS{
+		"static/styles.css": &fstest.MapFile{Data: []byte("body{}")},
+	}
+
+	sfs := gastro.GetStaticFS(embedded)
+	content, err := fs.ReadFile(sfs, "styles.css")
+	if err != nil {
+		t.Fatalf("reading from static FS: %v", err)
+	}
+	if string(content) != "body{devroot:1}" {
+		t.Errorf("expected content from GASTRO_DEV_ROOT, got: %q", content)
+	}
+}
