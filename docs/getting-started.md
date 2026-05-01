@@ -47,6 +47,8 @@ myapp/
 
 Your project is still a Go project. Gastro generates routes and templates inside of `.gastro/`. The gastro folders are special, but otherwise you can organize your project as you see fit.
 
+> **Note:** `pages/` is optional for component-only projects (e.g. when gastro is embedded inside a larger module and you use it solely for its component rendering and static asset serving).
+
 ## Your First Page
 
 The scaffolded `pages/index.gastro` shows the basic file format. The code between `---` delimiters is Go frontmatter that runs on the server. The HTML below is rendered with Go's `html/template`.
@@ -111,6 +113,18 @@ Title := "Welcome to Gastro"
 ```
 
 Props are passed with `dict`. The dev server picks up the new component automatically — no restart needed.
+
+## Explore Your Project
+
+`gastro list` prints all components and pages with their Props signatures — useful for orientation in an unfamiliar project:
+
+```sh
+gastro list
+# [component]  Card   (Title string, Body string)  components/card.gastro
+# [page]       Index                                pages/index.gastro
+
+gastro list --json   # machine-readable output for scripts and agents
+```
 
 ## Build for Production
 

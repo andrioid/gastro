@@ -54,6 +54,16 @@ gastro dev
 
 Open [http://localhost:4242](http://localhost:4242) in your browser. Edit `pages/index.gastro` and watch it reload.
 
+### Explore Your Project
+
+```sh
+# List all components and pages with their Props signatures
+gastro list
+
+# Machine-readable output for scripts and agents
+gastro list --json
+```
+
 ### Build for Production
 
 ```sh

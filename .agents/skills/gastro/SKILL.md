@@ -11,17 +11,19 @@ Generated code lives in `.gastro/` (gitignored, never hand-edited). The runtime 
 
 ## Project Structure
 
-Every Gastro project follows this fixed layout:
+Every Gastro project follows this layout:
 
 ```
 myapp/
-  pages/           # .gastro files that become HTTP routes
+  pages/           # .gastro files that become HTTP routes (optional for component-only projects)
   components/      # reusable .gastro components
   static/          # CSS, images, assets served at /static/
   .gastro/         # generated Go code (gitignored, never edit)
   main.go          # application entry point
   go.mod
 ```
+
+`pages/` is optional. A project with only `components/` compiles and runs without it — useful when gastro is embedded inside a larger module and used solely for component rendering.
 
 ## File Format
 
@@ -426,6 +428,16 @@ The dev watcher tracks `.md` files anywhere in the project (skipping hidden dire
 
 ## Development Workflow
 
+### `gastro list` — discover components and pages
+
+```sh
+gastro list           # aligned table with Props signatures
+gastro list --json    # JSON array — use from scripts and agents
+```
+
+JSON shape per entry: `{"kind":"component"|"page", "name":"Card", "path":"components/card.gastro", "props":[{"name":"Title","type":"string"}]}`.
+`props` is always an array, never null.
+
 ### `gastro dev` (primary workflow)
 
 ```sh
@@ -440,6 +452,18 @@ The dev server:
 - **Frontmatter / Go code changes**: full rebuild + restart
 - **CSS / static asset changes**: live (read from disk, no restart needed)
 - Default port: 4242 (override with `PORT` env var)
+
+#### Embedded-package projects
+
+When the server process runs from a directory other than the gastro project root,
+set `GASTRO_DEV_ROOT` so gastro can find `.gastro/templates/` and `static/`:
+
+```sh
+GASTRO_DEV=1 GASTRO_DEV_ROOT=/path/to/internal/web go run ./cmd/myapp
+```
+
+Without it, gastro falls back to cwd and crashes with "no such file or directory"
+on the template read. See `docs/dev-mode.md` for a full `mise` task example.
 
 ### Production builds
 
