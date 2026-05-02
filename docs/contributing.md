@@ -193,6 +193,33 @@ Integration tests for the LSP are in `cmd/gastro/lsp_integration_test.go`.
 They spawn `gastro lsp` as a subprocess and communicate via JSON-RPC over
 stdin/stdout.
 
+## Deprecation Policy
+
+When a public-facing API is being replaced rather than removed outright,
+use a build-time deprecation warning bridge instead of a hard break.
+
+1. Keep the old surface working for **at least two minor releases** after
+   the warning lands. Pre-1.0 churn is allowed (`DECISIONS.md`,
+   2026-04-26), but a warning gives adopters time to migrate without
+   stalling unrelated upgrades.
+2. Emit a warning from the same channel that surfaces other compile-time
+   issues (`internal/codegen` warnings flow through `gastro generate`,
+   `gastro build`, and `gastro check`; `gastro dev` prints them to the
+   console). The warning text must name the replacement explicitly, e.g.
+   ``"gastro.Context() is deprecated; use ambient `r *http.Request` and
+   `w http.ResponseWriter` (see docs/pages.md)"``.
+3. The warning is **non-blocking by default** but is promoted to an error
+   under `--strict` (or any subcommand that defaults to strict, like
+   `gastro generate` and `gastro check`). This matches the convention
+   established for `(dict ...)` validation in `DECISIONS.md` (2026-04-30).
+4. Update **all docs and examples** to the new pattern in the same
+   release that introduces the warning. The deprecation window is for
+   *external* adopters; the in-repo code should be the canonical example
+   of the new shape from day one.
+5. Record both the warning and the planned removal in a dated
+   `DECISIONS.md` entry. The removal PR (two minor releases later)
+   references that entry and adds its own.
+
 ## Commit Messages
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/)
