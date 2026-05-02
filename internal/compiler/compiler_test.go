@@ -1,10 +1,13 @@
 package compiler_test
 
 import (
+	goformat "go/format"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andrioid/gastro/internal/compiler"
@@ -947,6 +950,61 @@ func assertStringNotContains(t *testing.T, s, substr string) {
 	t.Helper()
 	if contains(s, substr) {
 		t.Errorf("expected string NOT to contain %q, but it did.\nstring:\n%s", substr, s)
+	}
+}
+
+// TestCompile_GeneratedFilesAreGofmtStable asserts that every .go file
+// produced by the compiler is byte-identical to its go/format.Source
+// output — i.e. running `gofmt -w` over the codegen output is a no-op.
+//
+// Why this matters: gastro check (cmd/gastro/check.go) uses byte-level
+// comparison to detect drift in committed .gastro/ trees. Without this
+// guarantee, any tool that touches the workspace (IDE auto-format on
+// save, `go fmt ./...`, a hand-edit followed by gofmt) would produce
+// drift that the next regenerate undoes — a permanent CI loop.
+//
+// The fixture exercises every codegen write site: per-template handler
+// files, render.go (component API), and routes.go (route table).
+func TestCompile_GeneratedFilesAreGofmtStable(t *testing.T) {
+	for _, fixture := range []string{"basic", "composition"} {
+		t.Run(fixture, func(t *testing.T) {
+			projectDir := filepath.Join("testdata", fixture)
+			outputDir := t.TempDir()
+
+			if _, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{}); err != nil {
+				t.Fatalf("compile: %v", err)
+			}
+
+			var checked int
+			walkErr := filepath.WalkDir(outputDir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() || !strings.HasSuffix(path, ".go") {
+					return nil
+				}
+				src, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				formatted, err := goformat.Source(src)
+				if err != nil {
+					t.Fatalf("%s: gofmt rejected generated source: %v\n%s", path, err, src)
+				}
+				if string(formatted) != string(src) {
+					t.Errorf("%s: generated source is not gofmt-stable.\n--- on disk ---\n%s\n--- gofmt output ---\n%s",
+						path, src, formatted)
+				}
+				checked++
+				return nil
+			})
+			if walkErr != nil {
+				t.Fatalf("walk: %v", walkErr)
+			}
+			if checked == 0 {
+				t.Fatalf("walked %s but found no .go files to check", outputDir)
+			}
+		})
 	}
 }
 

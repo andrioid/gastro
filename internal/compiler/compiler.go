@@ -1,7 +1,9 @@
 package compiler
 
 import (
+	"bytes"
 	"fmt"
+	goformat "go/format"
 	"os"
 	"path/filepath"
 	"sort"
@@ -364,7 +366,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 	goFileName = strings.ReplaceAll(goFileName, "]", "")
 	goFileName = strings.ReplaceAll(goFileName, "-", "_")
 	goFilePath := filepath.Join(outputDir, goFileName+".go")
-	if err := os.WriteFile(goFilePath, []byte(handlerCode), 0o644); err != nil {
+	if err := writeGoFile(goFilePath, []byte(handlerCode)); err != nil {
 		return compileResult{}, err
 	}
 
@@ -1101,27 +1103,43 @@ func (r *renderAPI) {{ .ExportedName }}({{ if or .HasProps .HasChildren }}props 
 {{ end }}`))
 
 func generateRenderFile(components []componentMeta, outputDir string) error {
-	f, err := os.Create(filepath.Join(outputDir, "render.go"))
-	if err != nil {
+	var buf bytes.Buffer
+	if err := renderTmpl.Execute(&buf, renderData{Components: components}); err != nil {
 		return err
 	}
-	defer f.Close()
-
-	return renderTmpl.Execute(f, renderData{Components: components})
+	return writeGoFile(filepath.Join(outputDir, "render.go"), buf.Bytes())
 }
 
 func generateRoutesFile(routes []router.Route, templates []templateMeta, hasStatic bool, outputDir string) error {
-	f, err := os.Create(filepath.Join(outputDir, "routes.go"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	return routesTmpl.Execute(f, routesData{
+	var buf bytes.Buffer
+	err := routesTmpl.Execute(&buf, routesData{
 		Routes:    routes,
 		Templates: templates,
 		HasStatic: hasStatic,
 	})
+	if err != nil {
+		return err
+	}
+	return writeGoFile(filepath.Join(outputDir, "routes.go"), buf.Bytes())
+}
+
+// writeGoFile runs go/format.Source over src to produce canonical,
+// gofmt-stable Go, then writes the result to path. Generated files that
+// pass through this helper are byte-identical to what `gofmt -w` would
+// produce — important because gastro check uses byte-level comparison
+// to detect drift, and any tool that reformats the workspace (IDE save
+// hooks, `go fmt ./...`) would otherwise create permanent drift loops
+// against the codegen output.
+//
+// If go/format.Source rejects src, the original (unformatted) bytes are
+// included in the returned error so the failure can be diagnosed without
+// re-running the compile. The on-disk file is not touched in that case.
+func writeGoFile(path string, src []byte) error {
+	formatted, err := goformat.Source(src)
+	if err != nil {
+		return fmt.Errorf("gofmt %s: %w\n--- generated source ---\n%s", path, err, src)
+	}
+	return os.WriteFile(path, formatted, 0o644)
 }
 
 // dedupeStrings returns a sorted deduplicated copy of in.
