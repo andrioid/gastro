@@ -11,7 +11,7 @@ func TestBuildRoutes_IndexFile(t *testing.T) {
 
 	routes := router.BuildRoutes(files)
 
-	assertRoute(t, routes, "GET /{$}", "pages/index.gastro")
+	assertRoute(t, routes, "/{$}", "pages/index.gastro")
 }
 
 func TestBuildRoutes_NestedIndex(t *testing.T) {
@@ -22,8 +22,8 @@ func TestBuildRoutes_NestedIndex(t *testing.T) {
 
 	routes := router.BuildRoutes(files)
 
-	assertRoute(t, routes, "GET /{$}", "pages/index.gastro")
-	assertRoute(t, routes, "GET /about", "pages/about/index.gastro")
+	assertRoute(t, routes, "/{$}", "pages/index.gastro")
+	assertRoute(t, routes, "/about", "pages/about/index.gastro")
 }
 
 func TestBuildRoutes_DynamicParam(t *testing.T) {
@@ -31,7 +31,7 @@ func TestBuildRoutes_DynamicParam(t *testing.T) {
 
 	routes := router.BuildRoutes(files)
 
-	assertRoute(t, routes, "GET /blog/{slug}", "pages/blog/[slug].gastro")
+	assertRoute(t, routes, "/blog/{slug}", "pages/blog/[slug].gastro")
 }
 
 func TestBuildRoutes_DeepNesting(t *testing.T) {
@@ -43,9 +43,9 @@ func TestBuildRoutes_DeepNesting(t *testing.T) {
 
 	routes := router.BuildRoutes(files)
 
-	assertRoute(t, routes, "GET /blog", "pages/blog/index.gastro")
-	assertRoute(t, routes, "GET /blog/{slug}", "pages/blog/[slug].gastro")
-	assertRoute(t, routes, "GET /blog/{slug}/comments", "pages/blog/[slug]/comments.gastro")
+	assertRoute(t, routes, "/blog", "pages/blog/index.gastro")
+	assertRoute(t, routes, "/blog/{slug}", "pages/blog/[slug].gastro")
+	assertRoute(t, routes, "/blog/{slug}/comments", "pages/blog/[slug]/comments.gastro")
 }
 
 func TestBuildRoutes_MultipleParams(t *testing.T) {
@@ -53,7 +53,7 @@ func TestBuildRoutes_MultipleParams(t *testing.T) {
 
 	routes := router.BuildRoutes(files)
 
-	assertRoute(t, routes, "GET /{category}/{id}", "pages/[category]/[id].gastro")
+	assertRoute(t, routes, "/{category}/{id}", "pages/[category]/[id].gastro")
 }
 
 func TestBuildRoutes_EmptyReturnsNoRoutes(t *testing.T) {

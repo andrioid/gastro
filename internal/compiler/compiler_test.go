@@ -42,9 +42,9 @@ func TestCompile_GeneratesRouteFile(t *testing.T) {
 	content, _ := os.ReadFile(routesFile)
 	s := string(content)
 
-	// Should contain route registrations
-	assertStringContains(t, s, "GET /")
-	assertStringContains(t, s, "GET /about")
+	// Track B: page patterns are method-less (frontmatter branches on r.Method).
+	assertStringContains(t, s, `mux.HandleFunc("/{$}"`)
+	assertStringContains(t, s, `mux.HandleFunc("/about"`)
 }
 
 func TestCompile_GeneratesPageHandlers(t *testing.T) {

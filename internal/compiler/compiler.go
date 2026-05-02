@@ -519,10 +519,16 @@ func WithDeps[T any](deps T) Option {
 	}
 }
 
-// WithOverride replaces the auto-generated handler for a route pattern with a
-// user-supplied http.Handler. The pattern must exactly match one of the
-// gastro auto-routes (e.g. "GET /", "GET /blog/{slug}"); New() panics if it
-// does not, to catch typos early.
+// WithOverride replaces the auto-generated handler for a route pattern with
+// a user-supplied http.Handler. The pattern must exactly match one of the
+// gastro auto-routes (e.g. "/", "/blog/{slug}", or the static-asset prefix);
+// New() panics if it does not, to catch typos early.
+//
+// Track B (plans/frictions-plan.md §4.2): page patterns are now
+// method-less. Where pre-Track-B you'd write WithOverride for an explicit
+// HTTP method, you now write the path alone and the override receives every
+// method for that path. The static-asset prefix is the lone exception —
+// it keeps its method prefix because static files are read-only.
 //
 // Use this when a page needs typed dependencies that frontmatter cannot
 // express, or when a handler needs full control over the response (streaming,
@@ -647,7 +653,7 @@ func (__r *Router) __gastro_getTemplate(name string) *template.Template {
 //
 //	router := gastro.New(
 //		gastro.WithDeps(BoardDeps{...}),
-//		gastro.WithOverride("GET /", customHomeHandler),
+//		gastro.WithOverride("/", customHomeHandler),
 //	)
 //	http.ListenAndServe(":8080", router.Handler())
 func New(opts ...Option) *Router {

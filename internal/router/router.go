@@ -5,8 +5,15 @@ import (
 )
 
 // Route maps an HTTP pattern to a .gastro page file.
+//
+// Track B (plans/frictions-plan.md §4.2): patterns no longer carry an
+// HTTP method prefix. Each .gastro file under pages/ is registered for
+// every method; the page's frontmatter branches on r.Method. This is
+// the headline mechanic that lets one .gastro file handle both GET
+// (template render) and POST (e.g. an SSE patch) without inventing new
+// authoring concepts.
 type Route struct {
-	Pattern  string // e.g. "GET /blog/{slug}"
+	Pattern  string // e.g. "/blog/{slug}"
 	File     string // e.g. "pages/blog/[slug].gastro"
 	FuncName string // e.g. "pageBlogSlug"
 }
@@ -30,7 +37,12 @@ func BuildRoutes(files []string) []Route {
 }
 
 // fileToPattern converts a page file path to an HTTP route pattern.
-// e.g. "pages/blog/[slug].gastro" -> "GET /blog/{slug}"
+// e.g. "pages/blog/[slug].gastro" -> "/blog/{slug}"
+//
+// Patterns are method-less per Track B; the page's frontmatter is
+// expected to branch on r.Method. Pre-Track-B patterns were
+// "GET /<route>" — callers still using WithOverride must drop the
+// method prefix from their pattern strings.
 func fileToPattern(file string) string {
 	// Strip "pages/" prefix and ".gastro" suffix
 	route := strings.TrimPrefix(file, "pages/")
@@ -46,11 +58,11 @@ func fileToPattern(file string) string {
 	route = convertParams(route)
 
 	// Use {$} for the root path to get exact matching.
-	// Without it, "GET /" is a subtree pattern that matches all paths.
+	// Without it, "/" is a subtree pattern that matches all paths.
 	if route == "" {
-		return "GET /{$}"
+		return "/{$}"
 	}
-	return "GET /" + route
+	return "/" + route
 }
 
 // convertParams replaces [param] with {param} in route segments.
