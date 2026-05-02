@@ -78,6 +78,20 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		return nil, fmt.Errorf("gathering component schemas: %w", err)
 	}
 
+	// Pre-pass: detect component name collisions before any per-file work
+	// writes Go files to disk. Two component files that produce the same
+	// ExportedName (e.g. components/post-card.gastro and
+	// components/post/card.gastro both producing "PostCard") would yield
+	// duplicate type and method names in render.go and overwrite each
+	// other's per-file Go output. Catch it here with a clear message
+	// before either failure mode triggers.
+	for _, w := range findComponentNameCollisions(componentFiles) {
+		allWarnings = append(allWarnings, w)
+		if opts.Strict {
+			return nil, fmt.Errorf("compiling %s: %s", w.File, w.Message)
+		}
+	}
+
 	for _, relPath := range allFiles {
 		absPath := filepath.Join(projectDir, relPath)
 		result, err := compileFile(absPath, relPath, absProjectDir, outputDir, propsByPath)
@@ -183,6 +197,38 @@ func discoverFiles(dir, prefix string) ([]string, error) {
 	})
 
 	return files, err
+}
+
+// findComponentNameCollisions scans the list of component file paths and
+// returns a warning for each path that produces the same ExportedName as
+// an earlier path in the list. The first occurrence is left alone; every
+// subsequent occurrence with the same name produces a warning.
+//
+// Derived purely from path strings (no file I/O), so this can run in the
+// pre-pass before any per-file work writes Go output. The mapping is the
+// same one the codegen uses: HandlerFuncName(path) -> ExportedComponentName.
+func findComponentNameCollisions(componentFiles []string) []FileWarning {
+	if len(componentFiles) < 2 {
+		return nil
+	}
+	seen := make(map[string]string, len(componentFiles)) // ExportedName -> relPath
+	var warnings []FileWarning
+	for _, relPath := range componentFiles {
+		exported := codegen.ExportedComponentName(codegen.HandlerFuncName(relPath))
+		if first, ok := seen[exported]; ok {
+			warnings = append(warnings, FileWarning{
+				File: relPath,
+				Line: 0,
+				Message: fmt.Sprintf(
+					"component name collision: %q and %q both produce the exported name %q; rename one of the files to avoid duplicate type and function names in generated code (and per-file .go output overwriting itself)",
+					first, relPath, exported,
+				),
+			})
+		} else {
+			seen[exported] = relPath
+		}
+	}
+	return warnings
 }
 
 // templateMeta holds per-template metadata needed by routes.go to wire up
@@ -482,6 +528,19 @@ type config struct {
 	funcs     template.FuncMap
 	deps      map[reflect.Type]any
 	overrides map[string]http.Handler
+	devMode   *bool // nil = use GASTRO_DEV env var; non-nil = override
+}
+
+// WithDevMode overrides the GASTRO_DEV environment variable for this Router.
+// When set to true, templates are re-parsed from disk on every request
+// and the dev-reload middleware is attached — regardless of GASTRO_DEV.
+// When set to false, production mode is forced even when GASTRO_DEV=1.
+// When not called, the default behaviour (checking GASTRO_DEV) applies.
+//
+// Calling WithDevMode multiple times keeps the last value (no panic);
+// the option is intended to be set once at New() time.
+func WithDevMode(dev bool) Option {
+	return func(c *config) { c.devMode = &dev }
 }
 
 // WithFuncs registers additional template helper functions.
@@ -664,8 +723,13 @@ func New(opts ...Option) *Router {
 		opt(cfg)
 	}
 
+	isDev := gastroRuntime.IsDev()
+	if cfg.devMode != nil {
+		isDev = *cfg.devMode
+	}
+
 	__r := &Router{
-		isDev:     gastroRuntime.IsDev(),
+		isDev:     isDev,
 		userFuncs: cfg.funcs,
 		deps:      cfg.deps,
 	}

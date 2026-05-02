@@ -229,6 +229,34 @@ list of valid patterns when it does not, so typos fail loudly. Page
 patterns are method-less ("/", "/blog/{slug}") because the page
 handles every method.
 
+### Forcing dev or production mode
+
+Gastro detects `GASTRO_DEV=1` at startup; the `gastro dev` command sets
+it automatically. When the env var is insufficient, use `WithDevMode`:
+
+```go
+router := gastro.New(
+    gastro.WithDevMode(true),  // force dev mode
+)
+```
+
+`WithDevMode(true)` forces dev mode (template reload + browser auto-reload
+SSE endpoint) regardless of `GASTRO_DEV`. `WithDevMode(false)` forces
+production mode regardless of `GASTRO_DEV`. When `WithDevMode` is not
+called, the default behaviour (checking `GASTRO_DEV`) applies.
+
+Use cases:
+
+- **Library mode.** A larger Go application embeds gastro for component
+  rendering and doesn't want its dev-vs-prod story tangled up with a
+  framework-owned env var. The host app sets `WithDevMode` from its own
+  config flag.
+- **Tests.** A test that constructs a Router shouldn't depend on whether
+  `GASTRO_DEV` happens to be set in the surrounding shell.
+- **Production debug.** A short-lived production deploy with live-reload
+  enabled to investigate a template bug, without setting an env var on
+  the host.
+
 ## Imports
 
 Use Go `import` for both packages and components. Component imports

@@ -784,6 +784,85 @@ func indexOf(s, substr string) int {
 	return -1
 }
 
+// TestCompile_ComponentNameCollisionWarning verifies that two component
+// files producing the same ExportedName emit a warning (and a strict-mode
+// error). This is Wave 1 / A7 from plans/frictions-plan.md.
+func TestCompile_ComponentNameCollisionWarning(t *testing.T) {
+	projectDir := filepath.Join("testdata", "collision")
+	outputDir := t.TempDir()
+
+	// Non-strict mode: should succeed with a warning.
+	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	found := false
+	for _, w := range result.Warnings {
+		if contains(w.Message, "component name collision") && contains(w.Message, "PostCard") {
+			found = true
+			if w.File == "" {
+				t.Error("collision warning should include the file path")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a component name collision warning for PostCard; got warnings: %+v", result.Warnings)
+	}
+}
+
+// TestCompile_ComponentNameCollisionStrictError verifies that strict mode
+// promotes a component name collision warning to an error AND that the
+// error fires before any per-file Go output is written (which would
+// otherwise overwrite itself due to the same goFileName collision).
+func TestCompile_ComponentNameCollisionStrictError(t *testing.T) {
+	projectDir := filepath.Join("testdata", "collision")
+	outputDir := t.TempDir()
+
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{Strict: true})
+	if err == nil {
+		t.Fatal("expected strict mode to error on component name collision")
+	}
+	if !contains(err.Error(), "component name collision") {
+		t.Errorf("error should mention 'component name collision'; got: %v", err)
+	}
+
+	// The collision check runs in the pre-pass, before any component
+	// Go file is written. Verify no clobbered components_post_card.go
+	// landed in the output dir.
+	if _, statErr := os.Stat(filepath.Join(outputDir, "components_post_card.go")); statErr == nil {
+		t.Error("strict-mode collision should fail before per-file Go output is written; found components_post_card.go on disk")
+	}
+}
+
+// TestCompile_NoCollisionWhenNamesDiffer verifies that distinct component
+// names produce no collision warnings.
+func TestCompile_NoCollisionWhenNamesDiffer(t *testing.T) {
+	projectDir := t.TempDir()
+	compDir := filepath.Join(projectDir, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two components with different exported names: Card and Header.
+	os.WriteFile(filepath.Join(compDir, "card.gastro"),
+		[]byte("---\ntype Props struct { Title string }\np := gastro.Props()\nTitle := p.Title\n---\n<div>{{ .Title }}</div>\n"), 0o644)
+	os.WriteFile(filepath.Join(compDir, "header.gastro"),
+		[]byte("---\ntype Props struct { Title string }\np := gastro.Props()\nTitle := p.Title\n---\n<header>{{ .Title }}</header>\n"), 0o644)
+
+	outputDir := t.TempDir()
+	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, w := range result.Warnings {
+		if contains(w.Message, "collision") {
+			t.Errorf("unexpected collision warning: %s", w.Message)
+		}
+	}
+}
+
 func assertStringContains(t *testing.T, s, substr string) {
 	t.Helper()
 	if !contains(s, substr) {
