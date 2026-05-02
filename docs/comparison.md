@@ -152,7 +152,7 @@ All five approaches produce a single deployable binary. The differences are in h
 
 | Approach | What You Need to Know | New Concepts |
 |----------|----------------------|--------------|
-| **Gastro** | Go + html/template syntax + HTML/CSS | `.gastro` file format, frontmatter conventions, `gastro.Props()` / `gastro.Context()` APIs |
+| **Gastro** | Go + html/template syntax + HTML/CSS | `.gastro` file format, frontmatter conventions, ambient `(w, r)` and `gastro.Props()` |
 | **Templ** | Go + the Templ DSL | Templ-specific syntax (looks like Go but is not Go), `@component` calls, `templ` blocks |
 | **gomponents** | Go only | The `Node` interface and dot-import pattern. Otherwise it is standard Go. |
 | **htmgo** | Go + HTMX attributes | htmgo's element builder API, HTMX concepts (hypermedia-driven), partial rendering |

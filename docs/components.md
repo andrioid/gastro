@@ -55,9 +55,9 @@ import (
     PostCard "components/post-card.gastro"
 )
 
-ctx := gastro.Context()
+Title := "Home"
 ---
-{{ wrap Layout (dict "Title" "Home") }}
+{{ wrap Layout (dict "Title" .Title) }}
     {{ PostCard (dict "Title" "My Post" "Slug" "my-post") }}
 {{ end }}
 ```

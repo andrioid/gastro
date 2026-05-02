@@ -89,22 +89,29 @@ Mirrors Go's own export convention:
 
 ```gastro
 ---
-ctx := gastro.Context()       // lowercase -> private
-err := doSomething()          // lowercase -> private
+slug := r.PathValue("slug")   // lowercase -> private
+err := doSomething()           // lowercase -> private
 
-Title := "Hello"              // Uppercase -> {{ .Title }}
-Items := fetchItems()         // Uppercase -> {{ .Items }}
+Title := "Hello"               // Uppercase -> {{ .Title }}
+Items := fetchItems()          // Uppercase -> {{ .Items }}
 ---
 <h1>{{ .Title }}</h1>
 ```
 
+Frontmatter has ambient `w http.ResponseWriter` and `r *http.Request`.
+The page handler runs for every HTTP method; branch on `r.Method` to
+handle non-GET requests in the same file.
+
 ### File-Based Routing
 
-| File                       | Route             |
-|----------------------------|-------------------|
-| `pages/index.gastro`       | `GET /`           |
-| `pages/about/index.gastro` | `GET /about`      |
-| `pages/blog/[slug].gastro` | `GET /blog/{slug}` |
+| File                       | Route          |
+|----------------------------|----------------|
+| `pages/index.gastro`       | `/`            |
+| `pages/about/index.gastro` | `/about`       |
+| `pages/blog/[slug].gastro` | `/blog/{slug}` |
+
+Patterns are method-less; the page handles every method (GET, POST,
+etc.) and branches on `r.Method`.
 
 ### Static Assets
 

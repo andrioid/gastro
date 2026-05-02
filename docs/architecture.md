@@ -66,8 +66,10 @@ Three responsibilities, split across files:
 Wraps the frontmatter in a valid Go file and parses it with `go/ast`. Extracts:
 - All variable declarations (`:=` and `var`)
 - Classification: uppercase (exported to template) vs lowercase (private)
-- Detection of `gastro.Context()` calls (marks file as a page)
 - Detection of `gastro.Props()` calls (marks file as a component)
+- Marker-rewrite warnings (deprecation of `gastro.Context()`, unknown
+  `gastro.X` symbols) and missing-return findings from
+  `internal/analysis/respwrite.go`
 
 The frontmatter is wrapped in `package __gastro / func __handler() { ... }`
 so `go/parser` can handle it. Type declarations (`type Props struct{}`) are
@@ -80,13 +82,33 @@ hoisted to package level since they can't live inside a function body.
 Produces Go source code for a page handler or component render function. Uses
 `text/template` to emit the generated code. The output includes:
 - Package declaration
-- Imports (user's + gastro runtime)
+- Imports (user's + gastro runtime); user paths that overlap the
+  auto-injected set (`net/http`, `log`, `html/template`, `bytes`) are
+  deduped
 - Template variable with parsed `html/template`
-- Handler function with frontmatter code, data map, and template execution
-- Panic recovery wrapper
+- Handler function: wraps `w` in `gastroRuntime.NewPageWriter(w)` so
+  body writes are tracked, runs the rewritten frontmatter, and
+  conditionally executes the template only when the body is still
+  uncommitted (Track B)
+- Panic recovery wrapper that consults the wrapped writer to avoid
+  double-writing after a partial response
 
-The `gastro.Context()` marker is rewritten to `gastroRuntime.NewContext(w, r)`.
-The `gastro.Props()` marker is stripped (component generation is TODO).
+The consolidated marker rewriter (Track B §4.10) handles the implicit
+`gastro.X` namespace via an allowlist:
+
+| Frontmatter call          | Rewritten to                       |
+|---------------------------|------------------------------------|
+| `gastro.Props()`          | `__props`                          |
+| `gastro.Context()`        | `gastroRuntime.NewContext(w, r)` (deprecated; emits warning) |
+| `gastro.From[T](ctx)`     | `gastroRuntime.FromContext[T](ctx)` |
+| `gastro.FromOK[T](ctx)`   | `gastroRuntime.FromContextOK[T](ctx)` |
+| `gastro.FromContext[T]…`  | identity (gastro → gastroRuntime)  |
+| `gastro.FromContextOK[T]…`| identity                           |
+| `gastro.NewSSE(w, r)`     | `gastroRuntime.NewSSE(w, r)`       |
+| `gastro.Render.X(…)`      | `Render.X(…)`                      |
+
+Anything else under `gastro.X` produces an "unknown gastro runtime
+symbol" warning, keeping the implicit namespace finite.
 
 #### `template.go`
 
@@ -276,7 +298,7 @@ parser.Parse()
      |
      v
 parser.File {
-    Frontmatter: "ctx := gastro.Context()\nTitle := \"Hello\""
+    Frontmatter: "slug := r.PathValue(\"slug\")\nTitle := \"Hello\""
     TemplateBody: "<h1>{{ .Title }}</h1>"
     Imports: ["myapp/db"]
     ComponentImports: [{Name: "Card", Path: "components/card.gastro"}]
@@ -287,8 +309,8 @@ parser.File {
      |         v
      |     FrontmatterInfo {
      |         ExportedVars: [{Name: "Title"}]
-     |         PrivateVars: [{Name: "ctx"}]
-     |         IsPage: true
+     |         PrivateVars: [{Name: "slug"}]
+     |         Warnings: []  // Track B marker / missing-return findings
      |     }
      |
      +---> codegen.ProcessMarkdownDirectives()
