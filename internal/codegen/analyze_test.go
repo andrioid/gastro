@@ -515,80 +515,13 @@ func assertVarExists(t *testing.T, vars []codegen.VarInfo, name string) {
 	t.Errorf("expected variable %q in list, got: %v", name, names)
 }
 
-func TestAnalyze_WarnsCtxReferenceWithoutGastroContext(t *testing.T) {
-	// Page-style frontmatter that uses ctx without the gastro.Context()
-	// marker. The compiler would otherwise produce an opaque
-	// "undefined: ctx" error from go build; the warning catches it earlier
-	// with an actionable hint.
-	frontmatter := `slug := ctx.Param("slug")
-Title := "Post: " + slug`
-
-	info, err := codegen.AnalyzeFrontmatter(frontmatter)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(info.Warnings) != 1 {
-		t.Fatalf("expected 1 warning, got %d: %#v", len(info.Warnings), info.Warnings)
-	}
-	if !strings.Contains(info.Warnings[0].Message, "gastro.Context()") {
-		t.Errorf("warning should reference gastro.Context(), got: %s", info.Warnings[0].Message)
-	}
-	// ctx first appears on frontmatter line 1.
-	if info.Warnings[0].Line != 1 {
-		t.Errorf("expected warning on frontmatter line 1, got %d", info.Warnings[0].Line)
-	}
-}
-
-func TestAnalyze_NoWarning_WhenGastroContextIsCalled(t *testing.T) {
-	// The marker is present, so ctx is implicitly declared by the codegen.
-	frontmatter := `ctx := gastro.Context()
-Slug := ctx.Param("slug")`
-
-	info, err := codegen.AnalyzeFrontmatter(frontmatter)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, w := range info.Warnings {
-		if strings.Contains(w.Message, "gastro.Context()") {
-			t.Errorf("did not expect ctx-reference warning, got: %s", w.Message)
-		}
-	}
-}
-
-func TestAnalyze_NoWarning_WhenCtxIsLocallyDeclared(t *testing.T) {
-	// User happens to call a local variable `ctx` and assigns it from
-	// somewhere unrelated to gastro. No warning should fire.
-	frontmatter := `ctx := makeMyOwnContext()
-_ = ctx`
-
-	info, err := codegen.AnalyzeFrontmatter(frontmatter)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, w := range info.Warnings {
-		if strings.Contains(w.Message, "gastro.Context()") {
-			t.Errorf("did not expect ctx-reference warning, got: %s", w.Message)
-		}
-	}
-}
-
-func TestAnalyze_NoWarning_OnComponent(t *testing.T) {
-	// Components don't get the ctx injection regardless. The check should
-	// not fire for component frontmatter even if it references something
-	// called ctx.
-	frontmatter := `type Props struct {
-	Title string
-}
-
-Title := gastro.Props().Title`
-
-	info, err := codegen.AnalyzeFrontmatter(frontmatter)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	for _, w := range info.Warnings {
-		if strings.Contains(w.Message, "gastro.Context()") {
-			t.Errorf("did not expect ctx-reference warning on component, got: %s", w.Message)
-		}
-	}
-}
+// Track B (plans/frictions-plan.md §4.2): the previous
+// "ctx is referenced but gastro.Context() was not called" warning is
+// gone. Pages no longer have an injected ctx — they use the ambient
+// (w, r) directly. A user who writes `ctx.Param(…)` without declaring
+// ctx now gets the standard Go undefined-identifier error, which is no
+// longer confusing because the page model never auto-injects.
+//
+// The corresponding tests for that warning are removed. The marker
+// rewriter still emits a deprecation warning when `gastro.Context()`
+// is called — covered by the marker tests in generate_test.go.

@@ -151,95 +151,14 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 		})
 	}
 
-	// Detect references to ctx without the gastro.Context() marker.
-	// The marker tells the code generator to inject
-	// `ctx := gastroRuntime.NewContext(w, r)` at the top of the handler.
-	// Without it, ctx is undefined and the user gets a confusing
-	// "undefined: ctx" error from the Go compiler. Surface a friendlier
-	// hint here.
-	if !info.IsPage && !info.IsComponent {
-		if line, ok := findUndeclaredCtxReference(file, fset, prefixLineCount); ok {
-			info.Warnings = append(info.Warnings, Warning{
-				Line:    line,
-				Message: "ctx is referenced but gastro.Context() was not called: add `ctx := gastro.Context()` to mark this file as a page",
-			})
-		}
-	}
+	// Track B (page model v2): the previous "ctx is referenced but
+	// gastro.Context() was not called" hint is removed. Pages no longer
+	// need a marker — directory placement (pages/) is the signal, and
+	// the ambient (w, r) replace ctx. If a user references an
+	// undeclared `ctx` they get the standard Go undefined-identifier
+	// error from the codegen output, which is no longer confusing.
 
 	return info, nil
-}
-
-// findUndeclaredCtxReference returns the 1-indexed frontmatter line number of
-// the first use of `ctx` that is not on the LHS of an assignment, when no
-// declaration of `ctx` exists anywhere in the file. Returns (0, false) when
-// `ctx` is properly declared or never referenced.
-//
-// Heuristic, not a full scope analysis. False positives are acceptable
-// because the result is a non-blocking warning, not an error.
-func findUndeclaredCtxReference(file *ast.File, fset *token.FileSet, prefixLineCount int) (int, bool) {
-	// Collect declarations and LHS positions in one pass.
-	declared := false
-	lhs := map[token.Pos]bool{}
-	ast.Inspect(file, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.AssignStmt:
-			if node.Tok == token.DEFINE {
-				for _, l := range node.Lhs {
-					if id, ok := l.(*ast.Ident); ok {
-						lhs[id.NamePos] = true
-						if id.Name == "ctx" {
-							declared = true
-						}
-					}
-				}
-			}
-		case *ast.ValueSpec:
-			for _, id := range node.Names {
-				if id.Name == "ctx" {
-					declared = true
-				}
-			}
-		case *ast.FuncDecl:
-			if node.Type.Params != nil {
-				for _, p := range node.Type.Params.List {
-					for _, id := range p.Names {
-						if id.Name == "ctx" {
-							declared = true
-						}
-					}
-				}
-			}
-		}
-		return true
-	})
-	if declared {
-		return 0, false
-	}
-
-	var foundPos token.Pos
-	ast.Inspect(file, func(n ast.Node) bool {
-		if foundPos != token.NoPos {
-			return false
-		}
-		id, ok := n.(*ast.Ident)
-		if !ok || id.Name != "ctx" {
-			return true
-		}
-		if lhs[id.NamePos] {
-			return true
-		}
-		foundPos = id.NamePos
-		return false
-	})
-	if foundPos == token.NoPos {
-		return 0, false
-	}
-
-	line := fset.Position(foundPos).Line - prefixLineCount
-	if line < 1 {
-		return 0, false
-	}
-	return line, true
 }
 
 // validateFrontmatter checks for consistency between gastro markers and type

@@ -6,9 +6,43 @@ import (
 	"strings"
 	"text/template/parse"
 
+	"github.com/andrioid/gastro/internal/analysis"
 	gastroParser "github.com/andrioid/gastro/internal/parser"
 	"github.com/andrioid/gastro/pkg/gastro"
 )
+
+// ValidateFrontmatterReturns runs the shared response-write analyzer
+// (internal/analysis) over a page's frontmatter and converts each finding
+// into a Warning suitable for the codegen Warnings channel.
+//
+// Track B (plans/frictions-plan.md §4.9): every call that writes to the
+// response (anything passing the literal `w`, `http.Redirect(w, r, …)`,
+// or a method on `w`) must be followed by `return` — otherwise
+// frontmatter execution continues and any uppercase variables computed
+// after the write are dead code from the template's point of view.
+//
+// Components don't have `w`/`r` in scope, so this is a no-op for them in
+// practice; callers nonetheless gate by the directory-derived
+// isComponent flag for clarity and to avoid surprising warnings if a
+// component author happens to use the names locally.
+func ValidateFrontmatterReturns(frontmatter string) []Warning {
+	findings := analysis.FindMissingReturns(frontmatter)
+	if len(findings) == 0 {
+		return nil
+	}
+	warnings := make([]Warning, 0, len(findings))
+	for _, f := range findings {
+		msg := "response was written but no return follows; frontmatter execution will continue and any uppercase variables computed after this point are dead code. Add `return` to short-circuit."
+		if f.Snippet != "" {
+			msg = fmt.Sprintf("%s (at: %s)", msg, f.Snippet)
+		}
+		warnings = append(warnings, Warning{
+			Line:    f.Line,
+			Message: msg,
+		})
+	}
+	return warnings
+}
 
 // dictValidationStubFuncs returns a stub FuncMap suitable for parsing a
 // post-TransformTemplate body with text/template/parse. Includes gastro

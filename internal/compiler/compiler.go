@@ -339,11 +339,23 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		Uses:         uses,
 	}
 
+	// Track B (plans/frictions-plan.md §4.9): for pages, run the
+	// shared response-write analyzer over the frontmatter and emit a
+	// warning for every write site that isn't followed by `return`.
+	// Components don't have `w` / `r` in scope, so the analyzer is
+	// gated to pages here to avoid surprising warnings on a component
+	// that happens to bind a local `w` for unrelated reasons.
+	var respwriteWarnings []codegen.Warning
+	if !isComponent {
+		respwriteWarnings = codegen.ValidateFrontmatterReturns(file.Frontmatter)
+	}
+
 	// Combine frontmatter warnings with dict-key validation warnings. The
 	// dict warnings already carry template-body line numbers; rebase them
 	// onto the source file's coordinate system by offsetting by the line
 	// where the template body starts.
 	combinedWarnings := append([]codegen.Warning(nil), info.Warnings...)
+	combinedWarnings = append(combinedWarnings, respwriteWarnings...)
 	for _, w := range dictWarnings {
 		line := w.Line
 		if file.TemplateBodyLine > 0 {
