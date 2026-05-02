@@ -105,7 +105,7 @@ type generateData struct {
 // from componentTmpl because the I/O model is fundamentally different
 // (streaming vs buffering).
 //
-// Track B (page model v2, plans/frictions-plan.md §4.2): the handler
+// Track B (page model v2, docs/history/frictions-plan.md §4.2): the handler
 // wraps `w` in a *gastro-owned page writer that tracks whether
 // frontmatter wrote a body. After frontmatter completes, the template
 // render is skipped iff a body has been committed. This lets one
@@ -231,7 +231,7 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 // frontmatter and returns the rewritten source plus any warnings
 // produced (deprecation notices, unknown-symbol diagnostics).
 //
-// Track B (plans/frictions-plan.md §4.10) consolidates marker handling
+// Track B (docs/history/frictions-plan.md §4.10) consolidates marker handling
 // into a single AST pass that recognises a finite, allowlisted set of
 // gastro.X references:
 //

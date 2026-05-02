@@ -15,7 +15,7 @@ import (
 // (internal/analysis) over a page's frontmatter and converts each finding
 // into a Warning suitable for the codegen Warnings channel.
 //
-// Track B (plans/frictions-plan.md §4.9): every call that writes to the
+// Track B (docs/history/frictions-plan.md §4.9): every call that writes to the
 // response (anything passing the literal `w`, `http.Redirect(w, r, …)`,
 // or a method on `w`) must be followed by `return` — otherwise
 // frontmatter execution continues and any uppercase variables computed

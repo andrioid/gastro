@@ -21,14 +21,14 @@ func main() {
 
 	state := app.New()
 
-	// Track B (plans/frictions-plan.md §4.10): the increment endpoint is
+	// Track B (docs/history/frictions-plan.md §4.10): the increment endpoint is
 	// gone from main.go. Both the GET render and the POST patch live in
 	// pages/index.gastro and branch on r.Method. The router registers
 	// the page for every HTTP method so the same .gastro file handles
 	// both. This is the headline mechanic — one source of truth per
 	// route, no parallel API handler to keep in sync with the page.
 	//
-	// Wave 4 / C2 (plans/frictions-plan.md §3 Wave 4): WithMiddleware
+	// Wave 4 / C2 (docs/history/frictions-plan.md §3 Wave 4): WithMiddleware
 	// composes route middleware. The pattern uses Go's stdlib syntax —
 	// "/{path...}" is a catch-all that matches every page route. Method
 	// branching, if any, lives inside the middleware itself.

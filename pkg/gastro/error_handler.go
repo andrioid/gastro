@@ -32,7 +32,7 @@ type PageErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
 // the response has not yet committed headers or a body, writes a 500
 // Internal Server Error.
 //
-// Wave 4 / C4 (plans/frictions-plan.md §3 Wave 4): this is the published
+// Wave 4 / C4 (docs/history/frictions-plan.md §3 Wave 4): this is the published
 // contract for the default behaviour. Production deployments can wrap or
 // replace it via WithErrorHandler — for example to render a templated
 // error page, emit a request ID, or report to an error tracker.

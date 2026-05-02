@@ -385,7 +385,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		Uses:         uses,
 	}
 
-	// Track B (plans/frictions-plan.md §4.9): for pages, run the
+	// Track B (docs/history/frictions-plan.md §4.9): for pages, run the
 	// shared response-write analyzer over the frontmatter and emit a
 	// warning for every write site that isn't followed by `return`.
 	// Components don't have `w` / `r` in scope, so the analyzer is
@@ -594,7 +594,7 @@ func WithDeps[T any](deps T) Option {
 // gastro auto-routes (e.g. "/", "/blog/{slug}", or the static-asset prefix);
 // New() panics if it does not, to catch typos early.
 //
-// Track B (plans/frictions-plan.md §4.2): page patterns are now
+// Track B (docs/history/frictions-plan.md §4.2): page patterns are now
 // method-less. Where pre-Track-B you'd write WithOverride for an explicit
 // HTTP method, you now write the path alone and the override receives every
 // method for that path. The static-asset prefix is the lone exception —
@@ -620,7 +620,7 @@ func WithOverride(pattern string, h http.Handler) Option {
 // Patterns are path-only — there is no method scoping. Middleware that
 // must only run for, say, POST should branch on r.Method internally.
 // This mirrors WithOverride's path-only contract (Track B,
-// plans/frictions-plan.md §4.2) and avoids the asymmetry where
+// docs/history/frictions-plan.md §4.2) and avoids the asymmetry where
 // override and middleware would accept different pattern shapes.
 //
 // Validation: at New() time the pattern must match at least one known
@@ -635,7 +635,7 @@ func WithOverride(pattern string, h http.Handler) Option {
 // replaces the page handler and the middleware then wraps the override
 // — "middleware wraps override".
 //
-// Wave 4 / C2 (plans/frictions-plan.md §3 Wave 4).
+// Wave 4 / C2 (docs/history/frictions-plan.md §3 Wave 4).
 func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
 	return func(c *config) {
 		c.middleware = append(c.middleware, middlewareEntry{pattern: pattern, fn: fn})
@@ -660,7 +660,7 @@ func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
 // Calling WithErrorHandler multiple times keeps the last value (no panic);
 // the option is intended to be set once at New() time.
 //
-// Wave 4 / C4 (plans/frictions-plan.md §3 Wave 4).
+// Wave 4 / C4 (docs/history/frictions-plan.md §3 Wave 4).
 func WithErrorHandler(fn gastroRuntime.PageErrorHandler) Option {
 	return func(c *config) { c.errorHandler = fn }
 }
@@ -880,9 +880,9 @@ func New(opts ...Option) *Router {
 	// applyMiddleware wraps h with every middleware whose pattern matches
 	// route. Middleware composes in registration order: the first
 	// WithMiddleware call ends up outermost (runs first on the request).
-	// This is the "middleware wraps override" branch of plans/
-	// frictions-plan.md Q3 — by the time we get here, h is already either
-	// the auto-route handler or the override.
+	// This is the "middleware wraps override" branch of
+	// docs/history/frictions-plan.md Q3 — by the time we get here, h is
+	// already either the auto-route handler or the override.
 	applyMiddleware := func(route string, h http.Handler) http.Handler {
 		for i := len(cfg.middleware) - 1; i >= 0; i-- {
 			mw := cfg.middleware[i]

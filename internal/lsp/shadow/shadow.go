@@ -50,7 +50,7 @@ func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 	sb.WriteString("package __gastro_virtual\n")
 
 	// Lines 2+: imports.
-	// Track B (plans/frictions-plan.md §4.2) makes pages reference the
+	// Track B (docs/history/frictions-plan.md §4.2) makes pages reference the
 	// ambient r and w; the synthetic wrapper passes both as parameters
 	// so frontmatter that calls r.Method, w.WriteHeader, etc. type-checks
 	// in gopls. net/http is added unconditionally for the same reason.

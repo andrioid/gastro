@@ -5,7 +5,7 @@ its own recovery path, and its own production knob. This page enumerates
 them so production deployments can decide where to add visibility, retry
 logic, or branded error pages.
 
-> **Wave 4 / C4** (`plans/frictions-plan.md` §3 Wave 4) introduced the
+> **Wave 4 / C4** (`docs/history/frictions-plan.md` §3 Wave 4) introduced the
 > `WithErrorHandler` option for render errors. The other failure modes
 > were already in place before that wave; this page is the first time
 > they are written down together.

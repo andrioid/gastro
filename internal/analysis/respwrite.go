@@ -13,7 +13,7 @@ import (
 
 // MissingReturn describes a frontmatter site that writes to the HTTP
 // response (or otherwise commits the response) without being followed by
-// `return`. Track B (plans/frictions-plan.md §4.9) treats this as
+// `return`. Track B (docs/history/frictions-plan.md §4.9) treats this as
 // suspicious because frontmatter execution will continue and any uppercase
 // variables computed after the write become dead code from the template's
 // point of view.

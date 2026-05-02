@@ -8,7 +8,7 @@ package compiler_test
 //   - Multiple WithMiddleware calls compose in registration order
 //     (first registered = outermost).
 //   - WithMiddleware + WithOverride targeting the same route =
-//     "middleware wraps override" (Q3, plans/frictions-plan.md §7).
+//     "middleware wraps override" (Q3, docs/history/frictions-plan.md §7).
 //   - Unknown patterns panic at New() time with a descriptive error.
 //
 // Compiled in a subprocess so the generated code is exercised end-to-end

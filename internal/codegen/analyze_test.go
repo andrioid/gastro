@@ -515,7 +515,7 @@ func assertVarExists(t *testing.T, vars []codegen.VarInfo, name string) {
 	t.Errorf("expected variable %q in list, got: %v", name, names)
 }
 
-// Track B (plans/frictions-plan.md §4.2): the previous
+// Track B (docs/history/frictions-plan.md §4.2): the previous
 // "ctx is referenced but gastro.Context() was not called" warning is
 // gone. Pages no longer have an injected ctx — they use the ambient
 // (w, r) directly. A user who writes `ctx.Param(…)` without declaring

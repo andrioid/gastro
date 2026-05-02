@@ -5,8 +5,11 @@ _Forward plan derived from `frictions.md` (baseline gastro v0.1.15 + commit
 library-mode and framework-mode viability (companion HTML report kept
 alongside this plan)._
 
-> **Status:** working document. Tracked in `plans/` for the duration of
-> the work; archive or fold into `docs/` once all waves have shipped.
+> **Status:** archived 2026-05-02 — all planned waves are closed.
+> Originally tracked in `plans/`; moved to `docs/history/` together with
+> the source `frictions.md` audit and the `frictions-mode-split.html`
+> companion report. See `DECISIONS.md` 2026-05-02 ("Wave 5 closure") for
+> the move record.
 >
 > **Wave progress:** Track B shipped (commits `f356cbc`–`2bb3c9f`).
 > Wave 1 shipped (commits `1c229b4`–`133890e`, 2026-05-02). Wave 2 empty
@@ -15,8 +18,10 @@ alongside this plan)._
 > design points resolved in the same session (§7 Q3, Q6, Q7);
 > `WithErrorHandler`, `WithMiddleware`, the throwaway-mux pattern
 > probe, the per-route `applyMiddleware` wiring, plus
-> `docs/error-handling.md` all landed. Wave 5 (A2) is next — needs Q4
-> audit of `gastro dev` path resolution before starting.
+> `docs/error-handling.md` all landed. **Wave 5 empty after Q4 audit
+> 2026-05-02 dropped A2** (infeasible as framed; benefit obsolete).
+> All planned waves are now closed; ready to archive or fold into
+> `docs/`.
 >
 > **Resolved questions (2026-05-02):** Q1 A4 dropped (selectors are just
 > ids, users define their own constants). Q2 A5 simplified — no deprecation
@@ -221,9 +226,11 @@ Independent of the held C1. Shipped together in one Wave 4 commit set.
 
 ### Wave 5 — Follow-ups
 
+Wave 5 is empty. Both originally-planned items have been dropped.
+
 | ID | Title | Effort | Notes |
 |---|---|---|---|
-| A2 | Embed indirection (option 1) | Small | Point `//go:embed` at source `components/` and `pages/` directly instead of `.gastro/templates/` copies. Reduces committed tree without changing the review story. **Do not** combine with full `.gitignore` of `.gastro/` until a CI `go generate && git diff --exit-code` step is in place. |
+| ~~A2~~ | ~~Embed indirection (option 1)~~ | ~~Small~~ | **Dropped 2026-05-02 (Q4 audit).** A2 as written is infeasible: `.gastro/templates/*.html` are not copies of source `.gastro` files — they're the transformed template body (frontmatter stripped, markdown directives expanded, `{{ wrap }}` rewritten to compiled component calls, filenames flattened). Pointing `//go:embed` at source `pages/`/`components/` would embed raw `.gastro` files that `html/template` cannot parse. The stated benefit ("cuts the embed half of the committed tree") is also obsolete: `.gastro/` is gitignored by default at the repo root and in the scaffold, and `git ls-files | grep '\.gastro/'` returns zero tracked files. For downstream projects that opt to commit `.gastro/`, the per-project remedy is to add `.gastro/templates/` to their own `.gitignore` plus `gastro check` in CI — no framework change needed. |
 | ~~A6~~ | ~~Static-asset hashing~~ | ~~Medium~~ | **Dropped (Q5).** Frontend `?v=` query params handle cache-busting. For custom headers on static assets, document the existing `WithOverride("GET /static/", ...)` and `Mux()` escape hatches rather than adding framework surface. |
 
 ### Deferred — ship when an adopter asks
@@ -608,7 +615,7 @@ A wave is "done" when **all** of the following hold for every item in it:
 | Wave 2 | ~~None.~~ Wave 2 is empty — its only item (D1) was deferred. B2 ships in Wave 1. | ~~D1 only depends on existing `runDev` code.~~ |
 | Wave 3 | ✅ Shipped 2026-05-02. A5 deprecation policy was simplified (Q2): no parallel runtime path; Go's type checker handles variadic-drop migration, validator emits a targeted hint for `__children` dict literals. | Done. |
 | Wave 4 | ✅ Shipped 2026-05-02. Audit conclusion: `WithOverride`'s exact-match validation (`internal/compiler/compiler.go:737`) stays untouched — C2's validation diverges fundamentally (throwaway-mux probe vs map lookup), so it lives as a sibling block, not a refactor. Throwaway-mux probe lives in `pkg/gastro/middleware.go` for unit-testability; codegen template stays thin. | Done. |
-| Wave 5 | A2 needs a CI `go generate && git diff --exit-code` step in place if `.gastro/` will eventually be `.gitignore`d. | A1 (toolchain pinning) was deferred — no adopter has asked for it. The CI gate can stand on its own or ship alongside A2. |
+| Wave 5 | ✅ Empty after 2026-05-02. A2 dropped per Q4 audit (infeasible as framed; benefit obsolete because `.gastro/` is already gitignored by default). A6 dropped per Q5. | Done. |
 | Track B | ✅ Shipped (commit `2bb3c9f`). Deprecation policy already in `docs/contributing.md`. All sub-questions resolved 2026-05-02 (§4.7). | Done. |
 
 ---
@@ -620,7 +627,7 @@ A wave is "done" when **all** of the following hold for every item in it:
 | ~~Q1~~ | ~~A4: selector behaviour~~ | **Dropped** | A4 dropped |
 | ~~Q2~~ | ~~A5: deprecation warning format~~ | **Resolved 2026-05-02:** No deprecation window. Render API variadic dropped immediately (Go compiler is the migration signal); `__children` dict literal becomes a `did you mean Children?` variant of the existing unknown-key warning. See §3.1 Migration. | A5 done |
 | Q3 | C2: precedence between `WithOverride` and `WithMiddleware` | **Resolved:** middleware wraps override. | Wave 4 |
-| Q4 | A2: does `//go:embed` at source dirs change `gastro dev` path resolution? | Needs audit | Wave 5 |
+| ~~Q4~~ | ~~A2: does `//go:embed` at source dirs change `gastro dev` path resolution?~~ | **Resolved 2026-05-02:** Q4 was the wrong question — the audit revealed A2 itself is infeasible (see Wave 5 row). Dev-mode path resolution is a one-line change in `pkg/gastro/fs.go:38`, but moot because there's no viable target to repoint at. A2 dropped. | Wave 5 done |
 | ~~Q5~~ | ~~A6: hashed-asset URL discoverability~~ | **Dropped** | A6 dropped |
 | ~~Q6~~ | ~~C2: how does `*` wildcard interact with the existing pattern-validation table?~~ | **Resolved & shipped 2026-05-02:** Adopted Go's `http.ServeMux` pattern syntax — `{slug}` for a segment, `{slug...}` for a trailing catch-all. Bare catch-all is `"/{path...}"`. Validation via `gastroRuntime.PatternMatchesAnyRoute` (throwaway-mux probe in `pkg/gastro/middleware.go`). | Wave 4 done |
 | ~~Q7~~ | ~~C2: are middleware patterns method-scoped or path-only?~~ | **Resolved & shipped 2026-05-02:** Path-only, mirrors `WithOverride`. Method-specific middleware branches on `r.Method` internally. | Wave 4 done |

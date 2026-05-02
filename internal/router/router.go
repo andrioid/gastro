@@ -6,7 +6,7 @@ import (
 
 // Route maps an HTTP pattern to a .gastro page file.
 //
-// Track B (plans/frictions-plan.md §4.2): patterns no longer carry an
+// Track B (docs/history/frictions-plan.md §4.2): patterns no longer carry an
 // HTTP method prefix. Each .gastro file under pages/ is registered for
 // every method; the page's frontmatter branches on r.Method. This is
 // the headline mechanic that lets one .gastro file handle both GET

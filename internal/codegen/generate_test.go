@@ -295,7 +295,7 @@ func TestGenerate_NoExportedVars(t *testing.T) {
 // TestGenerate_PageHandlerDispatchesExecuteError verifies that page handlers
 // route Execute errors through __router.__gastro_handleError, which in turn
 // dispatches to the user-supplied WithErrorHandler or the runtime default.
-// Wave 4 / C4 (plans/frictions-plan.md §3 Wave 4): the per-handler log line
+// Wave 4 / C4 (docs/history/frictions-plan.md §3 Wave 4): the per-handler log line
 // is gone; centralised dispatch is the only error path.
 func TestGenerate_PageHandlerDispatchesExecuteError(t *testing.T) {
 	file := &parser.File{

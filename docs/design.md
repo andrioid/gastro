@@ -1123,7 +1123,7 @@ The simpler workaround — "let frontmatter mutate things" — was off
 the table because the page handler was always GET-only and
 `gastro.Context()` exposed only request *reading* helpers.
 
-**Resolution.** Track B (`plans/frictions-plan.md` §4) reshapes the
+**Resolution.** Track B (`docs/history/frictions-plan.md` §4) reshapes the
 page handler model:
 
 1. Pages register for **every** HTTP method instead of GET only.
@@ -1211,7 +1211,7 @@ Count := int(state.Count.Load())
 GET falls through to the template render; POST writes an SSE patch
 and returns, so the body-written flag skips the template.
 
-**What stays out of scope.** Per `plans/frictions-plan.md` rule 2
+**What stays out of scope.** Per `docs/history/frictions-plan.md` rule 2
 ("no new language to learn"), Track B does not introduce any new
 frontmatter or template syntax. There is no `action` keyword, no
 snippet directory, no co-located route DSL. The only new authoring

@@ -1,6 +1,6 @@
 // Package app holds the SSE example's application-level state.
 //
-// Track B (plans/frictions-plan.md §4.10) lets a page's frontmatter
+// Track B (docs/history/frictions-plan.md §4.10) lets a page's frontmatter
 // retrieve typed dependencies via gastro.From[T](r.Context()). The
 // type T must live in a package both the entry point (main.go) and
 // the generated handler (.gastro) can import. main is unreachable

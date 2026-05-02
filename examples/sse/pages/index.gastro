@@ -10,7 +10,7 @@ import (
     "github.com/andrioid/gastro/pkg/gastro/datastar"
 )
 
-// Track B (plans/frictions-plan.md §4.10) headline pattern: one .gastro
+// Track B (docs/history/frictions-plan.md §4.10) headline pattern: one .gastro
 // file handles both the initial GET render and the POST that updates the
 // page via Datastar. *app.State is registered via gastro.WithDeps in
 // main.go and retrieved here through the typed dep API.

@@ -859,7 +859,7 @@ func indexOf(s, substr string) int {
 
 // TestCompile_ComponentNameCollisionWarning verifies that two component
 // files producing the same ExportedName emit a warning (and a strict-mode
-// error). This is Wave 1 / A7 from plans/frictions-plan.md.
+// error). This is Wave 1 / A7 from docs/history/frictions-plan.md.
 func TestCompile_ComponentNameCollisionWarning(t *testing.T) {
 	projectDir := filepath.Join("testdata", "collision")
 	outputDir := t.TempDir()

@@ -11,7 +11,7 @@ import (
 // WithMiddleware. Same shape as the chi/gorilla/stdlib convention:
 // take an http.Handler, return an http.Handler that wraps it.
 //
-// Wave 4 / C2 (plans/frictions-plan.md §3 Wave 4).
+// Wave 4 / C2 (docs/history/frictions-plan.md §3 Wave 4).
 type MiddlewareFunc func(http.Handler) http.Handler
 
 // PatternMatchesAnyRoute reports whether middleware pattern matches at

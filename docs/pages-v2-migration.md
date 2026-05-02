@@ -374,7 +374,7 @@ What Track B doesn't do: it doesn't introduce an `action` keyword,
 typed `datastar.Patch` return values, or compile-time checking of
 selector ↔ component fragment matching. Those are the unfilled half
 of friction `C1` in the original report and remain held per
-`plans/frictions-plan.md` rule 2 ("no new language to learn"). The
+`docs/history/frictions-plan.md` rule 2 ("no new language to learn"). The
 underlying motivation — mutation handlers in `.gastro` files — is
 addressed by Track B.
 
@@ -456,7 +456,7 @@ warnings.
   generated code can't import `main`. Extract the type to a sibling
   package both can import.
 
-If a friction isn't covered here and isn't in `frictions.md`, file an
+If a friction isn't covered here and isn't in `docs/history/frictions.md`, file an
 issue against gastro with a minimal reproducer. Track B is the
 biggest pre-1.0 churn since the handler-instance refactor; corner
 cases are likely.

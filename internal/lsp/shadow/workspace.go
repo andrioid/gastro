@@ -103,7 +103,7 @@ func (ws *Workspace) UpdateFile(gastroFile, content string) (*VirtualFile, error
 	// This ensures gopls can resolve the package correctly within the module.
 	sb.WriteString("package main\n")
 
-	// Imports. Track B (plans/frictions-plan.md §4.2) makes pages
+	// Imports. Track B (docs/history/frictions-plan.md §4.2) makes pages
 	// reference ambient w and r; net/http is imported unconditionally
 	// so frontmatter that calls r.Method or w.WriteHeader type-checks
 	// in gopls.

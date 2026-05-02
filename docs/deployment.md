@@ -118,3 +118,27 @@ You can also wire it into `go generate`:
 without the `gastro` binary needing a separate subcommand. Both approaches are
 fine; `gastro check` is faster (no `go` invocation) and produces a friendlier
 diff summary.
+
+### Trimming the committed tree
+
+If you commit `.gastro/`, you can keep just the Go files and exclude the
+transformed template artifacts. They get regenerated on every
+`gastro generate` and contribute most of the diff noise on template-only
+edits:
+
+```gitignore
+# .gitignore (when committing .gastro/)
+.gastro/templates/
+```
+
+`.gastro/templates/*.html` are not copies of your `.gastro` source files
+— they're build artifacts (frontmatter stripped, `{{ markdown }}`
+expanded, `{{ wrap }}` rewritten to compiled component calls). The
+Go handler files in `.gastro/*.go` are still committed and remain the
+reviewable surface; `gastro check` continues to catch drift between
+source `.gastro` files and generated Go even with `templates/`
+ignored, because it regenerates and byte-compares the full tree.
+
+`static/` is copied into `.gastro/static/` for the same `//go:embed`
+reason; it's safe to add `.gastro/static/` to the same ignore block if
+your `static/` directory is large.
