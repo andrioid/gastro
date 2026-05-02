@@ -103,14 +103,19 @@ func (ws *Workspace) UpdateFile(gastroFile, content string) (*VirtualFile, error
 	// This ensures gopls can resolve the package correctly within the module.
 	sb.WriteString("package main\n")
 
-	// Imports
-	if len(parsed.Imports) > 0 {
-		sb.WriteString("\nimport (\n")
-		for _, imp := range parsed.Imports {
-			sb.WriteString(fmt.Sprintf("\t%q\n", imp))
-		}
-		sb.WriteString(")\n")
+	// Imports. Track B (plans/frictions-plan.md §4.2) makes pages
+	// reference ambient w and r; net/http is imported unconditionally
+	// so frontmatter that calls r.Method or w.WriteHeader type-checks
+	// in gopls.
+	sb.WriteString("\nimport (\n\t\"net/http\"\n")
+	for _, imp := range parsed.Imports {
+		sb.WriteString(fmt.Sprintf("\t%q\n", imp))
 	}
+	sb.WriteString(")\n")
+
+	// Suppress unused-import warnings for projects whose frontmatter doesn't
+	// touch net/http (e.g. component frontmatter).
+	sb.WriteString("\nvar _ http.ResponseWriter\n")
 
 	// Hoisted type declarations (must precede stubs so *Props resolves)
 	if hoistedTypes != "" {
@@ -144,9 +149,11 @@ var gastro = __gastroLib{}
 `, propsReturnType))
 
 	// Function wrapper — unique name per file to avoid conflicts when
-	// multiple .gastro files are open simultaneously
+	// multiple .gastro files are open simultaneously. Track B injects
+	// the ambient (w, r) here so frontmatter that uses them type-checks.
 	funcName := uniqueFuncName(gastroFile)
-	sb.WriteString(fmt.Sprintf("func %s() {\n", funcName))
+	sb.WriteString(fmt.Sprintf("func %s(w http.ResponseWriter, r *http.Request) {\n", funcName))
+	sb.WriteString("\t_ = w\n\t_ = r\n")
 	virtualFMStart := strings.Count(sb.String(), "\n") + 1
 
 	sb.WriteString(processedFM)

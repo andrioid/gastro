@@ -26,16 +26,14 @@ type UseInfo struct {
 // function. This is typically info.IsComponent, but the compiler may override
 // it for files in components/ that have no frontmatter.
 //
-// Marker rewriting (Track B §4.10) emits warnings into info.Warnings: a
-// deprecation warning for gastro.Context(), and an "unknown gastro
-// runtime symbol" warning for any reference outside the allowlist (Props,
-// Context, From, FromOK, FromContext, FromContextOK, NewSSE, Render).
+// Marker rewriting (Track B §4.10): the rewriter is invoked for its
+// rewritten-source output only here. Warning emission (deprecation,
+// unknown gastro runtime symbol) happens in AnalyzeFrontmatter so both
+// the codegen pipeline and the LSP receive the same diagnostics by
+// reading info.Warnings.
 func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent bool) (string, error) {
 	funcName := HandlerFuncName(file.Filename)
-	frontmatter, markerWarnings := rewriteFrontmatter(file.Frontmatter, info, isComponent)
-	if len(markerWarnings) > 0 {
-		info.Warnings = append(info.Warnings, markerWarnings...)
-	}
+	frontmatter, _ := rewriteFrontmatter(file.Frontmatter, info, isComponent)
 
 	// Extract hoisted type declarations for components.
 	// Rename the type to avoid collisions between components in the same package.

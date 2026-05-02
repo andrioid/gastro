@@ -49,20 +49,28 @@ func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 	// Line 1: package
 	sb.WriteString("package __gastro_virtual\n")
 
-	// Lines 2+: imports (extracted by parser)
-	if len(parsed.Imports) > 0 {
-		sb.WriteString("\nimport (\n")
-		for _, imp := range parsed.Imports {
-			sb.WriteString(fmt.Sprintf("\t%q\n", imp))
-		}
-		sb.WriteString(")\n")
+	// Lines 2+: imports.
+	// Track B (plans/frictions-plan.md §4.2) makes pages reference the
+	// ambient r and w; the synthetic wrapper passes both as parameters
+	// so frontmatter that calls r.Method, w.WriteHeader, etc. type-checks
+	// in gopls. net/http is added unconditionally for the same reason.
+	sb.WriteString("\nimport (\n\t\"net/http\"\n")
+	for _, imp := range parsed.Imports {
+		sb.WriteString(fmt.Sprintf("\t%q\n", imp))
 	}
+	sb.WriteString(")\n")
+
+	// Suppress unused-import warnings if frontmatter doesn't reference net/http.
+	sb.WriteString("\nvar _ http.ResponseWriter\n")
 
 	// Gastro package stub so gopls doesn't error on gastro.Context() etc.
 	sb.WriteString("\nvar gastro = struct{ Context func() interface{} }{}\n")
 
-	// Function wrapper start
-	sb.WriteString("\nfunc __handler() {\n")
+	// Function wrapper start. Track B injects (w, r) ambient parameters.
+	// `_ = w` / `_ = r` suppress unused-parameter warnings for pages
+	// that don't touch them and for components (which never do).
+	sb.WriteString("\nfunc __handler(w http.ResponseWriter, r *http.Request) {\n")
+	sb.WriteString("\t_ = w\n\t_ = r\n")
 	virtualFMStart := strings.Count(sb.String(), "\n") + 1
 
 	// Frontmatter content (with import lines commented out)

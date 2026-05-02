@@ -151,12 +151,23 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 		})
 	}
 
-	// Track B (page model v2): the previous "ctx is referenced but
-	// gastro.Context() was not called" hint is removed. Pages no longer
-	// need a marker — directory placement (pages/) is the signal, and
-	// the ambient (w, r) replace ctx. If a user references an
-	// undeclared `ctx` they get the standard Go undefined-identifier
-	// error from the codegen output, which is no longer confusing.
+	// Track B (page model v2): surface marker-rewrite warnings and
+	// missing-return findings here so both the codegen pipeline and the
+	// LSP pick them up by reading info.Warnings. The rewriter is run
+	// for its diagnostic side effects only — the rewritten source is
+	// produced separately by GenerateHandler.
+	_, markerWarnings := rewriteGastroMarkers(frontmatter)
+	info.Warnings = append(info.Warnings, markerWarnings...)
+
+	// Page-only: response-write → missing-return checks (§4.9). The
+	// signal is whether the file is a page; we don't have that here, so
+	// the analyzer is run unconditionally and components naturally
+	// produce no findings (they have no ambient w / r). Components that
+	// happen to bind a local w may get a documented false positive; the
+	// alternative is plumbing isPage all the way down, which the
+	// minimal-LSP posture (§4.7) doesn't justify.
+	respwrite := ValidateFrontmatterReturns(frontmatter)
+	info.Warnings = append(info.Warnings, respwrite...)
 
 	return info, nil
 }

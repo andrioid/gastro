@@ -270,7 +270,9 @@ func TestWorkspace_SourceMapAccuracy(t *testing.T) {
 		t.Errorf("gastro line 2 should map to commented import, got: %q", virtualLines[vLine2-1])
 	}
 
-	// Gastro line 4 is "ctx := gastro.Context()"
+	// Gastro line 4 is "ctx := gastro.Context()". The shadow keeps the
+	// source as-is (the gastro stub provides Context() for gopls) so
+	// the line mapping must land on the unchanged text.
 	vLine4 := vf.SourceMap.GastroToVirtual(4)
 	if !strings.Contains(virtualLines[vLine4-1], "gastro.Context()") {
 		t.Errorf("gastro line 4 should map to gastro.Context() line, got: %q", virtualLines[vLine4-1])
