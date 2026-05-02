@@ -8,6 +8,10 @@ alongside this plan)._
 > **Status:** working document. Tracked in `plans/` for the duration of
 > the work; archive or fold into `docs/` once all waves have shipped.
 >
+> **Wave progress:** Track B shipped (commits `f356cbc`–`2bb3c9f`).
+> Wave 1 shipped (commits `1c229b4`–`133890e`, 2026-05-02). Wave 2 empty
+> (D1 deferred). Wave 3 (A5) is the next item with no blockers.
+>
 > **Resolved questions (2026-05-02):** Q1 A4 dropped (selectors are just
 > ids, users define their own constants). Q2 A5 deprecation via
 > `gastro generate` strict-mode error (matches dict-key precedent). Q3 C2
@@ -74,15 +78,23 @@ Five waves, ordered by dependency and risk. Each wave is independently
 shippable; later waves do not assume earlier waves landed beyond the
 explicit `depends-on` notes.
 
-### Wave 1 — Pure wins (no design surface)
+### Wave 1 — Pure wins (no design surface) — ✅ SHIPPED 2026-05-02
 
-These have no goal-tensions, no migration cost, and no public API
-churn beyond additive options. Ship as soon as someone has the time.
+No goal-tensions, no migration cost, no public API churn beyond additive
+options. Shipped in commits `1c229b4`–`133890e`.
 
-| ID | Title | Effort | Notes |
+| ID | Title | Effort | Status |
 |---|---|---|---|
-| A7 | Component name collision warning | Small | Pre-pass over `components` in `internal/compiler/compiler.go` before writing output. Constant-time hash-set sweep. Pure error-message improvement. |
-| B2 | Per-router dev mode | Trivial | The handler-instance refactor (2026-04-26) already moved `isDev` onto `*Router`; this is exposing a `WithDevMode(bool)` option that overrides the env var. |
+| A7 | Component name collision warning | Small | ✅ Pre-pass in `Compile()` derives `ExportedName` purely from path; emits `FileWarning` for duplicates, promoted to error in strict mode. Runs *before* per-file Go output is written, so failed strict-mode compiles leave `.gastro/` clean. Three tests in `compiler_test.go`. |
+| B2 | Per-router dev mode | Trivial | ✅ New `WithDevMode(bool)` option overrides `GASTRO_DEV`. `config.devMode *bool` distinguishes absent vs explicit-false; `New()` falls back to `gastroRuntime.IsDev()` when nil. Integration test (`devmode_integration_test.go`) probes `/__gastro/reload` through the generated `Handler()` for all three cases. Documented in `docs/pages.md` §"Forcing dev or production mode" with library-mode as the headline use case. |
+
+**Pre-existing fix bundled with Wave 1:** `examples/*/go.sum` were missing
+chroma/goldmark transitive deps (regression from the markdown-directive
+merge). Fixed in commit `1c229b4`. All four examples now pass
+`gastro check` cleanly.
+
+**Decision record:** `DECISIONS.md` entry dated 2026-05-02 ("Wave 1 —
+component name collision warning (A7) and per-router dev mode (B2)").
 
 ### Wave 2 — Acknowledge library mode
 
@@ -563,9 +575,9 @@ A wave is "done" when **all** of the following hold for every item in it:
 
 | Wave / Track | Blocker | Resolution |
 |---|---|---|
-| Wave 1 | None | A7 and B2 are ready to start. |
+| Wave 1 | ✅ Shipped (commits `1c229b4`–`133890e`, 2026-05-02). | Done. |
 | Wave 2 | ~~None.~~ Wave 2 is empty — its only item (D1) was deferred. B2 ships in Wave 1. | ~~D1 only depends on existing `runDev` code.~~ |
-| Wave 3 | ✅ ~~A5 deprecation policy~~ already written in `docs/contributing.md`. Track B landed and uses the convention. No remaining blocker. | Clear. |
+| Wave 3 | ✅ ~~A5 deprecation policy~~ already written in `docs/contributing.md`. Track B landed and uses the convention. No remaining blocker. | Clear — next up. |
 | Wave 4 | None for C4. C2 should reuse the `WithOverride` typo-safety machinery; check that it can be factored cleanly without touching the override path. | Quick audit of `internal/compiler/compiler.go` route-pattern validation before starting. |
 | Wave 5 | A2 needs a CI `go generate && git diff --exit-code` step in place if `.gastro/` will eventually be `.gitignore`d. | A1 (toolchain pinning) was deferred — no adopter has asked for it. The CI gate can stand on its own or ship alongside A2. |
 | Track B | ✅ Shipped (commit `2bb3c9f`). Deprecation policy already in `docs/contributing.md`. All sub-questions resolved 2026-05-02 (§4.7). | Done. |
