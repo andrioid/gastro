@@ -1067,11 +1067,13 @@ Section 9 introduced `gastro.Context()` as the page marker. The fact
 that it is a *compile-time* marker — the codegen strips the line and
 injects `ctx := gastroRuntime.NewContext(w, r)` — was implicit. Forgetting
 the marker but writing `ctx.Param(...)` produced an opaque
-`undefined: ctx` error from `go build`. The compiler now emits a
-friendlier diagnostic surfaced through the LSP, and `docs/pages.md` has
-a *Why the marker?* subsection. Ambient-locals (dropping the marker
-entirely) is deferred to v1.0 because the marker is currently the
-strongest signal that distinguishes a page from a static template.
+`undefined: ctx` error from `go build`. The compiler emitted a
+friendlier diagnostic surfaced through the LSP, and `docs/pages.md`
+gained a *Why the marker?* subsection. **As of Track B (see
+*Page model v2* below), the marker is deprecated**: pages now have
+ambient `(w, r)` and the directory placement is the signal that
+distinguishes a page. The marker keeps working during a deprecation
+window but emits a build warning.
 
 ### `gastro check` for committed `.gastro/`
 
@@ -1100,16 +1102,133 @@ Two items from the friction report were not addressed in this iteration:
   requires cross-package type resolution in the compiler. Deferred
   pending real-world feedback on the runtime form.
 
+### Page model v2 — ambient `(w, r)` + conditional render (Track B)
+
+**Trigger.** The handler-instance refactor closed the multi-router and
+typed-deps gaps but left a separate friction in place: a page that
+wanted to mutate state had to do it from a Go handler in `main.go`
+that called `gastro.Render.X` and emitted SSE patches, while the
+original page kept its frontmatter as the GET handler. The mutation
+logic and the GET handler shared no source file, no locals, no
+helpers — just a URL convention. For SSE-heavy apps that meant a
+maintenance tax on every interaction.
+
+The simpler workaround — "let frontmatter mutate things" — was off
+the table because the page handler was always GET-only and
+`gastro.Context()` exposed only request *reading* helpers.
+
+**Resolution.** Track B (`plans/frictions-plan.md` §4) reshapes the
+page handler model:
+
+1. Pages register for **every** HTTP method instead of GET only.
+   The auto-route pattern loses its method prefix: `pages/board.gastro`
+   maps to `/board`, not `GET /board`. Frontmatter branches on
+   `r.Method` to handle non-GET requests.
+
+2. Frontmatter has **ambient `(w, r)`**. The codegen-generated
+   handler injects them as parameters; no marker is required to
+   declare them. `gastro.Context()` keeps working during a
+   deprecation window but emits a warning, and rewrites at codegen
+   time to `gastroRuntime.NewContext(w, r)` for backwards
+   compatibility.
+
+3. The codegen wraps `w` in an unexported `*gastroWriter` that
+   tracks two flags: `headerCommitted` (any `WriteHeader` call) and
+   `bodyWritten` (any `Write` call). After frontmatter completes,
+   the generated handler reads the body-written flag and
+   **conditionally skips the template render** if frontmatter
+   wrote a body. Status committed via `WriteHeader` alone is
+   preserved; the template still runs after `WriteHeader(201)`.
+
+4. The wrapper preserves `http.Flusher` and `http.Hijacker` via a
+   four-combination concrete-type pattern (base, +Flusher,
+   +Hijacker, +both) chosen at construction. `http.Pusher` is
+   intentionally not preserved — modern browsers no longer support
+   HTTP/2 server push, and the replacement (HTTP 103 Early Hints)
+   needs no wrapper support. Adding Pusher later is a 10-minute
+   change.
+
+5. A shared syntactic AST analyser (`internal/analysis/respwrite.go`)
+   flags any frontmatter call that writes to `w` (or is
+   `http.Redirect(w, r, …)`) and is not followed by `return` (or is
+   not the last statement of the function body). Reported via the
+   existing `info.Warnings` channel: dev-mode warns; `gastro generate`,
+   `gastro check`, and `gastro build` (strict) escalate to errors.
+
+6. The marker rewriter is consolidated. The implicit `gastro.X`
+   namespace is now a finite allowlist (Props, Context, From,
+   FromOK, FromContext, FromContextOK, NewSSE, Render); anything
+   else produces an "unknown gastro runtime symbol" warning. The
+   pre-Track-B `From(*Context)` / `FromOK(*Context)` accessors are
+   removed; only `FromContext`/`FromContextOK` remain, and the
+   rewriter aliases the page-friendly `gastro.From[T]` /
+   `gastro.FromOK[T]` to them.
+
+**Headline shape.** A single page handles both GET and POST:
+
+```gastro
+---
+import (
+    "net/http"
+
+    "myapp/app"
+
+    Layout  "components/layout.gastro"
+    Counter "components/counter.gastro"
+
+    "github.com/andrioid/gastro/pkg/gastro/datastar"
+)
+
+state := gastro.From[*app.State](r.Context())
+
+if r.Method == http.MethodPost {
+    n := state.Count.Add(1)
+    html, err := gastro.Render.Counter(CounterProps{Count: int(n)})
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    sse := datastar.NewSSE(w, r)
+    sse.PatchElements(html)
+    return
+}
+
+Title := "Counter"
+Count := int(state.Count.Load())
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    {{ Counter (dict "Count" .Count) }}
+    <button data-on:click="@post('/counter')">+1</button>
+{{ end }}
+```
+
+GET falls through to the template render; POST writes an SSE patch
+and returns, so the body-written flag skips the template.
+
+**What stays out of scope.** Per `plans/frictions-plan.md` rule 2
+("no new language to learn"), Track B does not introduce any new
+frontmatter or template syntax. There is no `action` keyword, no
+snippet directory, no co-located route DSL. The only new authoring
+concept is "if you write to `w`, follow with `return`" — a Go
+idiom, surfaced through a build-time lint.
+
+**Component authoring is unchanged.** Components have no access to
+`(w, r)` and no awareness of HTTP methods. Whether component
+frontmatter should be able to receive a `*http.Request` as a typed
+dependency via `WithDeps[T]` is flagged as a follow-up.
+
 ### Authoritative reference
 
 For the current API, defer to:
 
 - [README](../README.md) — quick start and main-package wiring.
-- [pages.md](pages.md) — frontmatter, `gastro.Context()`, `WithDeps` /
-  `From[T]`, `WithOverride`.
+- [pages.md](pages.md) — page model v2, ambient `(w, r)`, method
+  branching, `WithDeps` / `From[T]`, `WithOverride`.
 - [components.md](components.md) — component authoring and the `Render`
   API.
+- [sse.md](sse.md) — SSE-from-page (the headline pattern) and
+  side-mounted SSE handlers.
 - [deployment.md](deployment.md) — `gastro check` and CI integration.
 - [DECISIONS.md](../DECISIONS.md) — dated entries for each design
   choice landed since this document was written, including the
-  refactor described in this section.
+  refactors described in this section.
