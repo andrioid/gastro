@@ -10,16 +10,19 @@ alongside this plan)._
 >
 > **Wave progress:** Track B shipped (commits `f356cbc`–`2bb3c9f`).
 > Wave 1 shipped (commits `1c229b4`–`133890e`, 2026-05-02). Wave 2 empty
-> (D1 deferred). Wave 3 (A5) is the next item with no blockers.
+> (D1 deferred). Wave 3 (A5) shipped 2026-05-02 — see DECISIONS.md.
+> Wave 4 (C2 + C4) is next.
 >
 > **Resolved questions (2026-05-02):** Q1 A4 dropped (selectors are just
-> ids, users define their own constants). Q2 A5 deprecation via
-> `gastro generate` strict-mode error (matches dict-key precedent). Q3 C2
-> `WithMiddleware` added (same pattern as `WithOverride`, middleware wraps
-> override). Q4 A2 needs audit of dev-mode path resolution. Q5 A6 dropped
-> in favour of documenting existing `WithOverride("GET /static/", ...)` and
-> `Mux()` patterns. Track B has landed (commit `2bb3c9f` and predecessors).
-> Wave 3 reduced to A5 only (A4 removed). Wave 5 A6 removed.
+> ids, users define their own constants). Q2 A5 simplified — no deprecation
+> window. Render API variadic dropped immediately (Go's type checker is
+> the migration signal); `__children` dict literal becomes a standard
+> unknown-key warning via existing validator path. Q3 C2 `WithMiddleware`
+> added (same pattern as `WithOverride`, middleware wraps override). Q4 A2
+> needs audit of dev-mode path resolution. Q5 A6 dropped in favour of
+> documenting existing `WithOverride("GET /static/", ...)` and `Mux()`
+> patterns. Track B has landed (commit `2bb3c9f` and predecessors). Wave 3
+> reduced to A5 only (A4 removed). Wave 5 A6 removed.
 
 ---
 
@@ -106,15 +109,16 @@ ships in Wave 1 and already signals that library mode is acknowledged.
 This wave is currently empty; if D1 or another library-mode item is
 revived, it ships here.
 
-### Wave 3 — Close type-safety gap (A5)
+### Wave 3 — Close type-safety gap (A5) — ✅ SHIPPED 2026-05-02
 
 A4 was dropped (Q1: selectors are id constants, users define their own).
 A5 remains the highest-leverage type-safety item. It improves both framework
-mode and library mode equally.
+mode and library mode equally. Shipped without the originally-planned
+deprecation window (Q2 simplified mid-implementation).
 
 | ID | Title | Effort | Notes |
 |---|---|---|---|
-| A5 | Typed children plumbing | Small-medium | See §3.1 for the full mechanism. In short: rename the magic `__children` dict key to `Children`, auto-add `Children template.HTML` to the generated Props struct when `{{ .Children }}` is used, and move the Render API's `children` variadic parameter into the Props struct. Touches `internal/codegen/template.go`, `internal/codegen/generate.go`, `internal/codegen/validate.go`. Named content areas (sidebar, footer) are explicit `template.HTML` fields — no `slots:` keyword. **Docs:** `docs/components.md` already has the multi-line dict and pre-render sections added 2026-05-02. |
+| A5 | Typed children plumbing | Small | ✅ Shipped. See §3.1 for the full mechanism. In short: rename the magic `__children` dict key to `Children`, auto-add `Children template.HTML` to the generated Props struct when `{{ .Children }}` is used, and move the Render API's `children` variadic parameter into the Props struct. Touches `internal/codegen/template.go`, `internal/codegen/generate.go`, `internal/codegen/validate.go`, `internal/compiler/compiler.go`. Named content areas (sidebar, footer) are explicit `template.HTML` fields — no `slots:` keyword. **No deprecation window** (Q2): the variadic drop is a hard break (Go compiler reports old call sites); user-authored `__children` in dict literals becomes a standard unknown-key warning via the existing `validate.go` path. **Docs:** `docs/components.md` already has the multi-line dict and pre-render sections added 2026-05-02. |
 
 ### 3.1 A5 mechanism (designed 2026-05-02)
 
@@ -172,11 +176,19 @@ user's struct fields from the AST and regenerates a separate exported
 struct with the same fields plus `Children`. `MapToStruct` targets this
 generated struct, so Children populates naturally from the dict.
 
-**Migration:**
+**Migration (no deprecation window — Q2 resolved 2026-05-02):**
 
-- `"__children"` key in user-passed dict calls emits deprecation warning for two minor versions
-- Render API `children` variadic parameter deprecated for two minor versions
-- All examples/docs update immediately (pre-1.0 churn, same pattern as Track B)
+- **Render API variadic dropped immediately.** Old call sites like
+  `Render.Card(CardProps{Title: "Hello"}, childHTML)` fail to compile
+  with a clear Go-level error. Go's type checker is the migration signal;
+  no parallel runtime path needed. Matches Track B's hard-flip precedent
+  and the pre-1.0 BC posture.
+- **`__children` dict literal stops being recognized.** The existing
+  unknown-key validator (`validate.go:187`) gains a special case: when
+  the unknown key is exactly `__children`, the warning message suggests
+  `Children` instead of listing valid fields. This is ergonomic guidance,
+  not a deprecation contract — there is no "two minor versions" obligation.
+- All examples/docs update in the same release (pre-1.0 churn, same pattern as Track B)
 - LSP already recognizes `"Children"` as valid (completions.go:240) — no change needed
 
 ### Wave 4 — Framework-mode additives (no new language)
@@ -577,7 +589,7 @@ A wave is "done" when **all** of the following hold for every item in it:
 |---|---|---|
 | Wave 1 | ✅ Shipped (commits `1c229b4`–`133890e`, 2026-05-02). | Done. |
 | Wave 2 | ~~None.~~ Wave 2 is empty — its only item (D1) was deferred. B2 ships in Wave 1. | ~~D1 only depends on existing `runDev` code.~~ |
-| Wave 3 | ✅ ~~A5 deprecation policy~~ already written in `docs/contributing.md`. Track B landed and uses the convention. No remaining blocker. | Clear — next up. |
+| Wave 3 | ✅ Shipped 2026-05-02. A5 deprecation policy was simplified (Q2): no parallel runtime path; Go's type checker handles variadic-drop migration, validator emits a targeted hint for `__children` dict literals. | Done. |
 | Wave 4 | None for C4. C2 should reuse the `WithOverride` typo-safety machinery; check that it can be factored cleanly without touching the override path. | Quick audit of `internal/compiler/compiler.go` route-pattern validation before starting. |
 | Wave 5 | A2 needs a CI `go generate && git diff --exit-code` step in place if `.gastro/` will eventually be `.gitignore`d. | A1 (toolchain pinning) was deferred — no adopter has asked for it. The CI gate can stand on its own or ship alongside A2. |
 | Track B | ✅ Shipped (commit `2bb3c9f`). Deprecation policy already in `docs/contributing.md`. All sub-questions resolved 2026-05-02 (§4.7). | Done. |
@@ -589,7 +601,7 @@ A wave is "done" when **all** of the following hold for every item in it:
 | # | Question | Owner | Block on |
 |---|---|---|---|
 | ~~Q1~~ | ~~A4: selector behaviour~~ | **Dropped** | A4 dropped |
-| Q2 | A5: deprecation warning format | **Resolved:** `gastro generate` strict-mode error; dev warns. | Wave 3 |
+| ~~Q2~~ | ~~A5: deprecation warning format~~ | **Resolved 2026-05-02:** No deprecation window. Render API variadic dropped immediately (Go compiler is the migration signal); `__children` dict literal becomes a `did you mean Children?` variant of the existing unknown-key warning. See §3.1 Migration. | A5 done |
 | Q3 | C2: precedence between `WithOverride` and `WithMiddleware` | **Resolved:** middleware wraps override. | Wave 4 |
 | Q4 | A2: does `//go:embed` at source dirs change `gastro dev` path resolution? | Needs audit | Wave 5 |
 | ~~Q5~~ | ~~A6: hashed-asset URL discoverability~~ | **Dropped** | A6 dropped |

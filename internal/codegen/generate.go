@@ -185,23 +185,18 @@ var _ = log.Println
 {{ .HoistedTypes }}
 {{- end }}
 
-{{- if .PropsTypeName }}
-
-// {{ .ExportedName }}Props is the exported type alias for use with Render.
-//
-// To call this component from Go code (e.g. an SSE handler), use
-// gastro.Render.{{ .ExportedName }}(props) which returns an HTML string.
-type {{ .ExportedName }}Props = {{ .PropsTypeName }}
-{{- end }}
-
 // {{ .FuncName }} is the unexported component method used by templates.
 // To render this component from Go (handlers, SSE patches), call
 // gastro.Render.{{ .ExportedName }}(...) instead. See render.go.
 func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
+	// Children is the dict key injected by TransformTemplate for wrap blocks
+	// and set by Render.X(XProps{Children: ...}) calls. Pulled out of the
+	// map directly so the user's hoisted Props struct stays unmodified.
+	// Renamed from "__children" in A5.
 	var __children template.HTML
-	if __c, __ok := propsMap["__children"]; __ok {
+	if __c, __ok := propsMap["Children"]; __ok {
 		__children, _ = __c.(template.HTML)
-		delete(propsMap, "__children")
+		delete(propsMap, "Children")
 	}
 	_ = __children
 

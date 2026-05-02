@@ -140,10 +140,15 @@ func TestCompile_GeneratesRenderFile(t *testing.T) {
 	assertStringContains(t, s, "type renderAPI struct{ router *Router }")
 
 	// Should have a Render method for the Layout component (which has Props)
-	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps")
+	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps)")
 
-	// Layout uses {{ .Children }}, so it should have children parameter
-	assertStringContains(t, s, "children ...template.HTML")
+	// A5: Layout uses {{ .Children }}, so LayoutProps must be a real struct
+	// (not a type alias) with a Children template.HTML field. The variadic
+	// `children ...template.HTML` parameter is gone — callers pass children
+	// via LayoutProps{Children: ...}.
+	assertStringContains(t, s, "type LayoutProps struct")
+	assertStringContains(t, s, "Children template.HTML")
+	assertStringNotContains(t, s, "children ...template.HTML")
 
 	// Per-Router Render() should be exposed for race-free multi-router use.
 	assertStringContains(t, s, "func (r *Router) Render() *renderAPI")
@@ -151,6 +156,71 @@ func TestCompile_GeneratesRenderFile(t *testing.T) {
 
 	// Component methods should resolve through r.resolve(), not the global directly.
 	assertStringContains(t, s, "rt := r.resolve()")
+}
+
+// TestCompile_RenderXPropsShapes covers the three XProps generation paths
+// after A5: alias when only Props, real struct when Children, no XProps
+// when neither.
+func TestCompile_RenderXPropsShapes(t *testing.T) {
+	projectDir := t.TempDir()
+	compDir := filepath.Join(projectDir, "components")
+	os.MkdirAll(compDir, 0o755)
+
+	// 1. Props only — should keep the type alias.
+	os.WriteFile(filepath.Join(compDir, "card.gastro"), []byte(
+		"---\n"+
+			"type Props struct {\n\tTitle string\n}\n"+
+			"p := gastro.Props()\nTitle := p.Title\n---\n"+
+			`<div>{{ .Title }}</div>`+"\n"), 0o644)
+
+	// 2. Props + Children — should be a real struct with Children appended.
+	os.WriteFile(filepath.Join(compDir, "layout.gastro"), []byte(
+		"---\n"+
+			"type Props struct {\n\tTitle string\n}\n"+
+			"p := gastro.Props()\nTitle := p.Title\n---\n"+
+			`<main>{{ .Title }}: {{ .Children }}</main>`+"\n"), 0o644)
+
+	// 3. Children only — should be a real struct with just Children.
+	os.WriteFile(filepath.Join(compDir, "slot.gastro"), []byte(
+		`<section>{{ .Children }}</section>`+"\n"), 0o644)
+
+	// 4. Neither — should have no XProps type and a no-arg Render method.
+	os.WriteFile(filepath.Join(compDir, "divider.gastro"), []byte(
+		`<hr/>`+"\n"), 0o644)
+
+	outputDir := t.TempDir()
+	_, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile failed: %v", err)
+	}
+
+	render, err := os.ReadFile(filepath.Join(outputDir, "render.go"))
+	if err != nil {
+		t.Fatalf("render.go missing: %v", err)
+	}
+	s := string(render)
+
+	// 1. Card — type alias, props parameter, no Children field.
+	assertStringContains(t, s, "type CardProps = componentCardProps")
+	assertStringContains(t, s, "func (r *renderAPI) Card(props CardProps)")
+
+	// 2. Layout — real struct, both fields, props parameter.
+	assertStringContains(t, s, "type LayoutProps struct")
+	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps)")
+
+	// 3. Slot — struct with Children only, props parameter.
+	assertStringContains(t, s, "type SlotProps struct")
+	assertStringContains(t, s, "func (r *renderAPI) Slot(props SlotProps)")
+
+	// 4. Divider — no XProps, no params.
+	assertStringNotContains(t, s, "type DividerProps")
+	assertStringContains(t, s, "func (r *renderAPI) Divider()")
+
+	// The variadic children parameter is gone everywhere.
+	assertStringNotContains(t, s, "children ...template.HTML")
+
+	// Children is plumbed via the propsMap key, not a separate variadic.
+	assertStringContains(t, s, `"Children": props.Children`)
 }
 
 // TestCompile_RoutesUsesAtomicActiveRouter is a regression test for the
@@ -668,7 +738,7 @@ func TestCompile_DictKeyTypoSurfacesWarning(t *testing.T) {
 
 // TestCompile_DictKeyValidationDoesNotFalsePositive guards against the
 // dict-key validator flagging legitimate calls. Covers the cases that
-// the validator must explicitly skip: __children injected by wrap, dynamic
+// the validator must explicitly skip: Children injected by wrap, dynamic
 // dict keys, bare-call form, and components that have no Props schema.
 func TestCompile_DictKeyValidationDoesNotFalsePositive(t *testing.T) {
 	projectDir := t.TempDir()
@@ -685,8 +755,8 @@ func TestCompile_DictKeyValidationDoesNotFalsePositive(t *testing.T) {
 			`<div>{{ .Title }}</div>`+"\n"), 0o644)
 	os.WriteFile(filepath.Join(compDir, "divider.gastro"), []byte(`<hr/>`), 0o644)
 
-	// Layout component that takes children — wrap injects __children at
-	// compile time, validator must not flag it.
+	// Layout component that takes children — wrap injects "Children" at
+	// compile time (A5), validator must not flag it.
 	os.WriteFile(filepath.Join(compDir, "layout.gastro"), []byte(
 		"---\n"+
 			"type Props struct {\n\tTitle string\n}\n\n"+
@@ -694,7 +764,7 @@ func TestCompile_DictKeyValidationDoesNotFalsePositive(t *testing.T) {
 			`<main>{{ .Children }}</main>`+"\n"), 0o644)
 
 	// Page exercises every "don't false-positive" branch:
-	//  - Wrap form (validator sees the post-transform body with __children).
+	//  - Wrap form (validator sees the post-transform body with "Children").
 	//  - Bare call without dict.
 	//  - Dynamic dict key (.K resolves at render time).
 	//  - Component with no Props (Divider) called with a dict.
@@ -867,6 +937,13 @@ func assertStringContains(t *testing.T, s, substr string) {
 	t.Helper()
 	if !contains(s, substr) {
 		t.Errorf("expected string to contain %q, but it didn't.\nstring:\n%s", substr, s)
+	}
+}
+
+func assertStringNotContains(t *testing.T, s, substr string) {
+	t.Helper()
+	if contains(s, substr) {
+		t.Errorf("expected string NOT to contain %q, but it did.\nstring:\n%s", substr, s)
 	}
 }
 

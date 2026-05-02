@@ -375,7 +375,13 @@ PascalCase name (`"Card"`).
 
 Components accept children via `{{ .Children }}`. Child content is pre-rendered to
 `template.HTML` in the **parent's** data context, then passed to the component
-as a special `__children` prop.
+as the `Children` prop.
+
+_(Pre-A5 the dict key was the sentinel `__children`. Renaming to `Children`
+lets the typed Render API expose children as a regular struct field on the
+generated `XProps` instead of a separate variadic argument. The validator
+still recognises `__children` and produces a targeted hint for old
+hand-written dicts.)_
 
 **Usage:**
 
@@ -408,7 +414,7 @@ Title := gastro.Props().Title
 The compiler transforms this to:
 
 ```
-{{ __gastro_Layout (dict "Title" .Title "__children" (__gastro_render_children "layout_caller_children" .)) }}
+{{ __gastro_Layout (dict "Title" .Title "Children" (__gastro_render_children "layout_caller_children" .)) }}
 ```
 
 Where `__gastro_render_children` executes a sub-template with the parent's data

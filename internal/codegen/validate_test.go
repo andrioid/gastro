@@ -57,12 +57,35 @@ func TestValidateDictKeys_MultipleTypos(t *testing.T) {
 }
 
 func TestValidateDictKeys_ChildrenIsNotFlagged(t *testing.T) {
-	// TransformTemplate injects "__children" for {{ wrap X ... }} blocks.
-	// The validator must not warn about it even though it isn't a Props field.
-	body := `{{ Card (dict "Title" "Hi" "__children" (__gastro_render_children "x" .)) }}`
+	// TransformTemplate injects "Children" for {{ wrap X ... }} blocks (A5).
+	// The validator must not warn about it even though it isn't a user-defined
+	// Props field — it's plumbed through to {{ .Children }}.
+	body := `{{ Card (dict "Title" "Hi" "Children" (__gastro_render_children "x" .)) }}`
 	warnings := codegen.ValidateDictKeys(body, cardUses(), cardSchema())
 	if len(warnings) != 0 {
-		t.Fatalf("expected no warnings (compile-time __children should be skipped), got: %v", warnings)
+		t.Fatalf("expected no warnings (Children should be skipped), got: %v", warnings)
+	}
+}
+
+// A5: user-authored "__children" (the pre-A5 sentinel name) should produce a
+// targeted warning suggesting the new "Children" key, rather than a generic
+// unknown-prop message. This catches old hand-written code that survived the
+// migration without breaking silently.
+func TestValidateDictKeys_OldChildrenSentinelHinted(t *testing.T) {
+	body := `{{ Card (dict "Title" "Hi" "__children" "<p>old</p>") }}`
+	warnings := codegen.ValidateDictKeys(body, cardUses(), cardSchema())
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning for __children sentinel, got %d: %v", len(warnings), warnings)
+	}
+	w := warnings[0]
+	if !strings.Contains(w.Message, `"__children"`) {
+		t.Errorf("warning should mention the bad key: %q", w.Message)
+	}
+	if !strings.Contains(w.Message, `"Children"`) {
+		t.Errorf("warning should suggest the new key name: %q", w.Message)
+	}
+	if !strings.Contains(w.Message, "Card") {
+		t.Errorf("warning should name the component: %q", w.Message)
 	}
 }
 

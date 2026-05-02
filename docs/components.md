@@ -244,14 +244,21 @@ if err != nil {
 }
 ```
 
-Components with children take an optional `template.HTML` argument:
+Components with children expose a `Children template.HTML` field on their
+Props struct (auto-added by codegen when the template references
+`{{ .Children }}`):
 
 ```go
-html, err := gastro.Render.Layout(
-    gastro.LayoutProps{Title: "Home"},
-    template.HTML("<h1>Welcome</h1>"),
-)
+html, err := gastro.Render.Layout(gastro.LayoutProps{
+    Title:    "Home",
+    Children: template.HTML("<h1>Welcome</h1>"),
+})
 ```
+
+Named content areas (sidebar, footer, etc.) follow the same pattern — add
+an explicit `template.HTML` field to your `Props` struct and reference it
+as `{{ .Sidebar }}` in the template body. There is no separate `slots:`
+keyword.
 
 `Render` lives in the generated `.gastro/render.go`. Each method calls the same
 underlying component function used by the template renderer, so frontmatter

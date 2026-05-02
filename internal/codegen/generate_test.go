@@ -76,8 +76,8 @@ CSSClass := "card"`,
 	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
 	assertNotContains(t, output, `http.ResponseWriter`)
 
-	// Should extract __children from props map
-	assertContains(t, output, `propsMap["__children"]`)
+	// Should extract Children from props map (renamed from "__children" in A5)
+	assertContains(t, output, `propsMap["Children"]`)
 	assertContains(t, output, `"Children": __children`)
 
 	// Should unpack props via MapToStruct with unique type name
@@ -96,8 +96,10 @@ CSSClass := "card"`,
 	// Should hoist type declarations with unique name to avoid collisions
 	assertContains(t, output, "type componentCardProps struct")
 
-	// Should generate exported Props alias for Render API
-	assertContains(t, output, "type CardProps = componentCardProps")
+	// A5: the exported XProps type now lives in render.go (see compiler_test
+	// TestCompile_GeneratesRenderFile), not in the per-component file.
+	assertNotContains(t, output, "type CardProps =")
+	assertNotContains(t, output, "type CardProps struct")
 
 	// Should NOT contain gastroRuntime.NewContext (components don't have context)
 	assertNotContains(t, output, `gastroRuntime.NewContext(w, r)`)
@@ -143,8 +145,11 @@ Tag := props.Tag`,
 	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
 	assertNotContains(t, output, `http.ResponseWriter`)
 
-	// Should still handle props and children
+	// Should still handle props and children (A5 renamed the dict key from
+	// "__children" to "Children"; the component-internal local variable name
+	// __children is unchanged).
 	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
+	assertContains(t, output, `propsMap["Children"]`)
 	assertContains(t, output, `"Children": __children`)
 }
 

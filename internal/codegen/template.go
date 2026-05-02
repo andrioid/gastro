@@ -130,7 +130,10 @@ func transformOneWrap(body string, known map[string]bool, childIdx *int) (string
 	*childIdx++
 
 	// Build the dict call. The user passes (dict ...) as argsStr.
-	// We need to inject "__children" into the dict arguments.
+	// We need to inject "Children" into the dict arguments. The key is
+	// the user-visible field name (matches `{{ .Children }}` in templates
+	// and the `Children template.HTML` field on the generated XProps
+	// struct — see internal/compiler/compiler.go renderTmpl).
 	// Strip outer parens from the dict expression to get the inner args.
 	dictInner := argsStr
 	if strings.HasPrefix(dictInner, "(") && strings.HasSuffix(dictInner, ")") {
@@ -141,7 +144,7 @@ func transformOneWrap(body string, known map[string]bool, childIdx *int) (string
 	}
 
 	replacement := fmt.Sprintf(
-		`{{ %s (%s "__children" (__gastro_render_children "%s" .)) }}`,
+		`{{ %s (%s "Children" (__gastro_render_children "%s" .)) }}`,
 		name, dictInner, childTemplateName,
 	)
 

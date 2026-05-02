@@ -78,8 +78,12 @@ func dictValidationStubFuncs(uses []gastroParser.UseDeclaration) map[string]any 
 //
 // The body must already have been through TransformTemplate; the {{ wrap }}
 // form is gone by then and only the bare-call form {{ X (dict ...) }}
-// remains. The compile-time-injected "__children" key is recognised and
-// silently skipped (it's not a Props field).
+// remains. The compile-time-injected "Children" key (and any user-authored
+// "Children" key on a children-rendering component) is recognised and
+// silently skipped (it's plumbed through without being a user-defined
+// Props field). The pre-A5 sentinel "__children" is no longer recognised
+// at runtime; if encountered, the validator emits a targeted hint
+// suggesting the new key name.
 //
 // Calls whose dict has any non-literal-string key are skipped entirely:
 // when a template builds a dict dynamically (rare but legal) we can't know
@@ -184,9 +188,25 @@ func ValidateDictKeys(
 
 		for _, key := range literalKeys {
 			name := key.Text
+			if name == "Children" {
+				// Compile-time injected by TransformTemplate for wrap form,
+				// or user-authored on a children-rendering component. Either
+				// way, plumbed through to {{ .Children }} without being a
+				// user-defined Props field.
+				continue
+			}
 			if name == "__children" {
-				// Compile-time injected by TransformTemplate for wrap form;
-				// not a user-authored prop key.
+				// Pre-A5 sentinel. No longer recognised by the runtime.
+				// Surface a targeted hint so users encountering this in
+				// hand-written dicts know exactly what to change.
+				line := nodeLine(body, key.Position())
+				warnings = append(warnings, Warning{
+					Line: line,
+					Message: fmt.Sprintf(
+						`dict key %q is no longer recognised on component %s; use %q instead`,
+						name, compName, "Children",
+					),
+				})
 				continue
 			}
 			if validNames[name] {

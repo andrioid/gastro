@@ -936,17 +936,40 @@ func (r *renderAPI) resolve() *Router {
 	return __gastro_active.Load()
 }
 {{ range .Components }}
-func (r *renderAPI) {{ .ExportedName }}({{ if .HasProps }}props {{ .ExportedName }}Props{{ if .HasChildren }}, {{ end }}{{ end }}{{ if .HasChildren }}children ...template.HTML{{ end }}) (string, error) {
+{{- /*
+  XProps type definition. Lives in render.go (not in the per-component
+  file) so it can include the synthetic Children field without modifying
+  the user's hoisted Props struct.
+
+  Three shapes:
+    - HasProps && !HasChildren  -> alias to the user's hoisted struct
+    - HasChildren               -> real struct: user fields + Children template.HTML
+    - !HasProps && !HasChildren -> no XProps type generated (Render.X())
+*/ -}}
+{{- if .HasChildren }}
+// {{ .ExportedName }}Props is the typed prop struct for Render.{{ .ExportedName }}.
+// The Children field carries the rendered HTML children content; it is
+// auto-added by codegen because the component template references {{ "{{ .Children }}" }}.
+type {{ .ExportedName }}Props struct {
+{{- range .PropsFields }}
+	{{ .Name }} {{ .Type }}
+{{- end }}
+	Children template.HTML
+}
+{{- else if .HasProps }}
+// {{ .ExportedName }}Props is the typed prop struct for Render.{{ .ExportedName }}.
+type {{ .ExportedName }}Props = {{ .PropsTypeName }}
+{{- end }}
+
+func (r *renderAPI) {{ .ExportedName }}({{ if or .HasProps .HasChildren }}props {{ .ExportedName }}Props{{ end }}) (string, error) {
 	propsMap := map[string]any{
 {{- range .PropsFields }}
 		"{{ .Name }}": props.{{ .Name }},
 {{- end }}
-	}
 {{- if .HasChildren }}
-	if len(children) > 0 {
-		propsMap["__children"] = children[0]
-	}
+		"Children": props.Children,
 {{- end }}
+	}
 	rt := r.resolve()
 	if rt == nil {
 		return "", fmt.Errorf("gastro: Render.{{ .ExportedName }}: no router constructed yet (call gastro.New() first)")

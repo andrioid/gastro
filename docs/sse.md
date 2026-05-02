@@ -223,14 +223,16 @@ html, err := gastro.Render.Counter(gastro.CounterProps{Count: 42})
 | Props fields | Compile-time — struct fields checked by Go    |
 | Props types | Compile-time — Go type system                  |
 
-Components with children take a variadic last argument:
+Components with children carry a `Children template.HTML` field on their
+Props struct (auto-added by codegen when the template references
+`{{ .Children }}`):
 
 ```go
 inner, _ := gastro.Render.Counter(gastro.CounterProps{Count: 42})
-full, _  := gastro.Render.Layout(
-    gastro.LayoutProps{Title: "Dashboard"},
-    template.HTML(inner),
-)
+full, _  := gastro.Render.Layout(gastro.LayoutProps{
+    Title:    "Dashboard",
+    Children: template.HTML(inner),
+})
 ```
 
 ## Design Notes
