@@ -11,12 +11,12 @@ alongside this plan)._
 > **Wave progress:** Track B shipped (commits `f356cbc`–`2bb3c9f`).
 > Wave 1 shipped (commits `1c229b4`–`133890e`, 2026-05-02). Wave 2 empty
 > (D1 deferred). Wave 3 (A5) shipped 2026-05-02 (commit `e64b553`).
-> Wave 4 (C2 + C4) shipped 2026-05-02 — all C2 design points resolved
-> in the same session (§7 Q3, Q6, Q7); `WithErrorHandler`,
-> `WithMiddleware`, the throwaway-mux pattern probe, the per-route
-> `applyMiddleware` wiring, plus `docs/error-handling.md` all landed.
-> Wave 5 (A2) is next — needs Q4 audit of `gastro dev` path resolution
-> before starting.
+> Wave 4 (C2 + C4) shipped 2026-05-02 (commit `fe04a90`) — all C2
+> design points resolved in the same session (§7 Q3, Q6, Q7);
+> `WithErrorHandler`, `WithMiddleware`, the throwaway-mux pattern
+> probe, the per-route `applyMiddleware` wiring, plus
+> `docs/error-handling.md` all landed. Wave 5 (A2) is next — needs Q4
+> audit of `gastro dev` path resolution before starting.
 >
 > **Resolved questions (2026-05-02):** Q1 A4 dropped (selectors are just
 > ids, users define their own constants). Q2 A5 simplified — no deprecation
