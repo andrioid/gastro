@@ -7,9 +7,6 @@ import (
     GuestbookForm "components/guestbook-form.gastro"
 )
 
-ctx := gastro.Context()
-_ = ctx
-
 Title := "Guestbook (Datastar)"
 Active := "guestbook-datastar"
 Entries := demo.ListEntries()

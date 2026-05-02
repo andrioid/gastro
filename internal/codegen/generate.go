@@ -60,7 +60,7 @@ func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent
 		PackageName:   "gastro",
 		FuncName:      funcName,
 		ExportedName:  ExportedComponentName(funcName),
-		Imports:       file.Imports,
+		Imports:       dedupeAutoImports(file.Imports),
 		Frontmatter:   frontmatter,
 		ExportedVars:  info.ExportedVars,
 		TemplateBody:  file.TemplateBody,
@@ -421,6 +421,34 @@ func rewriteGastroMarkers(frontmatter string) (string, []Warning) {
 		result = result[:e.start] + e.text + result[e.end:]
 	}
 	return result, warnings
+}
+
+// autoImported lists the import paths that the generated handler /
+// component templates always emit. User imports are deduped against
+// this set so that frontmatter declaring e.g. "net/http" (encouraged by
+// Track B for http.Error / http.Redirect) does not produce a duplicate
+// import in the generated output.
+var autoImported = map[string]bool{
+	"log":           true,
+	"net/http":      true,
+	"html/template": true,
+	"bytes":         true, // imported by componentTmpl
+}
+
+// dedupeAutoImports filters out import paths that the codegen already
+// includes by default. Order is preserved.
+func dedupeAutoImports(imports []string) []string {
+	if len(imports) == 0 {
+		return imports
+	}
+	out := make([]string, 0, len(imports))
+	for _, p := range imports {
+		if autoImported[p] {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // ExportedComponentName derives an exported name from a component function name.

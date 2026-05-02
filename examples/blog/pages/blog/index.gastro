@@ -1,15 +1,16 @@
 ---
 import (
+    "net/http"
+
     "myblog/db"
 
     Layout "components/layout.gastro"
     PostCard "components/post-card.gastro"
 )
 
-ctx := gastro.Context()
 posts, err := db.ListPublished()
 if err != nil {
-    ctx.Error(500, "Failed to load posts")
+    http.Error(w, "Failed to load posts", http.StatusInternalServerError)
     return
 }
 

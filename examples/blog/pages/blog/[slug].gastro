@@ -1,16 +1,17 @@
 ---
 import (
+    "net/http"
+
     "myblog/db"
 
     Layout "components/layout.gastro"
 )
 
-ctx := gastro.Context()
-slug := ctx.Param("slug")
+slug := r.PathValue("slug")
 
 post, err := db.GetBySlug(slug)
 if err != nil {
-    ctx.Error(404, "Post not found")
+    http.Error(w, "Post not found", http.StatusNotFound)
     return
 }
 

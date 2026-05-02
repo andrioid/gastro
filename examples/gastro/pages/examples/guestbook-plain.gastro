@@ -7,13 +7,13 @@ import (
     GuestbookForm "components/guestbook-form.gastro"
 )
 
-ctx := gastro.Context()
+q := r.URL.Query()
 
 Title := "Guestbook (Plain)"
 Active := "guestbook-plain"
 Entries := demo.ListEntries()
-Error := ctx.Query("error")
-Success := ctx.Query("success")
+Error := q.Get("error")
+Success := q.Get("success")
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Guestbook (Plain)</h1>

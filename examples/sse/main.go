@@ -5,16 +5,13 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync/atomic"
 	"time"
 
 	gastro "sse-example/.gastro"
+	"sse-example/app"
 
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
-	"github.com/andrioid/gastro/pkg/gastro/datastar"
 )
-
-var count atomic.Int64
 
 func main() {
 	port := os.Getenv("PORT")
@@ -22,37 +19,25 @@ func main() {
 		port = "4242"
 	}
 
-	// Create a top-level mux and mount gastro routes alongside API handlers.
-	mux := http.NewServeMux()
+	state := app.New()
 
-	// SSE endpoint: increments a counter and patches the DOM.
-	// Triggered by Datastar's @get('/api/increment') on the button.
-	mux.HandleFunc("GET /api/increment", handleIncrement)
+	// Track B (plans/frictions-plan.md §4.10): the increment endpoint is
+	// gone from main.go. Both the GET render and the POST patch live in
+	// pages/index.gastro and branch on r.Method. The router registers
+	// the page for every HTTP method so the same .gastro file handles
+	// both. This is the headline mechanic — one source of truth per
+	// route, no parallel API handler to keep in sync with the page.
+	router := gastro.New(gastro.WithDeps(state))
 
-	// SSE endpoint: streams a live clock every second.
-	// Triggered by Datastar's @get('/api/clock') on data-init.
+	// The clock streams from a separate path because long-lived SSE
+	// streams have a different shape than the request / response /
+	// patch pattern of the index page. It still demonstrates that
+	// page handlers (Track B) and side-mounted SSE handlers coexist.
+	mux := router.Mux()
 	mux.HandleFunc("GET /api/clock", handleClock)
 
-	// Mount gastro page routes last (catch-all).
-	mux.Handle("/", gastro.Routes())
-
 	fmt.Printf("Listening on http://localhost:%s\n", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
-}
-
-// handleIncrement sends a single SSE event that patches the counter element.
-// Uses gastro.Render for type-safe component rendering + Datastar for SSE.
-func handleIncrement(w http.ResponseWriter, r *http.Request) {
-	n := count.Add(1)
-
-	html, err := gastro.Render.Counter(gastro.CounterProps{Count: int(n)})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	sse := datastar.NewSSE(w, r)
-	sse.PatchElements(html)
+	log.Fatal(http.ListenAndServe(":"+port, router.Handler()))
 }
 
 // handleClock streams the current time every second.

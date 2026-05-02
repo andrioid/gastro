@@ -1,16 +1,51 @@
 ---
-import Layout "components/layout.gastro"
+import (
+    "net/http"
 
-Title := "SSE + Datastar Example"
+    "sse-example/app"
+
+    Layout "components/layout.gastro"
+    Counter "components/counter.gastro"
+
+    "github.com/andrioid/gastro/pkg/gastro/datastar"
+)
+
+// Track B (plans/frictions-plan.md §4.10) headline pattern: one .gastro
+// file handles both the initial GET render and the POST that updates the
+// page via Datastar. *app.State is registered via gastro.WithDeps in
+// main.go and retrieved here through the typed dep API.
+state := gastro.From[*app.State](r.Context())
+
+if r.Method == http.MethodPost {
+    n := state.Count.Add(1)
+
+    html, err := gastro.Render.Counter(CounterProps{Count: int(n)})
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    sse := datastar.NewSSE(w, r)
+    sse.PatchElements(html)
+    return
+}
+
+// GET — fall through to the template render. The wrapped writer's
+// BodyWritten flag is false here, so the codegen-generated handler runs
+// the template after this frontmatter completes.
+Title := "SSE + Datastar Counter"
+Count := int(state.Count.Load())
 ---
 {{ wrap Layout (dict "Title" .Title) }}
     <h1>SSE + Datastar Counter</h1>
-    <p>Click the button to increment the counter via a server-sent event.</p>
+    <p>Click the button to increment the counter via a server-sent event.
+       The same <code>pages/index.gastro</code> file handles both
+       the initial GET render and the POST that patches the counter.</p>
 
-    <div id="count">0</div>
-    <button data-on:click="@get('/api/increment')">Increment</button>
+    {{ Counter (dict "Count" .Count) }}
+    <button data-on:click="@post('/')">Increment</button>
 
     <h2>Live Clock</h2>
-    <p>This clock updates every second via an SSE stream.</p>
+    <p>This clock updates every second via a separate SSE stream.</p>
     <div id="clock" data-init="@get('/api/clock')">--:--:--</div>
 {{ end }}
