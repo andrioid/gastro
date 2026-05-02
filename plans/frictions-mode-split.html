@@ -1,0 +1,768 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Frictions — library-mode vs framework-mode viability</title>
+<style>
+  :root {
+    --ink: #1a1a1a;
+    --ink-soft: #4a4a4a;
+    --ink-faint: #8a8a8a;
+    --paper: #fafaf7;
+    --paper-card: #ffffff;
+    --rule: #e3e3dc;
+    --accent: #2e6fb3;
+    --accent-soft: #d8e4f1;
+    --good: #2e7d4f;
+    --warn: #b8860b;
+    --bad: #b3392e;
+    --code-bg: #f1f0eb;
+    --pill-bg: #efe9e2;
+    --lib: #6b4fa8;          /* purple = library mode */
+    --lib-soft: #ece5f7;
+    --fw:  #2e7d4f;          /* green  = framework mode */
+    --fw-soft:  #dceae1;
+    --both: #74540c;         /* amber  = both */
+    --both-soft: #f5e3c7;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--paper); }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font: 16px/1.62 "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 56px 32px 96px; }
+  header { border-bottom: 1px solid var(--rule); padding-bottom: 28px; margin-bottom: 36px; }
+  .eyebrow {
+    font: 600 11px/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 14px;
+  }
+  h1 {
+    font-weight: 600;
+    font-size: 36px;
+    line-height: 1.15;
+    margin: 0 0 12px;
+    letter-spacing: -0.01em;
+  }
+  .lede {
+    font-size: 18px;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 64ch;
+  }
+  .meta {
+    margin-top: 18px;
+    font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-faint);
+  }
+  .meta strong { color: var(--ink-soft); font-weight: 600; }
+
+  h2 {
+    font-weight: 600;
+    font-size: 24px;
+    line-height: 1.25;
+    margin: 56px 0 12px;
+    letter-spacing: -0.005em;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 6px;
+  }
+  h3 { font-weight: 600; font-size: 19px; margin: 28px 0 8px; }
+  h4 {
+    font: 600 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin: 16px 0 4px;
+  }
+  p { margin: 0 0 14px; }
+
+  code, kbd, pre {
+    font-family: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.86em;
+  }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre {
+    background: var(--code-bg);
+    padding: 14px 16px;
+    border-radius: 4px;
+    overflow-x: auto;
+    line-height: 1.5;
+    margin: 12px 0 18px;
+    border-left: 2px solid var(--accent);
+  }
+  pre code { background: none; padding: 0; }
+
+  .definitions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin: 14px 0 26px;
+  }
+  .def {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 18px 22px;
+    background: var(--paper-card);
+  }
+  .def.lib { border-left: 4px solid var(--lib); }
+  .def.fw  { border-left: 4px solid var(--fw); }
+  .def h3 { margin: 0 0 6px; font-size: 16px; }
+  .def p  { font-size: 14px; color: var(--ink-soft); margin: 0 0 8px; }
+  .def ul { font-size: 14px; color: var(--ink-soft); padding-left: 20px; margin: 0; }
+
+  .card {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 22px 26px 18px;
+    margin: 22px 0;
+    background: var(--paper-card);
+  }
+  .card.lib  { border-left: 4px solid var(--lib);  }
+  .card.fw   { border-left: 4px solid var(--fw);   }
+  .card.both { border-left: 4px solid var(--both); }
+
+  .card-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .card-head h3 { margin: 0; flex: 1; font-size: 17px; }
+  .card-head .id {
+    font: 600 12px/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.05em;
+    color: var(--ink-faint);
+    margin-right: 4px;
+  }
+
+  .pill {
+    font: 600 10px/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 99px;
+    white-space: nowrap;
+  }
+  .pill.lib  { background: var(--lib-soft);  color: var(--lib);  }
+  .pill.fw   { background: var(--fw-soft);   color: var(--fw);   }
+  .pill.both { background: var(--both-soft); color: var(--both); }
+
+  .verdict {
+    font: 600 10px/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 99px;
+  }
+  .verdict.go     { background: #d8e6dc; color: #235338; }
+  .verdict.maybe  { background: #f5e3c7; color: #74540c; }
+  .verdict.no     { background: #f7d8d3; color: #7a2118; }
+
+  ul { padding-left: 22px; margin: 4px 0 14px; }
+  li { margin: 4px 0; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 14px 0 22px;
+    font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  th {
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
+    border-bottom: 1.5px solid var(--ink-soft);
+  }
+  td.id { color: var(--accent); font-weight: 600; width: 44px; white-space: nowrap; }
+  td.center { text-align: center; }
+
+  .tag {
+    display: inline-block;
+    font: 600 10px/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: 99px;
+    background: var(--pill-bg);
+    color: var(--ink-soft);
+  }
+  .tag.p0 { background: #f7d8d3; color: #7a2118; }
+  .tag.p1 { background: #f5e3c7; color: #74540c; }
+  .tag.p2 { background: #efe9e2; color: var(--ink-soft); }
+  .tag.p3 { background: #ececec; color: var(--ink-faint); }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin: 12px 0 6px;
+  }
+  .col { padding: 10px 14px; border-radius: 4px; }
+  .col.lib { background: var(--lib-soft);  border-left: 3px solid var(--lib); }
+  .col.fw  { background: var(--fw-soft);   border-left: 3px solid var(--fw);  }
+  .col h4 { margin: 0 0 4px; color: var(--ink-soft); }
+  .col p  { font-size: 14px; margin: 0; color: var(--ink-soft); }
+
+  blockquote {
+    margin: 14px 0;
+    padding: 10px 16px;
+    border-left: 3px solid var(--accent);
+    color: var(--ink-soft);
+    background: var(--accent-soft);
+    border-radius: 0 4px 4px 0;
+  }
+  blockquote p { margin: 0; }
+
+  .legend {
+    font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+    color: var(--ink-soft);
+    margin: 8px 0 22px;
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .legend span.swatch {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 2px; vertical-align: middle; margin-right: 6px;
+  }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    color: var(--ink-faint);
+    font: 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+  }
+
+  @media (max-width: 720px) {
+    .wrap { padding: 36px 20px 64px; }
+    h1 { font-size: 28px; }
+    .definitions, .two-col { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Frictions evaluation · 2026-05-02</p>
+  <h1>Frictions, mapped to library-mode vs framework-mode viability</h1>
+  <p class="lede">
+    Each item in <code>frictions.md</code> evaluated against Gastro's stated
+    design goals — <em>fun Go web dev, idiomatic stdlib usage, end-to-end type
+    safety, opinionated structure</em> — and split between the two
+    de-facto consumption modes that the friction document itself reveals.
+  </p>
+  <p class="meta">
+    <strong>Source:</strong> <code>frictions.md</code> (baseline gastro v0.1.15) &nbsp;·&nbsp;
+    <strong>Reference:</strong> <code>docs/design.md</code>, <code>README.md</code>, <code>DECISIONS.md</code> &nbsp;·&nbsp;
+    <strong>Scope:</strong> Sections A–D (E/F deferred per scope agreement)
+  </p>
+</header>
+
+<h2>The two modes, named</h2>
+<p>
+  Section C of the friction backlog is explicit about a split that the rest of
+  the document leaves implicit: a downstream project (git-pm) decided to skip
+  page routes entirely (<code>01KQ45N0</code>) and call gastro components
+  directly from its own Go handlers, because mutating handlers don't fit a
+  page-rendering model. Naming the modes makes the trade-off legible.
+</p>
+
+<div class="definitions">
+  <div class="def fw">
+    <h3>Framework mode <span class="pill fw">primary</span></h3>
+    <p>
+      Pages live in <code>pages/</code>. Routes are auto-generated. Deps come
+      from <code>WithDeps[T]</code> + <code>From[T](ctx)</code>. The host
+      typically does <code>http.ListenAndServe(":4242", router.Handler())</code>
+      and stops there.
+    </p>
+    <ul>
+      <li>Astro/PHP-style DX is the headline pitch.</li>
+      <li>Best fit: read-heavy pages, content sites, classic CRUD.</li>
+      <li>Stresses out under: SSE-morph-heavy apps where 80% of work is mutating handlers.</li>
+    </ul>
+  </div>
+  <div class="def lib">
+    <h3>Library mode <span class="pill lib">emergent</span></h3>
+    <p>
+      User writes their own router/handlers. Components are invoked through the
+      generated <code>Render.X(props)</code>. Auto-generated page routes are
+      ignored or replaced via <code>WithOverride</code>.
+    </p>
+    <ul>
+      <li>What git-pm landed on after evaluating both.</li>
+      <li>Best fit: SSE-heavy event-sourced apps, anything where one logical "page" needs many mutating endpoints sharing state.</li>
+      <li>Stresses out under: <code>gastro dev</code> assumptions about <code>main.go</code> layout, hand-coded SSE selectors, manual children plumbing.</li>
+    </ul>
+  </div>
+</div>
+
+<blockquote><p>
+  Gastro's design goals — <em>fun, idiomatic, type-safe, opinionated</em> —
+  point at framework mode. But the project structure goal also says
+  <strong>opinionated</strong>, not <strong>exclusive</strong>: components are
+  exported as a typed Go API (<code>Render.X</code>) on purpose. The two modes
+  are both legitimate; the question is which frictions to close in each.
+</p></blockquote>
+
+<h2>Verdict matrix</h2>
+<p class="legend">
+  <span><span class="swatch" style="background:var(--lib)"></span>Library-mode item</span>
+  <span><span class="swatch" style="background:var(--fw)"></span>Framework-mode item</span>
+  <span><span class="swatch" style="background:var(--both)"></span>Both modes</span>
+</p>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th><th>Friction</th><th>Mode affinity</th>
+      <th>Priority</th><th>Verdict</th><th>Goals served</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td class="id">A1</td><td>CLI not toolchain-pinnable</td><td><span class="pill both">Both</span></td><td><span class="tag p1">P1</span></td><td><span class="verdict go">Ship — directive form</span></td><td>Idiomatic Go</td></tr>
+    <tr><td class="id">A2</td><td>Generated code committed</td><td><span class="pill both">Both</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict maybe">After A1; option 1 first</span></td><td>Idiomatic Go</td></tr>
+    <tr><td class="id">A3</td><td>Two render paths (Props vs <code>dict</code>)</td><td><span class="pill both">Both</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict maybe">Hold — v0.1.15 closed the gap</span></td><td>Type safety</td></tr>
+    <tr><td class="id">A4</td><td>Selector ↔ component decoupling</td><td><span class="pill lib">Lib (today)</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict go">Ship — high leverage, low cost</span></td><td>Type safety</td></tr>
+    <tr><td class="id">A5</td><td>Untyped children plumbing</td><td><span class="pill both">Both, lib stings more</span></td><td><span class="tag p1">P1</span></td><td><span class="verdict go">Ship — typed <code>Children</code> + slots</span></td><td>Type safety</td></tr>
+    <tr><td class="id">A6</td><td>No static-asset hashing</td><td><span class="pill both">Both</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict maybe">Runtime variant first</span></td><td>Opinionated structure</td></tr>
+    <tr><td class="id">A7</td><td>Component name collision</td><td><span class="pill both">Both</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict go">Ship — pure DX</span></td><td>Fun</td></tr>
+    <tr><td class="id">B1</td><td>Snippet / include idiom</td><td><span class="pill fw">Mostly framework</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict maybe">Defer — tension with opinion</span></td><td>Fun (vs structure)</td></tr>
+    <tr><td class="id">B2</td><td>Per-router dev mode</td><td><span class="pill lib">Lib</span></td><td><span class="tag p3">P3</span></td><td><span class="verdict go">Ship — trivial</span></td><td>Idiomatic Go</td></tr>
+    <tr><td class="id">C1</td><td>Page actions</td><td><span class="pill fw">Framework</span></td><td><span class="tag p1">P1</span></td><td><span class="verdict maybe">Spike before committing</span></td><td>Fun (risks idiom)</td></tr>
+    <tr><td class="id">C2</td><td>Route middleware composition</td><td><span class="pill fw">Framework</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict go">Ship — additive</span></td><td>Idiomatic Go</td></tr>
+    <tr><td class="id">C3</td><td>Programmatic page invocation</td><td><span class="pill fw">Framework</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict maybe">Only after C1</span></td><td>Type safety</td></tr>
+    <tr><td class="id">C4</td><td>Page render error contract</td><td><span class="pill fw">Framework</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict go">Ship — mostly docs</span></td><td>Idiomatic Go</td></tr>
+    <tr><td class="id">C5</td><td>Test helpers for page handlers</td><td><span class="pill fw">Framework</span></td><td><span class="tag p3">P3</span></td><td><span class="verdict maybe">After C3</span></td><td>Fun</td></tr>
+    <tr><td class="id">D1</td><td><code>gastro dev</code> for embedded-package projects</td><td><span class="pill lib">Lib</span></td><td><span class="tag p2">P2</span></td><td><span class="verdict go">Ship — <code>gastro watch</code></span></td><td>Fun (unlocks lib mode)</td></tr>
+  </tbody>
+</table>
+
+<p>
+  Three observations from the matrix that the per-item analysis below expands on:
+</p>
+<ul>
+  <li><strong>Section A is mostly mode-neutral.</strong> Six of seven A-items improve both modes. They're the backbone of any forward plan.</li>
+  <li><strong>Section C is framework-only by construction.</strong> The whole section exists because framework mode lost a real-world bake-off. Its items don't help library users — but if framework mode is the headline pitch, ducking C1 means accepting that headline applies only to read-heavy apps.</li>
+  <li><strong>D1 and B2 are the "library mode is a real mode" items.</strong> Cheap. Worth shipping just to acknowledge the use case Gastro has — without committing to building it out into a parallel framework.</li>
+</ul>
+
+<h2>Group 1 — Mode-neutral plumbing (Section A)</h2>
+
+<div class="card both">
+  <div class="card-head">
+    <span class="id">A1</span>
+    <h3>CLI not toolchain-pinnable</h3>
+    <span class="pill both">Both</span>
+    <span class="verdict go">Ship — directive form</span>
+  </div>
+  <p>
+    The <code>go run github.com/andrioid/gastro/cmd/gastro@VERSION generate</code>
+    directive matches what protobuf, sqlc, and ent already do — squarely in
+    "idiomatic Go" territory. The importable <code>codegen.Run()</code>
+    alternative locks the codegen entry point as public API and forecloses
+    future refactors; that's a bigger commitment than the friction warrants.
+  </p>
+  <div class="two-col">
+    <div class="col fw"><h4>Framework</h4><p>Solves the "stale CLI builds clean but generates wrong code" surprise during version bumps.</p></div>
+    <div class="col lib"><h4>Library</h4><p>Same benefit, no special handling needed.</p></div>
+  </div>
+  <p><strong>Goal alignment:</strong> straight idiomatic-Go win. No tension.</p>
+</div>
+
+<div class="card both">
+  <div class="card-head">
+    <span class="id">A2</span>
+    <h3>Generated code committed</h3>
+    <span class="pill both">Both</span>
+    <span class="verdict maybe">After A1; embed-indirection first</span>
+  </div>
+  <p>
+    Option 1 (point <code>//go:embed</code> at source <code>components/</code> and
+    <code>pages/</code> instead of <code>.gastro/templates/</code> copies) is
+    the safer first move — it shrinks the committed tree without changing the
+    review story. Option 2 (full <code>.gitignore</code>) only becomes safe
+    once A1 makes <code>go generate</code> reproducible; doing it earlier
+    silently amplifies version-skew failures.
+  </p>
+  <p><strong>Goal alignment:</strong> reduces noise, keeps "gastro is a Go project" pitch honest.</p>
+</div>
+
+<div class="card both">
+  <div class="card-head">
+    <span class="id">A3</span>
+    <h3>Two render paths to maintain</h3>
+    <span class="pill both">Both</span>
+    <span class="verdict maybe">Hold — v0.1.15 closed the worst of it</span>
+  </div>
+  <p>
+    The 2026-04-30 build-time <code>dict</code> validation already converted
+    the painful runtime case ("blank Card field on a typo") into a build
+    error. What remains is mechanical edit-fatigue, not correctness. Both
+    proposed options have real costs:
+  </p>
+  <ul>
+    <li><strong>Option 1 (codegen-time migration):</strong> rewriting user code on the way through the compiler is a surprising and hard-to-undo behaviour. Violates "the user's source is the source of truth".</li>
+    <li><strong>Option 2 (typed call syntax):</strong> introduces a parallel template syntax. Directly conflicts with the design goal "no new language to learn — standard <code>html/template</code> under the hood".</li>
+  </ul>
+  <p>
+    Recommended: stay with v0.1.15's validation as the long-term answer
+    unless and until template ergonomics show a sharper concrete pain that
+    neither option masks. This is one of the very few items where doing
+    nothing is the design-aligned answer.
+  </p>
+</div>
+
+<div class="card lib">
+  <div class="card-head">
+    <span class="id">A4</span>
+    <h3>Selector ↔ component decoupling</h3>
+    <span class="pill lib">Lib today, both later</span>
+    <span class="verdict go">Ship — high leverage</span>
+  </div>
+  <p>
+    Library mode hits this acutely: SSE morph handlers in user Go code
+    hardcode <code>"#pm-decisions-list"</code> and break silently when a
+    component's root <code>id=</code> changes. Framework mode hits the same
+    pain the moment C1 (page actions) is in play, because actions emit
+    Datastar patches scoped to selectors.
+  </p>
+  <div class="two-col">
+    <div class="col lib"><h4>Library</h4><p>Drop-in upgrade for any handler doing morph patches today. Zero migration cost — call sites move from string literals to <code>Render.X.Selector</code> incrementally.</p></div>
+    <div class="col fw"><h4>Framework</h4><p>Becomes a typed contract once C1 lands. Codegen can emit selectors as constants on the action's return type.</p></div>
+  </div>
+  <p>
+    <strong>Goal alignment:</strong> end-to-end type safety. The "1 component
+    : N mounts" caveat in the original write-up is real but rare; treating
+    the constant as a <em>default</em> (overridable by literal) is the right
+    pragmatic shape.
+  </p>
+</div>
+
+<div class="card both">
+  <div class="card-head">
+    <span class="id">A5</span>
+    <h3>Untyped children plumbing</h3>
+    <span class="pill both">Both, library stings more</span>
+    <span class="verdict go">Ship — typed <code>Children</code> + slots</span>
+  </div>
+  <p>
+    <code>__children</code> is the last untyped corner of the Props surface.
+    Library mode notices it first because handlers construct Props by hand
+    (e.g. <code>LayoutProps.Detail template.HTML</code>); framework mode
+    only notices when reaching for named slots. A frontmatter <code>slots:</code>
+    field that generates typed <code>template.HTML</code> fields is the
+    cleanest closure of the type-safety gap.
+  </p>
+  <p>
+    <strong>Migration cost is real:</strong> existing manual Props that pass
+    children via the <code>dict</code> map break. That should be a tracked
+    deprecation, not a silent flip. The <em>current</em> map-based form can
+    coexist for one or two minor versions with a build warning.
+  </p>
+  <p>
+    <strong>Goal alignment:</strong> directly serves "type-safety for
+    components and templates". This is the highest-impact A-item after A4.
+  </p>
+</div>
+
+<div class="card both">
+  <div class="card-head">
+    <span class="id">A6</span>
+    <h3>No static-asset hashing</h3>
+    <span class="pill both">Both</span>
+    <span class="verdict maybe">Runtime variant first</span>
+  </div>
+  <p>
+    The build-time path-rewriting half is the fragile one (CSS
+    <code>url()</code>, JS-built URLs, attribute parsing edge cases). The
+    runtime <em>hash + redirect</em> half is small, robust, and immediately
+    unlocks long-cache headers without any template rewriting. Ship that
+    behind <code>WithHashedStatic()</code> and revisit build-time rewriting
+    if a real adopter says the runtime form leaves win on the table.
+  </p>
+  <p>
+    <strong>Goal alignment:</strong> mild friction with "opinionated
+    structure" (it's an <em>option</em>, not a default), but consistent with
+    "single binary, zero runtime dependencies" — the hash table lives in
+    process memory.
+  </p>
+</div>
+
+<div class="card both">
+  <div class="card-head">
+    <span class="id">A7</span>
+    <h3>Component name collision warning</h3>
+    <span class="pill both">Both</span>
+    <span class="verdict go">Ship — pure DX, trivial</span>
+  </div>
+  <p>
+    A constant-time pre-pass over the component list during compile. The
+    failure mode today (an opaque Go compile error somewhere downstream)
+    burns half an hour the first time and zero minutes after that — but
+    that first half hour is exactly the "Go web dev should be fun" promise
+    breaking. No design tension whatsoever.
+  </p>
+</div>
+
+<h2>Group 2 — Library mode unlocks (B2, D1)</h2>
+
+<div class="card lib">
+  <div class="card-head">
+    <span class="id">B2</span>
+    <h3>Per-router dev mode</h3>
+    <span class="pill lib">Lib</span>
+    <span class="verdict go">Ship — trivial</span>
+  </div>
+  <p>
+    A single-process app rarely needs this, but parallel test setups and
+    multi-tenant servers do. The handler-instance refactor (decision
+    2026-04-26) already moved <code>isDev</code> onto the
+    <code>*Router</code>; this is just exposing a setter that overrides the
+    env var. <em>Trivial</em> in the friction doc is accurate.
+  </p>
+</div>
+
+<div class="card lib">
+  <div class="card-head">
+    <span class="id">D1</span>
+    <h3><code>gastro dev</code> unusable for embedded-package projects</h3>
+    <span class="pill lib">Lib</span>
+    <span class="verdict go">Ship — split into <code>gastro watch</code></span>
+  </div>
+  <p>
+    This is the friction that decides whether library mode is a supported
+    use case or an unofficial accident. Cost is low: the watcher loop in
+    <code>runDev</code> already exists; extracting <code>runWatch</code> is
+    refactoring, not new design. After it lands, <code>gastro dev</code> can
+    deprecate to a thin wrapper around <code>gastro watch</code> + a
+    project-supplied build command, collapsing back to one mental model.
+  </p>
+  <p>
+    <strong>Goal alignment:</strong> shipping this signals that
+    <em>"components as a Go API"</em> is a first-class shape, not a
+    workaround. That matters because the typed <code>Render</code> surface
+    is already public; pretending only framework mode exists makes the
+    docs lie about what the binary actually supports.
+  </p>
+</div>
+
+<h2>Group 3 — Framework mode lift (Section C)</h2>
+
+<div class="card fw">
+  <div class="card-head">
+    <span class="id">C1</span>
+    <h3>Page actions — mutating handlers in <code>.gastro</code></h3>
+    <span class="pill fw">Framework</span>
+    <span class="verdict maybe">Spike before committing</span>
+  </div>
+  <p>
+    This is the single most consequential item in the document. It's the
+    only one that decides whether framework mode is viable for SSE-heavy
+    apps, and it's also the one with the largest design surface: a new
+    keyword, a new return type, a new error contract, a new way for
+    frontmatter to fail. Two countervailing pressures:
+  </p>
+  <div class="two-col">
+    <div class="col fw"><h4>Pulls toward shipping</h4><p>The whole framework-mode pitch (Astro DX) collapses for mutating apps without it. Without C1, the "primary" mode is the one fewer real apps choose.</p></div>
+    <div class="col lib"><h4>Pulls toward holding</h4><p>It introduces a real DSL on top of <code>html/template</code>. The README explicitly promises <em>"no new language to learn"</em>. Once shipped, the action surface becomes part of every gastro upgrade story forever.</p></div>
+  </div>
+  <p>
+    <strong>Recommendation:</strong> spike in <code>examples/</code> before
+    committing to the syntax. Build the git-pm board page two ways — once
+    with library-mode handlers (today's status quo), once with a prototype
+    <code>action</code> declaration in a page. Compare the line counts, the
+    error stories, and the test setup. The friction document already
+    identifies A3 as a prerequisite; A4 and A5 also need to be in place
+    before action returns can be type-checked end-to-end. <em>This is not a
+    one-PR feature.</em>
+  </p>
+  <p>
+    <strong>Goal alignment:</strong> serves the "fun" goal best of any
+    item; tensest with the "idiomatic Go" goal of any item. Worth the
+    investment, but only after the supporting type-safety items
+    (A4, A5) are landed so that the new surface ships <em>typed</em>
+    rather than as another <code>map[string]any</code> retreat.
+  </p>
+</div>
+
+<div class="card fw">
+  <div class="card-head">
+    <span class="id">C2</span>
+    <h3>Route middleware composition</h3>
+    <span class="pill fw">Framework</span>
+    <span class="verdict go">Ship — additive</span>
+  </div>
+  <p>
+    <code>WithMiddleware(pattern, h)</code> as a sibling of the existing
+    <code>WithOverride(pattern, h)</code>. Same typo-safety contract (panic
+    on unknown pattern), same option-at-construction shape. Useful even
+    without C1: per-route CSRF/origin checks already need this in any app
+    that mounts both browser pages and SSE endpoints under one router.
+  </p>
+  <p>
+    <strong>One real design question</strong> the doc raises: option-per-pattern
+    vs converging on a chi/gin-style middleware chain. Recommendation: keep
+    option-per-pattern. Gastro's whole router is declarative; switching to
+    a fluent chain would be the odd one out.
+  </p>
+</div>
+
+<div class="card fw">
+  <div class="card-head">
+    <span class="id">C3</span>
+    <h3>Programmatic page invocation</h3>
+    <span class="pill fw">Framework</span>
+    <span class="verdict maybe">Only after C1</span>
+  </div>
+  <p>
+    Without C1, page frontmatter is just "render this template with these
+    deps", and the generated <code>Render.X(props)</code> already covers the
+    re-render-from-an-SSE-handler case. C3 only earns its keep if pages start
+    holding meaningful logic that morph handlers want to reuse — which is
+    precisely the C1 scenario.
+  </p>
+  <p>
+    Naming the accessor <code>RenderPage</code> (not folding it into
+    <code>Render</code>) is correct: pages run a different pipeline (deps
+    attachment, request context) than components, and the typed accessor
+    should make that visible.
+  </p>
+</div>
+
+<div class="card fw">
+  <div class="card-head">
+    <span class="id">C4</span>
+    <h3>Page render error contract</h3>
+    <span class="pill fw">Framework</span>
+    <span class="verdict go">Ship — mostly docs</span>
+  </div>
+  <p>
+    Pure additive. <code>WithErrorHandler(func)</code> + a documented
+    <code>FromOK[T]</code> idiom + an <code>error-handling.md</code> doc.
+    The cost is committing to a public failure contract, not the code. The
+    real win is making framework mode <em>predictable</em> — production
+    adopters won't move workloads to gastro without this.
+  </p>
+</div>
+
+<div class="card fw">
+  <div class="card-head">
+    <span class="id">C5</span>
+    <h3>Test helpers for page handlers</h3>
+    <span class="pill fw">Framework</span>
+    <span class="verdict maybe">After C3, keep small</span>
+  </div>
+  <p>
+    A wrapper over <code>httptest</code> that hides the most repetitive
+    plumbing. Worth shipping <em>only</em> if it stays small — six lines per
+    project becomes a maintenance burden the moment it grows a fluent DSL.
+    The friction doc's own framing ("resist the urge to add fluent-DSL
+    features") is correct; the discipline question is whether to commit to
+    that discipline before the package exists.
+  </p>
+</div>
+
+<h2>Group 4 — The standalone tension item (B1)</h2>
+
+<div class="card fw">
+  <div class="card-head">
+    <span class="id">B1</span>
+    <h3>Snippet / include idiom</h3>
+    <span class="pill fw">Mostly framework</span>
+    <span class="verdict maybe">Defer — explicit tension with goal #4</span>
+  </div>
+  <p>
+    The friction doc identifies a real cost (10–20 line shared fragments
+    paying full component overhead), but the <em>solution</em> sits awkwardly
+    against the "opinionated project structure" goal. Adding <code>snippets/</code>
+    or a <code>snippet: true</code> frontmatter flag means a second
+    authoring concept whose distinction from "component" is "no Props" — a
+    line that's easy to author wrong and creates a refactor with no
+    automated path when a snippet eventually grows parameters.
+  </p>
+  <p>
+    Two existing escape hatches partly cover this:
+  </p>
+  <ul>
+    <li>File-local <code>{{define}} / {{template}}</code> already handles within-file factoring (design.md §8).</li>
+    <li>Components without a Props struct are valid since v0.1 (TODO.md backlog item, marked done) — the overhead complaint is mostly the committed-codegen volume, which A2 addresses directly.</li>
+  </ul>
+  <p>
+    <strong>Recommendation:</strong> hold until a use case appears that
+    neither of those covers cleanly. If A2 lands and the
+    <code>.gastro/</code> tree stops being committed, much of the
+    "snippet feels like overkill" complaint disappears with it.
+  </p>
+</div>
+
+<h2>Recommended ordering</h2>
+<p>
+  If items land in dependency order rather than priority order, the path
+  through the document is roughly:
+</p>
+<ol>
+  <li><strong>A7, B2, A1</strong> — pure wins, no tension, unblock A2.</li>
+  <li><strong>D1</strong> — acknowledges library mode is a supported shape; cheap.</li>
+  <li><strong>A4, A5</strong> — close the type-safety gaps that any C1 design needs to lean on.</li>
+  <li><strong>C2, C4</strong> — additive framework-mode improvements that don't depend on C1.</li>
+  <li><strong>A2</strong> — once A1 makes <code>go generate</code> reproducible.</li>
+  <li><strong>A6 (runtime variant only)</strong> — production adopter unlock.</li>
+  <li><strong>C1 spike</strong> — prototype in <code>examples/</code>, measure against library-mode equivalent, then decide.</li>
+  <li><strong>C3, C5</strong> — only after C1 lands and proves out.</li>
+  <li><strong>A3, B1</strong> — hold; both have stated goal-tensions and partial existing answers.</li>
+</ol>
+
+<h2>The honest meta-question</h2>
+<p>
+  The C-section exists because a real downstream project ran a bake-off and
+  framework mode lost. Gastro's design goals say framework mode should win
+  that bake-off. There are two coherent responses:
+</p>
+<div class="two-col">
+  <div class="col fw">
+    <h4>Option A — Make framework mode win</h4>
+    <p>Ship C1 (with C2/C3/C4/C5 in tow), accept that frontmatter becomes a small DSL, accept the "no new language" claim becomes "minimal new language". This is the path that honours the <em>Astro-DX</em> half of the pitch.</p>
+  </div>
+  <div class="col lib">
+    <h4>Option B — Promote library mode to first-class</h4>
+    <p>Ship D1, A4, A5, B2 cleanly. Document <em>"use Gastro components as a typed Go API; bring your own router for mutating handlers"</em> as a recommended shape. Pages become an opinionated convenience for read-heavy apps. This honours the <em>idiomatic Go</em> half.</p>
+  </div>
+</div>
+<p>
+  The friction document, by listing C1 as P1, leans toward Option A. The
+  effort assessment ("Large", "design work required", "not a quick fix") is
+  the friction document quietly admitting Option A is the harder path.
+  Either is internally consistent; the one mistake would be to spend the C1
+  effort halfway and ship a feature that doesn't make framework mode
+  decisively better than library mode for the apps currently choosing
+  library mode.
+</p>
+
+<footer>
+  <p>
+    Generated 2026-05-02 against <code>frictions.md</code> @ baseline gastro
+    v0.1.15 + commit <code>e0a2bc4</code>. Verdicts are recommendations, not
+    decisions.
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
