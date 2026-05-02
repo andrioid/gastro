@@ -10,8 +10,10 @@ alongside this plan)._
 >
 > **Wave progress:** Track B shipped (commits `f356cbc`–`2bb3c9f`).
 > Wave 1 shipped (commits `1c229b4`–`133890e`, 2026-05-02). Wave 2 empty
-> (D1 deferred). Wave 3 (A5) shipped 2026-05-02 — see DECISIONS.md.
-> Wave 4 (C2 + C4) is next.
+> (D1 deferred). Wave 3 (A5) shipped 2026-05-02 (commit `e64b553`).
+> Wave 4 (C2 + C4) is next — has two open design points for C2
+> (§7 Q6, Q7) plus a quick `WithOverride` factoring audit (§6)
+> recommended before implementation.
 >
 > **Resolved questions (2026-05-02):** Q1 A4 dropped (selectors are just
 > ids, users define their own constants). Q2 A5 simplified — no deprecation
@@ -109,18 +111,25 @@ ships in Wave 1 and already signals that library mode is acknowledged.
 This wave is currently empty; if D1 or another library-mode item is
 revived, it ships here.
 
-### Wave 3 — Close type-safety gap (A5) — ✅ SHIPPED 2026-05-02
+### Wave 3 — Close type-safety gap (A5) — ✅ SHIPPED 2026-05-02 (commit `e64b553`)
 
 A4 was dropped (Q1: selectors are id constants, users define their own).
-A5 remains the highest-leverage type-safety item. It improves both framework
-mode and library mode equally. Shipped without the originally-planned
-deprecation window (Q2 simplified mid-implementation).
+A5 remained the highest-leverage type-safety item; it improves both
+framework mode and library mode equally. Shipped without the
+originally-planned deprecation window (Q2 simplified mid-implementation
+— see DECISIONS.md 2026-05-02 entry for the rationale).
 
-| ID | Title | Effort | Notes |
+| ID | Title | Effort | Status |
 |---|---|---|---|
-| A5 | Typed children plumbing | Small | ✅ Shipped. See §3.1 for the full mechanism. In short: rename the magic `__children` dict key to `Children`, auto-add `Children template.HTML` to the generated Props struct when `{{ .Children }}` is used, and move the Render API's `children` variadic parameter into the Props struct. Touches `internal/codegen/template.go`, `internal/codegen/generate.go`, `internal/codegen/validate.go`, `internal/compiler/compiler.go`. Named content areas (sidebar, footer) are explicit `template.HTML` fields — no `slots:` keyword. **No deprecation window** (Q2): the variadic drop is a hard break (Go compiler reports old call sites); user-authored `__children` in dict literals becomes a standard unknown-key warning via the existing `validate.go` path. **Docs:** `docs/components.md` already has the multi-line dict and pre-render sections added 2026-05-02. |
+| A5 | Typed children plumbing | Small | ✅ Renamed the magic `__children` dict key to `Children`; XProps definition moved from per-component file to centralized `render.go`; `Children template.HTML` field synthesized on the generated XProps when the template uses `{{ .Children }}`; Render API's `children ...template.HTML` variadic dropped (callers pass via `XProps{Children: html}`). Touched `internal/codegen/template.go`, `internal/codegen/generate.go`, `internal/codegen/validate.go`, `internal/compiler/compiler.go`. Named content areas (sidebar, footer) are explicit `template.HTML` fields — no `slots:` keyword. **No deprecation window**: the variadic drop is a hard break (Go compiler reports old call sites); user-authored `__children` in dict literals produces a targeted hint via the existing `validate.go` unknown-prop path. New tests: `TestValidateDictKeys_OldChildrenSentinelHinted`, `TestCompile_RenderXPropsShapes`. **Docs updated:** `docs/components.md` (Children-as-Props-field examples), `docs/sse.md` (same), `docs/design.md` §6 (records the rename rationale). See §3.1 below for the full mechanism as designed. |
 
-### 3.1 A5 mechanism (designed 2026-05-02)
+### 3.1 A5 mechanism (designed and shipped 2026-05-02)
+
+_The design recorded below is what shipped, with one deviation: the
+plan's table called for `internal/codegen/validate.go:187` to emit a
+"deprecation warning on `__children`". In practice this became a
+targeted unknown-prop hint (no two-version contract), per the Q2
+simplification recorded in §7 below._
 
 **Today's flow — three names for one value:**
 
@@ -558,7 +567,7 @@ symbol; did you mean to import a package?". This keeps the implicit
 
 - **CSRF on POST.** Real apps need it. Once C2 (route middleware composition) ships: `gastroRuntime.WithMiddleware("POST /counter", csrf.Require)`.
 - **Selector constants.** ~~A4 was dropped; users define their own id constants.~~ `datastar.PatchElements(html)` matches `#counter` implicitly via `id=`; explicit selector constants are the user's responsibility.
-- **Typed `Children`.** `{{ wrap Layout ... }}` currently smuggles children through `dict` `__children`. Once A5 ships, `wrap` sets `Children` directly on the Props struct. Named content areas (sidebar, footer) are just `template.HTML` Props fields — no `slots:` keyword.
+- **Typed `Children`.** ~~`{{ wrap Layout ... }}` currently smuggles children through `dict` `__children`. Once A5 ships,~~ As of A5 (commit `e64b553`), `wrap` sets `Children` directly on the dict, and the typed Render API exposes children as `XProps{Children: html}`. Named content areas (sidebar, footer) are just `template.HTML` Props fields — no `slots:` keyword.
 
 None of these are needed for the page above to function; they make it
 safer or cleaner.
@@ -605,6 +614,8 @@ A wave is "done" when **all** of the following hold for every item in it:
 | Q3 | C2: precedence between `WithOverride` and `WithMiddleware` | **Resolved:** middleware wraps override. | Wave 4 |
 | Q4 | A2: does `//go:embed` at source dirs change `gastro dev` path resolution? | Needs audit | Wave 5 |
 | ~~Q5~~ | ~~A6: hashed-asset URL discoverability~~ | **Dropped** | A6 dropped |
+| Q6 | C2: how does `*` wildcard interact with the existing pattern-validation table (which matches against known auto-routes)? Special sentinel that bypasses validation, or grow the validation table a wildcard column? | Needs decision | Wave 4 |
+| Q7 | C2: are middleware patterns method-scoped (`"POST /counter"`) or path-only (`"/counter"`)? Post-Track-B `WithOverride` is path-only; the original C2 spike example used method-scoped. Pick one for consistency. | Needs decision | Wave 4 |
 
 Track B's open sub-questions live in §4.7 (kept inline with the track
 because they're tightly coupled to the design rather than independent
