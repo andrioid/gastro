@@ -150,7 +150,7 @@ func (__router *Router) {{ .FuncName }}(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if __err := __router.__gastro_getTemplate("{{ .FuncName }}").Execute(w, __data); __err != nil {
-		log.Printf("gastro: page {{ .FuncName }}: template execution failed: %v", __err)
+		__router.__gastro_handleError(w, r, __err)
 	}
 }
 `))

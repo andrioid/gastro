@@ -292,7 +292,12 @@ func TestGenerate_NoExportedVars(t *testing.T) {
 	assertContains(t, output, "Execute")
 }
 
-func TestGenerate_PageHandlerLogsExecuteError(t *testing.T) {
+// TestGenerate_PageHandlerDispatchesExecuteError verifies that page handlers
+// route Execute errors through __router.__gastro_handleError, which in turn
+// dispatches to the user-supplied WithErrorHandler or the runtime default.
+// Wave 4 / C4 (plans/frictions-plan.md §3 Wave 4): the per-handler log line
+// is gone; centralised dispatch is the only error path.
+func TestGenerate_PageHandlerDispatchesExecuteError(t *testing.T) {
 	file := &parser.File{
 		Filename:     "pages/index.gastro",
 		Frontmatter:  `Title := "Hello"`,
@@ -309,9 +314,10 @@ func TestGenerate_PageHandlerLogsExecuteError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Page handlers should log template execution errors
-	assertContains(t, output, `log.Printf`)
-	assertContains(t, output, `template execution failed`)
+	assertContains(t, output, `__router.__gastro_handleError(w, r, __err)`)
+	if strings.Contains(output, `template execution failed`) {
+		t.Errorf("page handler should no longer carry the per-handler log line; dispatch happens via __gastro_handleError. Got:\n%s", output)
+	}
 }
 
 func TestGenerate_ComponentLogsExecuteError(t *testing.T) {

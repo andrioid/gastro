@@ -229,6 +229,62 @@ list of valid patterns when it does not, so typos fail loudly. Page
 patterns are method-less ("/", "/blog/{slug}") because the page
 handles every method.
 
+### Wrapping routes with middleware
+
+Use `gastro.WithMiddleware(pattern, fn)` to wrap one or more auto-routes
+with a `func(http.Handler) http.Handler`. Patterns use Go's stdlib
+`http.ServeMux` syntax:
+
+```go
+router := gastro.New(
+    gastro.WithMiddleware("/admin/{path...}", auth.Require),  // subtree
+    gastro.WithMiddleware("/counter", csrf.Require),          // exact
+    gastro.WithMiddleware("/{path...}", logRequests),         // catch-all
+)
+```
+
+- **`{slug}`** matches a single path segment (`/blog/{slug}` matches
+  `/blog/my-post`).
+- **`{path...}`** is a trailing wildcard — matches one or more remaining
+  segments. `/admin/{path...}` matches `/admin/users`, `/admin/users/42`,
+  etc., but not `/admin` itself.
+- **`/{path...}`** is the canonical catch-all: every page route.
+
+The middleware pattern must match at least one known auto-route at
+`New()` time; patterns that match nothing panic with a descriptive
+error, same typo-safety as `WithOverride`.
+
+**Composition.** Multiple `WithMiddleware` calls compose in registration
+order — the first registered ends up outermost (runs first on the
+request, last on the response). When `WithOverride` and `WithMiddleware`
+target the same route, **middleware wraps the override**: the override
+replaces the page handler, then matching middleware wraps that
+replacement.
+
+**Patterns are path-only.** Method scoping (e.g. "only run CSRF on POST")
+lives inside the middleware itself:
+
+```go
+func csrfRequire(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if r.Method == http.MethodPost && !validToken(r) {
+            http.Error(w, "forbidden", http.StatusForbidden)
+            return
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+This matches `WithOverride`'s path-only contract and avoids the
+asymmetry of one option accepting `"POST /counter"` while the other
+rejects it.
+
+For middleware that needs to run for routes gastro doesn't auto-generate
+(e.g. a `mux.HandleFunc` you wired through `router.Mux()`), wrap it
+yourself at the `mux.HandleFunc` call site — `WithMiddleware`'s typo
+guard intentionally rejects unknown patterns.
+
 ### Forcing dev or production mode
 
 Gastro detects `GASTRO_DEV=1` at startup; the `gastro dev` command sets
@@ -351,7 +407,7 @@ Filter := q
 
 ## Error Handling
 
-Three layers protect your application:
+Four layers protect your application:
 
 1. **Explicit errors** — `http.Error(w, msg, code)` followed by
    `return` for controlled error responses. The analyser ensures the
@@ -363,6 +419,16 @@ Three layers protect your application:
    `defer gastro.Recover(w, r)` which catches panics. If the panic
    happens after the body was committed, the recover logs only;
    otherwise it writes a 500 page.
+4. **Render error handler** — when `template.Execute` fails mid-render,
+   the page handler dispatches through `WithErrorHandler` (if installed)
+   or `gastroRuntime.DefaultErrorHandler` (the safe fallback: log + 500
+   when uncommitted). Use `gastro.WithErrorHandler(fn)` at `New()` time
+   to install a custom handler — commonly used to attach request IDs,
+   report to an error tracker, or render a templated error page.
+
+For the full failure-mode catalogue (parse errors, render errors,
+frontmatter panics, missing deps) and recipes for each, see
+[`docs/error-handling.md`](error-handling.md).
 
 ## SSE-from-page
 

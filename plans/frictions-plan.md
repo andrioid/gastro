@@ -11,9 +11,12 @@ alongside this plan)._
 > **Wave progress:** Track B shipped (commits `f356cbc`–`2bb3c9f`).
 > Wave 1 shipped (commits `1c229b4`–`133890e`, 2026-05-02). Wave 2 empty
 > (D1 deferred). Wave 3 (A5) shipped 2026-05-02 (commit `e64b553`).
-> Wave 4 (C2 + C4) is next — has two open design points for C2
-> (§7 Q6, Q7) plus a quick `WithOverride` factoring audit (§6)
-> recommended before implementation.
+> Wave 4 (C2 + C4) shipped 2026-05-02 — all C2 design points resolved
+> in the same session (§7 Q3, Q6, Q7); `WithErrorHandler`,
+> `WithMiddleware`, the throwaway-mux pattern probe, the per-route
+> `applyMiddleware` wiring, plus `docs/error-handling.md` all landed.
+> Wave 5 (A2) is next — needs Q4 audit of `gastro dev` path resolution
+> before starting.
 >
 > **Resolved questions (2026-05-02):** Q1 A4 dropped (selectors are just
 > ids, users define their own constants). Q2 A5 simplified — no deprecation
@@ -23,8 +26,13 @@ alongside this plan)._
 > added (same pattern as `WithOverride`, middleware wraps override). Q4 A2
 > needs audit of dev-mode path resolution. Q5 A6 dropped in favour of
 > documenting existing `WithOverride("GET /static/", ...)` and `Mux()`
-> patterns. Track B has landed (commit `2bb3c9f` and predecessors). Wave 3
-> reduced to A5 only (A4 removed). Wave 5 A6 removed.
+> patterns. Q6 C2 wildcard resolved — adopt Go's `http.ServeMux` pattern
+> syntax (`{slug}` segment, `{slug...}` catch-all); validation requires the
+> middleware pattern to match ≥1 known auto-route, probed via a throwaway
+> mux. Q7 C2 pattern shape resolved — path-only, mirrors `WithOverride`;
+> method-specific middleware branches on `r.Method` internally. Track B has
+> landed (commit `2bb3c9f` and predecessors). Wave 3 reduced to A5 only
+> (A4 removed). Wave 5 A6 removed.
 
 ---
 
@@ -200,16 +208,16 @@ generated struct, so Children populates naturally from the dict.
 - All examples/docs update in the same release (pre-1.0 churn, same pattern as Track B)
 - LSP already recognizes `"Children"` as valid (completions.go:240) — no change needed
 
-### Wave 4 — Framework-mode additives (no new language)
+### Wave 4 — Framework-mode additives (no new language) — ✅ SHIPPED 2026-05-02
 
 Both items are additive options that respect rule 2 — no new syntax in
 frontmatter or templates, just additional `Option` values on `New(...)`.
-Independent of the held C1.
+Independent of the held C1. Shipped together in one Wave 4 commit set.
 
-| ID | Title | Effort | Notes |
+| ID | Title | Effort | Status |
 |---|---|---|---|
-| C2 | Route middleware composition | Small | `WithMiddleware(pattern, func(http.Handler) http.Handler)` as a sibling of the existing `WithOverride(pattern, http.Handler)`. Same typo-safety contract: panic at `New()` on unknown patterns; `*` wildcard opt-in for catch-all. When both `WithMiddleware` and `WithOverride` target the same pattern, **middleware wraps the override** (Q3) — the override replaces the page handler, then middleware wraps that replacement. Keep option-per-pattern; do **not** converge on a chi/gin-style fluent middleware chain. **Open design:** `*` wildcard bypasses the existing pattern-validation table (which matches against known auto-routes) — decide before implementation whether `*` is a special sentinel or whether the validation table grows a wildcard column. Also: the spike example references `"POST /counter"` (method-scoped), but post-Track-B `WithOverride` uses path-only patterns like `"/counter"`. Decide whether `WithMiddleware` supports method-scoped patterns or stays path-only. |
-| C4 | Page render error contract | Trivial (mostly docs) | Add `WithErrorHandler(func(http.ResponseWriter, *http.Request, error))`. Promote `gastro.FromContextOK[T]` as the idiomatic graceful-degradation path for missing deps. Write `docs/error-handling.md` enumerating each failure mode (parse error in dev, render error in prod, missing dep, panic in handler) with the contract for each. |
+| C2 | Route middleware composition | Small | ✅ New `WithMiddleware(pattern, func(http.Handler) http.Handler)` option in `internal/compiler/compiler.go`. Patterns use Go's `http.ServeMux` syntax (Q6) — `{slug}` matches a segment, `{slug...}` matches a trailing subtree, `/{path...}` is the canonical catch-all. Path-only (Q7), mirroring `WithOverride`; method-specific middleware branches on `r.Method` internally. Validation runs in `pkg/gastro.ValidateMiddlewarePattern` via a throwaway-mux probe — register the pattern with a sentinel handler, synthesise a concrete URL for each known auto-route, dispatch through the throwaway mux, and check whether the sentinel ever wins. Reuses Go's stdlib pattern semantics 1:1. Codegen template's mux build loop generates a per-route `applyMiddleware(route, h)` closure that walks `cfg.middleware` in reverse so registration-order composes outermost-to-innermost. Middleware wraps override (Q3) by virtue of being applied after the override resolution. Tests: 4 unit tests in `pkg/gastro/middleware_test.go` (probe semantics, error wording, applies, type shape) + 5 integration tests in `internal/compiler/middleware_integration_test.go` (exact match, wildcard subtree, composition order, middleware-wraps-override, unknown-pattern panic). Smoke example in `examples/sse/main.go` adds `logRequests` middleware via `WithMiddleware("/{path...}", ...)`. Documented in `docs/pages.md` §"Wrapping routes with middleware" and the README quick-reference. |
+| C4 | Page render error contract | Trivial (mostly docs) | ✅ New `WithErrorHandler(gastro.PageErrorHandler)` option. Generated handler routes `template.Execute` errors through `__router.__gastro_handleError` which dispatches to the user-supplied handler or `gastroRuntime.DefaultErrorHandler`. Default mirrors `Recover`'s gating: log always, write 500 only when the response is uncommitted (`HeaderCommitted(w) || BodyWritten(w)` both false). Replaces the per-handler `log.Printf("... template execution failed ...")` line with centralised dispatch. New: `pkg/gastro/error_handler.go` (`PageErrorHandler` type + `DefaultErrorHandler`), `pkg/gastro/error_handler_test.go` (4 cases covering uncommitted/committed/header-only/plain-writer). Integration test `internal/compiler/error_handler_integration_test.go` proves end-to-end dispatch + error chain. New `docs/error-handling.md` enumerates the five failure modes (parse-prod, parse-dev, render error, frontmatter panic, missing dep) with default behaviour, user knob, and recipes. `gastro.FromContextOK[T]` promoted as the graceful-degradation path for optional deps. |
 
 ### Wave 5 — Follow-ups
 
@@ -599,7 +607,7 @@ A wave is "done" when **all** of the following hold for every item in it:
 | Wave 1 | ✅ Shipped (commits `1c229b4`–`133890e`, 2026-05-02). | Done. |
 | Wave 2 | ~~None.~~ Wave 2 is empty — its only item (D1) was deferred. B2 ships in Wave 1. | ~~D1 only depends on existing `runDev` code.~~ |
 | Wave 3 | ✅ Shipped 2026-05-02. A5 deprecation policy was simplified (Q2): no parallel runtime path; Go's type checker handles variadic-drop migration, validator emits a targeted hint for `__children` dict literals. | Done. |
-| Wave 4 | None for C4. C2 should reuse the `WithOverride` typo-safety machinery; check that it can be factored cleanly without touching the override path. | Quick audit of `internal/compiler/compiler.go` route-pattern validation before starting. |
+| Wave 4 | ✅ Shipped 2026-05-02. Audit conclusion: `WithOverride`'s exact-match validation (`internal/compiler/compiler.go:737`) stays untouched — C2's validation diverges fundamentally (throwaway-mux probe vs map lookup), so it lives as a sibling block, not a refactor. Throwaway-mux probe lives in `pkg/gastro/middleware.go` for unit-testability; codegen template stays thin. | Done. |
 | Wave 5 | A2 needs a CI `go generate && git diff --exit-code` step in place if `.gastro/` will eventually be `.gitignore`d. | A1 (toolchain pinning) was deferred — no adopter has asked for it. The CI gate can stand on its own or ship alongside A2. |
 | Track B | ✅ Shipped (commit `2bb3c9f`). Deprecation policy already in `docs/contributing.md`. All sub-questions resolved 2026-05-02 (§4.7). | Done. |
 
@@ -614,8 +622,8 @@ A wave is "done" when **all** of the following hold for every item in it:
 | Q3 | C2: precedence between `WithOverride` and `WithMiddleware` | **Resolved:** middleware wraps override. | Wave 4 |
 | Q4 | A2: does `//go:embed` at source dirs change `gastro dev` path resolution? | Needs audit | Wave 5 |
 | ~~Q5~~ | ~~A6: hashed-asset URL discoverability~~ | **Dropped** | A6 dropped |
-| Q6 | C2: how does `*` wildcard interact with the existing pattern-validation table (which matches against known auto-routes)? Special sentinel that bypasses validation, or grow the validation table a wildcard column? | Needs decision | Wave 4 |
-| Q7 | C2: are middleware patterns method-scoped (`"POST /counter"`) or path-only (`"/counter"`)? Post-Track-B `WithOverride` is path-only; the original C2 spike example used method-scoped. Pick one for consistency. | Needs decision | Wave 4 |
+| ~~Q6~~ | ~~C2: how does `*` wildcard interact with the existing pattern-validation table?~~ | **Resolved & shipped 2026-05-02:** Adopted Go's `http.ServeMux` pattern syntax — `{slug}` for a segment, `{slug...}` for a trailing catch-all. Bare catch-all is `"/{path...}"`. Validation via `gastroRuntime.PatternMatchesAnyRoute` (throwaway-mux probe in `pkg/gastro/middleware.go`). | Wave 4 done |
+| ~~Q7~~ | ~~C2: are middleware patterns method-scoped or path-only?~~ | **Resolved & shipped 2026-05-02:** Path-only, mirrors `WithOverride`. Method-specific middleware branches on `r.Method` internally. | Wave 4 done |
 
 Track B's open sub-questions live in §4.7 (kept inline with the track
 because they're tightly coupled to the design rather than independent

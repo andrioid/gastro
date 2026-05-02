@@ -525,10 +525,21 @@ var _ = reflect.TypeOf
 type Option func(*config)
 
 type config struct {
-	funcs     template.FuncMap
-	deps      map[reflect.Type]any
-	overrides map[string]http.Handler
-	devMode   *bool // nil = use GASTRO_DEV env var; non-nil = override
+	funcs        template.FuncMap
+	deps         map[reflect.Type]any
+	overrides    map[string]http.Handler
+	middleware   []middlewareEntry
+	devMode      *bool // nil = use GASTRO_DEV env var; non-nil = override
+	errorHandler gastroRuntime.PageErrorHandler
+}
+
+// middlewareEntry pairs a route-pattern matcher with the middleware to
+// install. Stored as a slice so multiple WithMiddleware calls for the
+// same pattern compose in registration order — the first registered
+// middleware ends up outermost.
+type middlewareEntry struct {
+	pattern string
+	fn      gastroRuntime.MiddlewareFunc
 }
 
 // WithDevMode overrides the GASTRO_DEV environment variable for this Router.
@@ -601,15 +612,82 @@ func WithOverride(pattern string, h http.Handler) Option {
 	}
 }
 
+// WithMiddleware wraps the handler for every auto-route whose pattern
+// matches the supplied http.ServeMux pattern. Patterns use Go's stdlib
+// pattern syntax: "/counter" for an exact path, "/admin/{path...}" for
+// a subtree wildcard, "/blog/{slug}" to match a parametrised route.
+//
+// Patterns are path-only — there is no method scoping. Middleware that
+// must only run for, say, POST should branch on r.Method internally.
+// This mirrors WithOverride's path-only contract (Track B,
+// plans/frictions-plan.md §4.2) and avoids the asymmetry where
+// override and middleware would accept different pattern shapes.
+//
+// Validation: at New() time the pattern must match at least one known
+// auto-route, probed via gastroRuntime.PatternMatchesAnyRoute. A
+// pattern that matches nothing panics with a descriptive error — same
+// typo-safety posture as WithOverride.
+//
+// Composition: multiple WithMiddleware calls for overlapping patterns
+// compose in registration order. The first call ends up outermost
+// (runs first on the request, last on the response). When both
+// WithOverride and WithMiddleware target the same route, the override
+// replaces the page handler and the middleware then wraps the override
+// — "middleware wraps override".
+//
+// Wave 4 / C2 (plans/frictions-plan.md §3 Wave 4).
+func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
+	return func(c *config) {
+		c.middleware = append(c.middleware, middlewareEntry{pattern: pattern, fn: fn})
+	}
+}
+
+// WithErrorHandler installs a custom handler for page render errors.
+//
+// The handler is invoked when a generated page handler's template Execute
+// returns an error — typically a missing field, a panic during template
+// rendering recovered by html/template, or an io.Writer error from the
+// underlying connection. It is *not* invoked for parse errors (caught at
+// New() in production, at request time in dev) or for panics in user
+// frontmatter (handled by gastro.Recover).
+//
+// When unset, gastroRuntime.DefaultErrorHandler is used: log the error and
+// write a 500 if the response has not yet committed headers or a body.
+// Custom handlers can render a templated error page, attach request IDs,
+// emit structured logs, or report to an error tracker. See
+// docs/error-handling.md for the full failure-mode catalogue and recipes.
+//
+// Calling WithErrorHandler multiple times keeps the last value (no panic);
+// the option is intended to be set once at New() time.
+//
+// Wave 4 / C4 (plans/frictions-plan.md §3 Wave 4).
+func WithErrorHandler(fn gastroRuntime.PageErrorHandler) Option {
+	return func(c *config) { c.errorHandler = fn }
+}
+
 // Router holds the parsed templates, registered options, and the underlying
 // http.ServeMux for a gastro app. Construct with New(); access the handler
 // via Handler() or, for direct mux mutation, via Mux().
 type Router struct {
-	isDev     bool
-	userFuncs template.FuncMap
-	registry  map[string]*template.Template
-	deps      map[reflect.Type]any
-	mux       *http.ServeMux
+	isDev        bool
+	userFuncs    template.FuncMap
+	registry     map[string]*template.Template
+	deps         map[reflect.Type]any
+	mux          *http.ServeMux
+	errorHandler gastroRuntime.PageErrorHandler
+}
+
+// __gastro_handleError dispatches a page render error to the user-supplied
+// WithErrorHandler when one is installed; otherwise to the runtime default.
+// Centralising the dispatch in one method keeps the codegen-emitted handler
+// body a single line and lets us evolve the error-handler contract
+// (e.g. add structured context) without touching every generated handler.
+func (__r *Router) __gastro_handleError(w http.ResponseWriter, r *http.Request, err error) {
+	if __r.errorHandler != nil {
+		__r.errorHandler(w, r, err)
+		return
+	}
+	gastroRuntime.DefaultErrorHandler(w, r, err)
 }
 
 // __gastro_active is the most-recently-constructed Router, used by the
@@ -729,9 +807,10 @@ func New(opts ...Option) *Router {
 	}
 
 	__r := &Router{
-		isDev:     isDev,
-		userFuncs: cfg.funcs,
-		deps:      cfg.deps,
+		isDev:        isDev,
+		userFuncs:    cfg.funcs,
+		deps:         cfg.deps,
+		errorHandler: cfg.errorHandler,
 	}
 
 	// Validate WithOverride patterns: each must match a known auto-route
@@ -755,6 +834,20 @@ func New(opts ...Option) *Router {
 				"gastro: WithOverride: pattern %q does not match any auto-route. known: %v",
 				pat, known,
 			))
+		}
+	}
+
+	// Validate WithMiddleware patterns: each must match at least one
+	// known auto-route via gastroRuntime.PatternMatchesAnyRoute. Same
+	// typo-safety posture as WithOverride; the matcher diverges only
+	// because middleware patterns can carry {slug...} wildcards.
+	knownRoutes := make([]string, 0, len(knownPatterns))
+	for p := range knownPatterns {
+		knownRoutes = append(knownRoutes, p)
+	}
+	for _, mw := range cfg.middleware {
+		if err := gastroRuntime.ValidateMiddlewarePattern(mw.pattern, knownRoutes); err != nil {
+			panic(err.Error())
 		}
 	}
 
@@ -784,21 +877,46 @@ func New(opts ...Option) *Router {
 		__r.registry[name] = tmpl
 	}
 
-	// Build the mux. Overrides win over auto-routes by matching pattern.
+	// applyMiddleware wraps h with every middleware whose pattern matches
+	// route. Middleware composes in registration order: the first
+	// WithMiddleware call ends up outermost (runs first on the request).
+	// This is the "middleware wraps override" branch of plans/
+	// frictions-plan.md Q3 — by the time we get here, h is already either
+	// the auto-route handler or the override.
+	applyMiddleware := func(route string, h http.Handler) http.Handler {
+		for i := len(cfg.middleware) - 1; i >= 0; i-- {
+			mw := cfg.middleware[i]
+			if gastroRuntime.MiddlewareApplies(mw.pattern, route) {
+				h = mw.fn(h)
+			}
+		}
+		return h
+	}
+
+	// Build the mux. Overrides win over auto-routes by matching pattern,
+	// then any matching middleware wraps the resulting handler.
 	mux := http.NewServeMux()
 {{- if .HasStatic}}
-	if h, ok := cfg.overrides["GET /static/"]; ok {
-		mux.Handle("GET /static/", h)
-	} else {
-		staticFS := gastroRuntime.GetStaticFS(staticAssetFS)
-		mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFS)))
+	{
+		var h http.Handler
+		if over, ok := cfg.overrides["GET /static/"]; ok {
+			h = over
+		} else {
+			staticFS := gastroRuntime.GetStaticFS(staticAssetFS)
+			h = http.StripPrefix("/static/", http.FileServerFS(staticFS))
+		}
+		mux.Handle("GET /static/", applyMiddleware("GET /static/", h))
 	}
 {{- end}}
 {{- range .Routes}}
-	if h, ok := cfg.overrides["{{ .Pattern }}"]; ok {
-		mux.Handle("{{ .Pattern }}", h)
-	} else {
-		mux.HandleFunc("{{ .Pattern }}", __r.{{ .FuncName }})
+	{
+		var h http.Handler
+		if over, ok := cfg.overrides["{{ .Pattern }}"]; ok {
+			h = over
+		} else {
+			h = http.HandlerFunc(__r.{{ .FuncName }})
+		}
+		mux.Handle("{{ .Pattern }}", applyMiddleware("{{ .Pattern }}", h))
 	}
 {{- end}}
 

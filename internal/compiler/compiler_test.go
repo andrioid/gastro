@@ -43,8 +43,11 @@ func TestCompile_GeneratesRouteFile(t *testing.T) {
 	s := string(content)
 
 	// Track B: page patterns are method-less (frontmatter branches on r.Method).
-	assertStringContains(t, s, `mux.HandleFunc("/{$}"`)
-	assertStringContains(t, s, `mux.HandleFunc("/about"`)
+	// Wave 4 / C2: auto-routes register via mux.Handle(pattern, applyMiddleware(...))
+	// so middleware can wrap. The pattern is the assertion target either way.
+	assertStringContains(t, s, `mux.Handle("/{$}"`)
+	assertStringContains(t, s, `mux.Handle("/about"`)
+	assertStringContains(t, s, `applyMiddleware`)
 }
 
 func TestCompile_GeneratesPageHandlers(t *testing.T) {

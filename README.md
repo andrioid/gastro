@@ -141,9 +141,13 @@ http.ListenAndServe(":4242", router.Handler())
 
 `gastro.New(opts...)` returns a `*Router` whose `Handler()` you mount on
 your HTTP server. Other options include `WithDeps[T]` for typed dependency
-injection into pages and `WithOverride(pattern, handler)` for replacing
-an auto-generated route with a Go handler. See
-[Pages & Routing](docs/pages.md) for the full API.
+injection into pages, `WithOverride(pattern, handler)` for replacing an
+auto-generated route with a Go handler, `WithMiddleware(pattern, fn)` for
+wrapping routes (subtree wildcards via `"/admin/{path...}"`), and
+`WithErrorHandler(fn)` for custom render-error responses (logging, error
+tracking, branded 500 pages). See [Pages & Routing](docs/pages.md) for
+the full API and [Error Handling](docs/error-handling.md) for the
+failure-mode catalogue.
 
 > The legacy `gastro.Routes(opts...) http.Handler` one-shot is retained as
 > a deprecated shim around `gastro.New(opts...).Handler()`. Prefer `New()`
