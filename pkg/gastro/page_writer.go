@@ -26,11 +26,11 @@ import (
 // writer doesn't. The four-combination pattern below dispatches at
 // construction time:
 //
-//	          underlying writer        wrapper concrete type
-//	          base                  →   *gastroWriter
-//	          + Flusher             →   *flushWriter
-//	          + Hijacker            →   *hijackWriter
-//	          + Flusher + Hijacker  →   *flushHijackWriter
+//	underlying writer        wrapper concrete type
+//	base                  →   *gastroWriter
+//	+ Flusher             →   *flushWriter
+//	+ Hijacker            →   *hijackWriter
+//	+ Flusher + Hijacker  →   *flushHijackWriter
 //
 // Type assertions on the returned http.ResponseWriter therefore succeed
 // for exactly the interfaces the underlying writer supports.

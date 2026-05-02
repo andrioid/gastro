@@ -28,9 +28,12 @@ type minimalWriter struct {
 
 func newMinimalWriter() *minimalWriter { return &minimalWriter{header: http.Header{}} }
 
-func (m *minimalWriter) Header() http.Header        { return m.header }
-func (m *minimalWriter) WriteHeader(code int)       { m.code = code }
-func (m *minimalWriter) Write(p []byte) (int, error) { m.body = append(m.body, p...); return len(p), nil }
+func (m *minimalWriter) Header() http.Header  { return m.header }
+func (m *minimalWriter) WriteHeader(code int) { m.code = code }
+func (m *minimalWriter) Write(p []byte) (int, error) {
+	m.body = append(m.body, p...)
+	return len(p), nil
+}
 
 // hijackerOnlyWriter implements only ResponseWriter + Hijacker (no Flusher).
 type hijackerOnlyWriter struct {

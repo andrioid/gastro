@@ -85,4 +85,3 @@ func FromContextOK[T any](ctx context.Context) (T, bool) {
 	}
 	return v, true
 }
-
