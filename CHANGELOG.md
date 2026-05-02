@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.1.17](https://github.com/andrioid/gastro/compare/v0.1.16...v0.1.17) (2026-05-02)
+
+
+### Features
+
+* **analysis:** shared response-write/missing-return analyzer ([d06f740](https://github.com/andrioid/gastro/commit/d06f740e4a01bc81209cc5f9825d948cb5f7b5e9))
+* **codegen:** Track B page model \u2014 ambient (w, r) + conditional render ([5b7d635](https://github.com/andrioid/gastro/commit/5b7d635d684e7a281784742c381e6ef03922e54d))
+* **codegen:** Wave 3 — typed children plumbing (A5) ([e64b553](https://github.com/andrioid/gastro/commit/e64b55354b6f9548a4c1ba67ed7fdaa38fa86d94))
+* **compiler:** Wave 1 — component name collisions (A7) + WithDevMode (B2) ([133890e](https://github.com/andrioid/gastro/commit/133890ebbf8905a483db1afaced6914a255c8a43))
+* **examples:** migrate to Track B (ambient w, r) + SSE single-file demo ([a9d08b2](https://github.com/andrioid/gastro/commit/a9d08b22bf39c4d288675c1b846816da9324239a))
+* **router:** drop GET-only auto-routes for Track B ([0691c3f](https://github.com/andrioid/gastro/commit/0691c3f239c9c51a6ee82bf883606f27fde10866))
+* **router:** Wave 4 — WithMiddleware (C2) + WithErrorHandler (C4) ([fe04a90](https://github.com/andrioid/gastro/commit/fe04a9099d39b19504881a3052f37d7d40606f10))
+* **runtime:** gastroWriter + body-write tracking for Track B ([452e035](https://github.com/andrioid/gastro/commit/452e0353e84ce805814f9481b588c7da1bc2491f))
+
+
+### Bug Fixes
+
+* **compiler:** pipe generated .go files through go/format.Source ([a98dd21](https://github.com/andrioid/gastro/commit/a98dd2113e6fc1fa7d120ed9e0a689b60ce7078c))
+* **examples:** add transitive chroma/goldmark deps to go.sum ([1c229b4](https://github.com/andrioid/gastro/commit/1c229b464926c1005befdb0e63fa0c434bf507ea))
+
+
+### Documentation
+
+* add Track B migration guide for downstream adopters ([bc4c5db](https://github.com/andrioid/gastro/commit/bc4c5db3a1d1c643843c168b487960548c3c7420))
+* **components:** multi-line dict syntax + pre-render-in-frontmatter notes ([2c828de](https://github.com/andrioid/gastro/commit/2c828debcfd692f57a0bd9410de5db5b72df1a26))
+* **contributing:** add deprecation-policy paragraph ([0bfd556](https://github.com/andrioid/gastro/commit/0bfd5566eb0b1ad8ef7629de7edb97dd65ce8d6b))
+* **decisions:** record Track B \u2014 page model v2 ([aeb1546](https://github.com/andrioid/gastro/commit/aeb1546c5ef603e0c7810574c6269849cae7a1d8))
+* **plan:** add frictions plan and mode-split companion report ([007ae5f](https://github.com/andrioid/gastro/commit/007ae5fe653e677885650c31e3f31620b7cbcc1b))
+* **plan:** archive frictions plan — Wave 5 closed (Q4 audit drops A2) ([68535ec](https://github.com/andrioid/gastro/commit/68535ec32cbbc9fe3ac45956f6630be7c88d9c9f))
+* **plan:** mark Wave 1 shipped ([c8b8983](https://github.com/andrioid/gastro/commit/c8b898391253071c25537cfc9e225d292d01c06d))
+* **plan:** mark Wave 3 (A5) shipped, formalize Wave 4 open questions ([0c9e0a8](https://github.com/andrioid/gastro/commit/0c9e0a86b2c3a5eba5ebaba7111b8b91a1fba266))
+* **plan:** record Wave 4 commit SHA ([02c86c6](https://github.com/andrioid/gastro/commit/02c86c63b688784184b1040dad819c187f454b9a))
+* rename migrating-to-track-b.md \u2192 pages-v2-migration.md ([27bbcce](https://github.com/andrioid/gastro/commit/27bbccea52956baf605efbbfe7aad34511e4a934))
+* rewrite pages, sse, and design \u00a721 for Track B ([3c592fb](https://github.com/andrioid/gastro/commit/3c592fbcf6c66e15b2417e44575a3d985f3a9f2e))
+* secondary touch-ups for Track B ([cea7342](https://github.com/andrioid/gastro/commit/cea7342ebf34a7158c95884b2576cd025c012dce))
+
 ## [0.1.16](https://github.com/andrioid/gastro/compare/v0.1.15...v0.1.16) (2026-05-01)
 
 
