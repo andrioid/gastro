@@ -86,30 +86,3 @@ func FromContextOK[T any](ctx context.Context) (T, bool) {
 	return v, true
 }
 
-// From returns the dependency of type T attached to the given page Context.
-// It panics if no value of that type is registered. See FromContext for the
-// raw context form, and FromOK for the safe variant.
-//
-// Typical use in page frontmatter:
-//
-//	---
-//	ctx := gastro.Context()
-//	deps := gastro.From[BoardDeps](ctx)
-//	state := deps.State()
-//	---
-func From[T any](c *Context) T {
-	if c == nil {
-		panic("gastro: From called with nil *Context")
-	}
-	return FromContext[T](c.r.Context())
-}
-
-// FromOK is the safe variant of From. It returns the dependency of type T and
-// true if registered, or the zero value and false otherwise.
-func FromOK[T any](c *Context) (T, bool) {
-	if c == nil {
-		var zero T
-		return zero, false
-	}
-	return FromContextOK[T](c.r.Context())
-}

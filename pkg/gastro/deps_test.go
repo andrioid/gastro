@@ -2,7 +2,6 @@ package gastro
 
 import (
 	"context"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -95,42 +94,6 @@ func TestFromContextOK_MissingReturnsZeroFalse(t *testing.T) {
 	}
 	if v != (testDepsA{}) {
 		t.Errorf("v = %#v, want zero", v)
-	}
-}
-
-func TestFrom_PageContextHelper(t *testing.T) {
-	t.Parallel()
-	deps := map[reflect.Type]any{
-		reflect.TypeOf(testDepsA{}): testDepsA{Name: "page"},
-	}
-	req := httptest.NewRequest("GET", "/", nil)
-	req = req.WithContext(AttachDeps(req.Context(), deps))
-	w := httptest.NewRecorder()
-	c := NewContext(w, req)
-
-	if got := From[testDepsA](c); got.Name != "page" {
-		t.Errorf("From: got %q, want page", got.Name)
-	}
-	if v, ok := FromOK[testDepsA](c); !ok || v.Name != "page" {
-		t.Errorf("FromOK: got (%#v, %v), want page,true", v, ok)
-	}
-}
-
-func TestFrom_NilContextPanics(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		if recover() == nil {
-			t.Fatal("expected panic")
-		}
-	}()
-	_ = From[testDepsA](nil)
-}
-
-func TestFromOK_NilContextReturnsFalse(t *testing.T) {
-	t.Parallel()
-	v, ok := FromOK[testDepsA](nil)
-	if ok || v != (testDepsA{}) {
-		t.Errorf("got (%#v, %v), want zero,false", v, ok)
 	}
 }
 
