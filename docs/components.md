@@ -83,6 +83,72 @@ Props are passed as attributes on the component tag:
 | `"literal"` | String literal |
 | `{.Val \| func "arg"}` | Pipe expression |
 
+### Multi-line `dict` calls
+
+When a component takes more than a few props, a single-line `dict` call
+becomes hard to read. Go's template parser is whitespace-insensitive inside
+parenthesised expressions, so you can spread the call across multiple lines
+and align the key–value pairs:
+
+```gastro
+{{ Card (
+    dict
+    "Title"   .Title
+    "Count"   5
+    "Active"  true
+    "Meta"    .Meta
+    "Items"   .Items
+    "Class"   "primary"
+    "Href"    "/about"
+    "Target"  "_blank"
+    "Size"    "lg"
+) }}
+```
+
+The leading `(` on the first line and `)` on the last line keep the
+parser happy. Aligning keys and values with whitespace is optional but
+makes the pairs visually obvious. Trailing commas are not required.
+
+This has no effect on behaviour — `dict` arguments are positional, not
+named — but the readability improvement is substantial for components
+with many props. Build-time key validation still catches typos.
+
+### Pre-rendering in frontmatter
+
+For pages with many components or deeply nested props, you can pre-render
+components in the page's frontmatter and pass the resulting HTML directly
+to the template. This keeps the template body lean and moves all typing
+into Go:
+
+```gastro
+--- pages/dashboard.gastro
+Header := gastro.Render.Header(HeaderProps{Title: "Dashboard", User: user})
+Stats  := gastro.Render.Stats(StatsProps{Events: 142, Cost: 53.20})
+Items  := gastro.Render.ItemList(ItemListProps{Items: deps.Items})
+
+Title := "Dashboard"
+---
+{{ wrap Layout (dict "Title" .Title) }}
+  {{ .Header }}
+  <div class="grid">
+    {{ .Stats }}
+    {{ .Items }}
+  </div>
+{{ end }}
+```
+
+Uppercase frontmatter variables (`Header`, `Stats`, `Items`) are exported
+to the template as `{{ .Header }}`, `{{ .Stats }}`, `{{ .Items }}`. The
+template has no `dict` calls at all for component rendering — it's just
+a layout skeleton.
+
+| Route | Use |
+|-------|-----|
+| Template `dict` | Quick, one-off component calls with a few props |
+| Multi-line `dict` | Components with 5+ props — readability |
+| Pre-render in frontmatter | Many components, deeply nested props, full type safety in Go |
+| `gastro.Render` from Go code | SSE handlers, tests, background workers |
+
 ## Type Coercion
 
 Gastro automatically coerces prop values to match struct field types:
