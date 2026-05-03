@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/andrioid/gastro/compare/v0.1.19...v0.1.20) (2026-05-03)
+
+
+### Features
+
+* **watch:** auto-detect Go module root for *.go watching ([cc177ed](https://github.com/andrioid/gastro/commit/cc177ed8a3241da67775f459d6b5f5a51df19a63))
+
 ## [0.1.19](https://github.com/andrioid/gastro/compare/v0.1.18...v0.1.19) (2026-05-03)
 
 
