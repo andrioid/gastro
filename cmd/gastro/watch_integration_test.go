@@ -23,8 +23,16 @@ import (
 // because runWatch chdirs to honour --project / cwd.
 
 // integrationTimeout caps the longest a single integration test will
-// wait for an event. Generous because CI filesystems can be slow.
+// wait for an event on a warm build cache. Generous because CI
+// filesystems can be slow.
 const integrationTimeout = 10 * time.Second
+
+// coldStartTimeout is used for the FIRST waitForServer call in each
+// integration test, where the fixture binary has to be built from
+// scratch (cold GOCACHE on a fresh CI runner). Cold `go build` /
+// `go run` of the tiny net/http fixture commonly takes 10–20s on
+// GitHub-hosted runners, so 10s isn't enough — see CI run 25285826932.
+const coldStartTimeout = 30 * time.Second
 
 // setupLibProject creates a minimal "library mode" project layout under
 // the repo's tmp/ directory (NOT t.TempDir(), because Go 1.21+ ignores
@@ -288,8 +296,9 @@ func TestWatch_RestartsOnGoFileChange(t *testing.T) {
 		"--run", "tmp/app",
 	)
 
-	// Wait for the initial run to be serving.
-	if err := waitForServer(t, port, integrationTimeout); err != nil {
+	// Wait for the initial run to be serving. Cold-cache build can be
+	// slow on CI — use the cold-start budget.
+	if err := waitForServer(t, port, coldStartTimeout); err != nil {
 		t.Fatalf("initial server never came up: %v", err)
 	}
 
@@ -336,7 +345,7 @@ func TestWatch_KeepsAppAliveOnBuildFailure(t *testing.T) {
 		"--run", "tmp/app",
 	)
 
-	if err := waitForServer(t, port, integrationTimeout); err != nil {
+	if err := waitForServer(t, port, coldStartTimeout); err != nil {
 		t.Fatalf("initial server never came up: %v", err)
 	}
 
@@ -384,9 +393,9 @@ func TestWatch_KillsProcessGroup(t *testing.T) {
 		"--run", "go run ./cmd/myapp",
 	)
 
-	// Initial server up.
-	if err := waitForServer(t, port, 30*time.Second); err != nil {
-		// `go run` is slow on cold cache; allow extra time.
+	// Initial server up. `go run` is slow on cold cache — use the
+	// cold-start budget.
+	if err := waitForServer(t, port, coldStartTimeout); err != nil {
 		t.Fatalf("initial go-run server never came up: %v", err)
 	}
 
@@ -433,7 +442,7 @@ func TestWatch_RapidEditsConverge(t *testing.T) {
 		"--run", "tmp/app",
 	)
 
-	if err := waitForServer(t, port, integrationTimeout); err != nil {
+	if err := waitForServer(t, port, coldStartTimeout); err != nil {
 		t.Fatalf("initial server never came up: %v", err)
 	}
 
