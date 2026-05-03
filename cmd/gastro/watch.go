@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -54,12 +55,13 @@ func validateDevArgs(args []string) error {
 // tailwindcss-then-go-build); Run is single because exactly one
 // long-running process makes sense per watch session.
 type watchFlags struct {
-	Run      string
-	Build    []string
-	Excludes []string
-	Project  string
-	Debounce time.Duration
-	Quiet    bool
+	Run       string
+	Build     []string
+	Excludes  []string
+	Project   string
+	WatchRoot string
+	Debounce  time.Duration
+	Quiet     bool
 }
 
 // parseWatchArgs is a hand-rolled parser rather than flag.NewFlagSet
@@ -127,6 +129,18 @@ func parseWatchArgs(args []string) (watchFlags, error) {
 				consumed = 2
 			}
 			fl.Project = value
+		case "--watch-root":
+			if !hasValue {
+				if i+1 >= len(args) {
+					return fl, fmt.Errorf("%s needs a value", a)
+				}
+				value = args[i+1]
+				consumed = 2
+			}
+			if fl.WatchRoot != "" {
+				return fl, errors.New("--watch-root can only be specified once")
+			}
+			fl.WatchRoot = value
 		case "--debounce":
 			if !hasValue {
 				if i+1 >= len(args) {
@@ -179,10 +193,16 @@ Optional:
                           On build failure, the previous --run keeps running.
   -p, --project PATH      Path to the gastro project root
                           (defaults to GASTRO_PROJECT env, then cwd)
+      --watch-root PATH   Override the directory walked for *.go changes.
+                          Defaults to the nearest enclosing go.mod
+                          (walking up from --project / GASTRO_PROJECT,
+                          stopping at .git/ or $HOME). Falls back to the
+                          project root when no go.mod is found.
       --exclude PATH      Path to ignore when watching .go files.
                           Repeat for multiple. Hardcoded defaults already
-                          exclude .gastro/, vendor/, node_modules/,
-                          .git/, and tmp/.
+                          exclude any directory named .gastro, vendor,
+                          node_modules, .git, or tmp (matched anywhere
+                          in the watched tree).
       --debounce DUR      Coalesce burst changes (default 200ms)
   -q, --quiet             Suppress per-change logs
   -h, --help              Show this help
@@ -229,6 +249,21 @@ func runWatch(args []string) error {
 			return fmt.Errorf("chdir to --project %q: %w", flags.Project, err)
 		}
 	}
+
+	// Resolve the Go-watch root (R5). Priority:
+	//   1. --watch-root explicit override.
+	//   2. Walk up from cwd looking for go.mod, stopping at .git/ or $HOME.
+	//   3. Fall back to cwd (= project root).
+	//
+	// Computed once here, before runWatchLoop, so the startup log line
+	// can name both the resolved path and how it was chosen. The
+	// resolved path is then passed through devloop.Config.GoWatchRoot.
+	goWatchRoot, goWatchSource, err := resolveGoWatchRoot(flags.WatchRoot)
+	if err != nil {
+		return err
+	}
+	flags.WatchRoot = goWatchRoot
+	fmt.Fprintf(os.Stderr, "gastro: watching *.go under %s (%s)\n", goWatchRoot, goWatchSource)
 
 	// Build-output collision warning (\u00a74a). If any --build command's argv
 	// looks like it writes a binary into a watched directory other than
@@ -329,6 +364,7 @@ func runWatchLoop(ctx context.Context, flags watchFlags) error {
 	debounce := flags.Debounce
 	loopErr := devloop.Run(ctx, devloop.Config{
 		ProjectRoot:   ".",
+		GoWatchRoot:   flags.WatchRoot,
 		DebounceDelay: debounce,
 		Quiet:         flags.Quiet,
 		WatchGoFiles:  true,
@@ -445,20 +481,61 @@ func suspectedBuildOutputCollision(buildCmd string) string {
 
 // absDir resolves p to an absolute directory path and verifies it
 // exists and is a directory. Mirrors applyGastroProject's checks.
+//
+// Uses filepath.Abs (cross-platform, handles ".." normalisation) rather
+// than the unix-only string-prefix check the original implementation
+// shipped with.
 func absDir(p string) (string, error) {
-	abs, err := os.Stat(p)
+	info, err := os.Stat(p)
 	if err != nil {
 		return "", err
 	}
-	if !abs.IsDir() {
+	if !info.IsDir() {
 		return "", fmt.Errorf("%q is not a directory", p)
 	}
-	full, err := os.Getwd()
+	abs, err := filepath.Abs(p)
 	if err != nil {
 		return "", err
 	}
-	if strings.HasPrefix(p, "/") {
-		return p, nil
+	return abs, nil
+}
+
+// resolveGoWatchRoot picks the directory walked for *.go changes when
+// gastro watch is running. Returns the absolute path and a one-word
+// source label for the startup log:
+//
+//   - "--watch-root" — explicit override; we just validate the path.
+//   - "go.mod"       — found by walking up from cwd; stops at .git/,
+//     $HOME, or the filesystem root.
+//   - "no go.mod found" — fallback to cwd; behaviour matches the v1
+//     watcher (rooted at GASTRO_PROJECT).
+//
+// override is the raw --watch-root flag value ("" when absent). cwd at
+// call time is assumed to already be the GASTRO_PROJECT (runWatch
+// chdirs before calling this).
+func resolveGoWatchRoot(override string) (path, source string, err error) {
+	if override != "" {
+		abs, aerr := filepath.Abs(override)
+		if aerr != nil {
+			return "", "", fmt.Errorf("--watch-root %q: %w", override, aerr)
+		}
+		info, serr := os.Stat(abs)
+		if serr != nil {
+			return "", "", fmt.Errorf("--watch-root %q: %w", override, serr)
+		}
+		if !info.IsDir() {
+			return "", "", fmt.Errorf("--watch-root %q: not a directory", override)
+		}
+		return abs, "--watch-root", nil
 	}
-	return full + "/" + p, nil
+
+	cwd, gerr := os.Getwd()
+	if gerr != nil {
+		return "", "", fmt.Errorf("getwd: %w", gerr)
+	}
+	home, _ := os.UserHomeDir() // empty home disables the bound; that's fine.
+	if mod := findGoModuleRoot(cwd, home); mod != "" {
+		return mod, "go.mod", nil
+	}
+	return cwd, "no go.mod found", nil
 }

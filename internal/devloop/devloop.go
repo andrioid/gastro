@@ -102,33 +102,46 @@ type Config struct {
 	// signal is written.
 	OnReload func()
 
-	// WatchGoFiles enables polling of *.go files under ProjectRoot
-	// (excluding the hardcoded set in defaultGoExcludes plus
-	// ExtraExcludes). All .go changes are restart-class; the smart
-	// classification machinery only applies to .gastro files.
+	// WatchGoFiles enables polling of *.go files under GoWatchRoot
+	// (or ProjectRoot if GoWatchRoot is empty), excluding the hardcoded
+	// basename set in defaultGoExcludeBasenames plus ExtraExcludes. All
+	// .go changes are restart-class; the smart classification machinery
+	// only applies to .gastro files.
 	//
 	// Set true by `gastro watch` (R1). Left false by `gastro dev` so
 	// scaffolded projects keep their .gastro-only watch surface.
 	WatchGoFiles bool
 
+	// GoWatchRoot is the directory walked for *.go files when
+	// WatchGoFiles is true. If empty, falls back to ProjectRoot. Used
+	// by `gastro watch` (R5) to watch a Go module root that sits above
+	// GASTRO_PROJECT, so edits to e.g. cmd/myapp/main.go in the parent
+	// trigger restarts.
+	//
+	// Has no effect when WatchGoFiles is false. The .gastro / pages /
+	// components / static surfaces always stay rooted at ProjectRoot.
+	GoWatchRoot string
+
 	// ExtraExcludes appends caller-supplied exclude paths to the
-	// hardcoded defaults (defaultGoExcludes). Each entry is matched as
-	// a path prefix relative to ProjectRoot. Used by `gastro watch
-	// --exclude` (R2).
+	// hardcoded defaults. Each entry is matched as a path prefix
+	// relative to GoWatchRoot (or ProjectRoot if GoWatchRoot is empty).
+	// Used by `gastro watch --exclude` (R2).
 	ExtraExcludes []string
 }
 
-// defaultGoExcludes is the always-on exclude set for *.go watching when
-// WatchGoFiles is enabled. These paths are not user-removable in v1 (R2);
-// removing any of them would either loop forever (.gastro/), watch the
-// world (vendor/, node_modules/), or violate user expectations (.git/,
-// tmp/).
-var defaultGoExcludes = []string{
-	".gastro/",
-	"vendor/",
-	"node_modules/",
-	".git/",
-	"tmp/",
+// defaultGoExcludeBasenames is the always-on exclude set for *.go
+// watching when WatchGoFiles is enabled. Entries are basenames matched
+// anywhere in the tree (so a nested vendor/ or node_modules/ inside a
+// monorepo is also skipped, not just one at the root). Not user-removable
+// in v1 (R2); removing any of them would either loop forever (.gastro/),
+// watch the world (vendor/, node_modules/), or violate user expectations
+// (.git/, tmp/).
+var defaultGoExcludeBasenames = []string{
+	".gastro",
+	"vendor",
+	"node_modules",
+	".git",
+	"tmp",
 }
 
 // Run blocks until ctx is cancelled. It performs an initial Generate +

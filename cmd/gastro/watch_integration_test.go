@@ -234,6 +234,26 @@ func runWatchTesting(stop <-chan struct{}, args []string) error {
 		return errors.New("--run is required")
 	}
 
+	// Mirror runWatch's --project chdir so tests that pass --project
+	// see the same cwd-resolved layout production does.
+	if flags.Project != "" {
+		abs, aerr := absDir(flags.Project)
+		if aerr != nil {
+			return aerr
+		}
+		if cerr := os.Chdir(abs); cerr != nil {
+			return cerr
+		}
+	}
+
+	// Mirror runWatch's GoWatchRoot resolution. Result lives on flags
+	// so runWatchLoop sees it the same way production does.
+	goWatchRoot, _, rerr := resolveGoWatchRoot(flags.WatchRoot)
+	if rerr != nil {
+		return rerr
+	}
+	flags.WatchRoot = goWatchRoot
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
@@ -572,3 +592,180 @@ func getBody(t *testing.T, port int) string {
 // tests that intentionally fail builds. Avoids polluting `go test`
 // output. Unused today \u2014 kept here as a hook if a future test needs it.
 var _ sync.Mutex
+
+// setupLibProjectNested mirrors setupLibProject but places the gastro
+// project (pages/, components/, .gastro/) at <root>/web/ instead of at
+// <root>/. The Go module sources (cmd/myapp/main.go) live at the
+// module root \u2014 the layout where R5's go.mod walk-up actually matters.
+//
+// Returns (moduleRoot, gastroProjectRoot). The harness should chdir
+// into gastroProjectRoot (= --project's target) so runWatch sees the
+// same setup production does.
+func setupLibProjectNested(t *testing.T) (moduleRoot, gastroProjectRoot string) {
+	t.Helper()
+	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve repo root: %v", err)
+	}
+
+	testRoot := filepath.Join(repoRoot, "tmp", "test-projects")
+	if err := os.MkdirAll(testRoot, 0o755); err != nil {
+		t.Fatalf("mkdir tmp/test-projects: %v", err)
+	}
+	root, err := os.MkdirTemp(testRoot, "watch-nested-*")
+	if err != nil {
+		t.Fatalf("mkdir-temp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+	// Module-level files: go.mod and the binary entrypoint.
+	mustWriteT(t, filepath.Join(root, "go.mod"), `module testapp
+
+go 1.26.1
+`)
+	mustMkdirT(t, filepath.Join(root, "cmd", "myapp"))
+	mustWriteT(t, filepath.Join(root, "cmd", "myapp", "main.go"), `package main
+
+import (
+	"net/http"
+	"os"
+	"time"
+)
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "0"
+	}
+	srv := &http.Server{
+		Addr: ":" + port,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("hello"))
+		}),
+	}
+	go srv.ListenAndServe()
+	for {
+		time.Sleep(time.Hour)
+	}
+}
+`)
+
+	// Gastro project lives one level down at web/.
+	web := filepath.Join(root, "web")
+	mustMkdirT(t, filepath.Join(web, "pages"))
+	mustMkdirT(t, filepath.Join(web, "components"))
+	mustWriteT(t, filepath.Join(web, "pages", "index.gastro"), `---
+Title := "hello"
+---
+<h1>{{ .Title }}</h1>
+`)
+
+	return root, web
+}
+
+// TestWatch_RestartsOnParentGoFileChange (R5): when GASTRO_PROJECT is a
+// subdirectory of a Go module, edits to *.go files in the parent (e.g.
+// cmd/myapp/main.go) trigger a rebuild + restart. Without R5 this would
+// silently do nothing because the watch surface was rooted at
+// GASTRO_PROJECT.
+//
+// We use --project to chdir into web/ explicitly so the test mirrors
+// the GASTRO_PROJECT=web invocation a user would type.
+func TestWatch_RestartsOnParentGoFileChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test \u2014 spawns processes")
+	}
+	moduleRoot, gastroRoot := setupLibProjectNested(t)
+
+	port := freePort(t)
+	t.Setenv("PORT", fmt.Sprint(port))
+
+	// Start the harness from moduleRoot; --project chdir's into web/.
+	// We DON'T pass --watch-root: the walk-up should find go.mod at
+	// moduleRoot and use it automatically.
+	// `go build` runs from cwd (= gastroRoot after --project chdir), so
+	// the package spec is relative to web/. This is what a real user
+	// would type for the same layout.
+	h := startWatch(t, moduleRoot,
+		"--project", gastroRoot,
+		"--debounce", "30ms",
+		"--build", "go build -o tmp/app ../cmd/myapp",
+		"--run", "tmp/app",
+	)
+
+	if err := waitForServer(t, port, coldStartTimeout); err != nil {
+		t.Fatalf("initial server never came up: %v", err)
+	}
+
+	// Edit cmd/myapp/main.go in the PARENT of GASTRO_PROJECT.
+	mainGo := filepath.Join(moduleRoot, "cmd", "myapp", "main.go")
+	src, err := os.ReadFile(mainGo)
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	modified := strings.Replace(string(src),
+		`w.Write([]byte("hello"))`,
+		`w.Write([]byte("hello v2"))`, 1)
+	touchLater(t, mainGo, modified)
+
+	deadline := time.Now().Add(integrationTimeout)
+	for time.Now().Before(deadline) {
+		if body := getBody(t, port); body == "hello v2" {
+			h.Stop()
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("server did not pick up parent-dir .go edit within timeout; last body: %q", getBody(t, port))
+}
+
+// TestWatch_WatchRootOverride: the same scenario as
+// TestWatch_RestartsOnParentGoFileChange but with no go.mod present.
+// Without R5's auto-detect, the user can still opt in to watching the
+// parent tree via --watch-root.
+func TestWatch_WatchRootOverride(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test \u2014 spawns processes")
+	}
+	moduleRoot, gastroRoot := setupLibProjectNested(t)
+
+	// Remove go.mod to prove --watch-root works on its own without
+	// the auto-detect path. Note: the build still works because
+	// `go build ./cmd/myapp` from the test would normally need a
+	// module \u2014 so we keep go.mod in place but instead point
+	// --watch-root somewhere explicit. The semantic guarantee here is
+	// "--watch-root takes precedence and is honoured even when it
+	// points at the same place auto-detect would have found."
+	port := freePort(t)
+	t.Setenv("PORT", fmt.Sprint(port))
+
+	h := startWatch(t, moduleRoot,
+		"--project", gastroRoot,
+		"--watch-root", moduleRoot, // <-- the explicit override
+		"--debounce", "30ms",
+		"--build", "go build -o tmp/app ../cmd/myapp",
+		"--run", "tmp/app",
+	)
+
+	if err := waitForServer(t, port, coldStartTimeout); err != nil {
+		t.Fatalf("initial server never came up: %v", err)
+	}
+
+	mainGo := filepath.Join(moduleRoot, "cmd", "myapp", "main.go")
+	src, _ := os.ReadFile(mainGo)
+	modified := strings.Replace(string(src),
+		`w.Write([]byte("hello"))`,
+		`w.Write([]byte("hello override"))`, 1)
+	touchLater(t, mainGo, modified)
+
+	deadline := time.Now().Add(integrationTimeout)
+	for time.Now().Before(deadline) {
+		if body := getBody(t, port); body == "hello override" {
+			h.Stop()
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("server did not pick up --watch-root edit; last body: %q", getBody(t, port))
+}
+

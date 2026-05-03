@@ -189,6 +189,33 @@ func TestParseWatchArgs(t *testing.T) {
 		}
 	})
 
+	t.Run("--watch-root with value", func(t *testing.T) {
+		fl, err := parseWatchArgs([]string{"--watch-root", "/tmp/x"})
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if fl.WatchRoot != "/tmp/x" {
+			t.Errorf("WatchRoot = %q", fl.WatchRoot)
+		}
+	})
+
+	t.Run("--watch-root=value form", func(t *testing.T) {
+		fl, err := parseWatchArgs([]string{"--watch-root=../mod"})
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if fl.WatchRoot != "../mod" {
+			t.Errorf("WatchRoot = %q", fl.WatchRoot)
+		}
+	})
+
+	t.Run("repeated --watch-root rejected", func(t *testing.T) {
+		_, err := parseWatchArgs([]string{"--watch-root", "a", "--watch-root", "b"})
+		if err == nil || !strings.Contains(err.Error(), "only be specified once") {
+			t.Errorf("expected single-use error, got %v", err)
+		}
+	})
+
 	t.Run("ldflags-style quoted args via shlex", func(t *testing.T) {
 		// This is the canonical hard case: a --build value containing
 		// inner single-quoted whitespace. parseWatchArgs treats the
@@ -250,6 +277,118 @@ func TestSuspectedBuildOutputCollision(t *testing.T) {
 			t.Errorf("%q: expected no collision, got %q", tc.cmd, got)
 		}
 	}
+}
+
+// TestResolveGoWatchRoot exercises the three branches of the resolver
+// the production runWatch funnels through: explicit override, walk-up
+// success, and walk-up fallback. The walk-up tests rely on chdir into
+// a sandbox layout so they don't accidentally pick up the repo's own
+// go.mod by walking past the test root.
+func TestResolveGoWatchRoot(t *testing.T) {
+	t.Run("explicit --watch-root resolves to abs path", func(t *testing.T) {
+		dir := t.TempDir()
+		got, source, err := resolveGoWatchRoot(dir)
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if source != "--watch-root" {
+			t.Errorf("source = %q, want --watch-root", source)
+		}
+		if got != dir {
+			t.Errorf("path = %q, want %q", got, dir)
+		}
+	})
+
+	t.Run("explicit --watch-root rejects non-directory", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "not-a-dir")
+		if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		_, _, err := resolveGoWatchRoot(file)
+		if err == nil || !strings.Contains(err.Error(), "not a directory") {
+			t.Errorf("expected not-a-directory error, got %v", err)
+		}
+	})
+
+	t.Run("walk-up finds go.mod above cwd", func(t *testing.T) {
+		// Sandbox under repo's tmp/ so walk-up doesn't bleed into the
+		// real go.mod. .git at the sandbox root caps the walk.
+		repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+		if err != nil {
+			t.Fatalf("abs: %v", err)
+		}
+		base := filepath.Join(repoRoot, "tmp", "test-projects")
+		if err := os.MkdirAll(base, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		sandbox, err := os.MkdirTemp(base, "resolve-*")
+		if err != nil {
+			t.Fatalf("mkdtemp: %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(sandbox) })
+		mustMkdirT(t, filepath.Join(sandbox, ".git"))
+
+		mod := filepath.Join(sandbox, "app")
+		mustMkdirT(t, mod)
+		mustWriteT(t, filepath.Join(mod, "go.mod"), "module x\n")
+
+		web := filepath.Join(mod, "internal", "web")
+		mustMkdirT(t, web)
+
+		chdirT(t, web)
+		got, source, err := resolveGoWatchRoot("")
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if source != "go.mod" {
+			t.Errorf("source = %q, want go.mod", source)
+		}
+		// Resolve symlinks for comparison — macOS prefixes /private/var
+		// for things like /var/folders, so getwd vs MkdirTemp can
+		// disagree even though they point at the same inode.
+		wantAbs, _ := filepath.EvalSymlinks(mod)
+		gotAbs, _ := filepath.EvalSymlinks(got)
+		if gotAbs != wantAbs {
+			t.Errorf("path = %q, want %q", gotAbs, wantAbs)
+		}
+	})
+
+	t.Run("no go.mod falls back to cwd", func(t *testing.T) {
+		repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
+		if err != nil {
+			t.Fatalf("abs: %v", err)
+		}
+		base := filepath.Join(repoRoot, "tmp", "test-projects")
+		if err := os.MkdirAll(base, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		sandbox, err := os.MkdirTemp(base, "resolve-nomod-*")
+		if err != nil {
+			t.Fatalf("mkdtemp: %v", err)
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(sandbox) })
+		// .git at sandbox root caps the walk before it can find the
+		// repo's own go.mod above tmp/.
+		mustMkdirT(t, filepath.Join(sandbox, ".git"))
+
+		web := filepath.Join(sandbox, "internal", "web")
+		mustMkdirT(t, web)
+
+		chdirT(t, web)
+		got, source, err := resolveGoWatchRoot("")
+		if err != nil {
+			t.Fatalf("resolve: %v", err)
+		}
+		if source != "no go.mod found" {
+			t.Errorf("source = %q, want %q", source, "no go.mod found")
+		}
+		wantAbs, _ := filepath.EvalSymlinks(web)
+		gotAbs, _ := filepath.EvalSymlinks(got)
+		if gotAbs != wantAbs {
+			t.Errorf("path = %q, want %q (cwd)", gotAbs, wantAbs)
+		}
+	})
 }
 
 // TestWriteBuildErrorSignal_Atomic asserts the signal file is written

@@ -644,3 +644,193 @@ func TestRun_WatchGoFiles_HonoursExtraExcludes(t *testing.T) {
 		waitN(t, "restart after included .go change", rec.restartCh, 1)
 	})
 }
+
+// TestRun_GoWatchRoot_WatchesAboveProjectRoot covers R5: when GoWatchRoot
+// is set above ProjectRoot (e.g. the enclosing Go module root), edits to
+// *.go files in the parent tree trigger restarts. This is the common
+// library-mode layout where GASTRO_PROJECT is internal/web/ but the
+// binary entrypoint lives at cmd/myapp/main.go.
+func TestRun_GoWatchRoot_WatchesAboveProjectRoot(t *testing.T) {
+	// Layout:
+	//   <module>/go.mod            (presence not required by devloop)
+	//   <module>/cmd/myapp/main.go (edited — must trigger restart)
+	//   <module>/web/              (= ProjectRoot; gastro project)
+	//     pages/index.gastro
+	//     components/card.gastro
+	module := t.TempDir()
+	projectRoot := filepath.Join(module, "web")
+	mustMkdir(t, filepath.Join(projectRoot, "pages"))
+	mustMkdir(t, filepath.Join(projectRoot, "components"))
+	mustMkdir(t, filepath.Join(projectRoot, "static"))
+	mustWrite(t, filepath.Join(projectRoot, "pages", "index.gastro"), `---
+---
+<h1>hi</h1>
+`)
+	mustWrite(t, filepath.Join(projectRoot, "components", "card.gastro"), `---
+---
+<div>card</div>
+`)
+
+	mustMkdir(t, filepath.Join(module, "cmd", "myapp"))
+	parentGo := filepath.Join(module, "cmd", "myapp", "main.go")
+	mustWrite(t, parentGo, "package main\n\nfunc main() {}\n")
+
+	rec := newRecorder()
+
+	withChdir(t, projectRoot, func() {
+		cancel, wait := runLoop(t, devloop.Config{
+			PollInterval:  testPoll,
+			DebounceDelay: testDebounce,
+			WatchGoFiles:  true,
+			GoWatchRoot:   module, // <-- the new behaviour under test
+			Generate:      rec.generate,
+			OnRestart:     rec.onRestart,
+			OnReload:      rec.onReload,
+		})
+		defer wait()
+		defer cancel()
+
+		waitN(t, "initial generate", rec.genCh, 1)
+		waitN(t, "initial restart", rec.restartCh, 1)
+		time.Sleep(testPoll * 2)
+		drain(rec.genCh)
+		drain(rec.restartCh)
+		drain(rec.reloadCh)
+
+		// Edit the parent *.go file. With GoWatchRoot=module this must
+		// trigger a restart even though the file lives outside the
+		// gastro project root.
+		touchLater(t, parentGo, "package main\n\nfunc main() { println(\"hi\") }\n")
+		waitN(t, "regen after parent .go change", rec.genCh, 1)
+		waitN(t, "restart after parent .go change", rec.restartCh, 1)
+	})
+}
+
+// TestRun_GoWatchRoot_DefaultsToProjectRoot guards the backward-compat
+// promise: if GoWatchRoot is empty, behaviour is identical to the
+// pre-R5 watcher — only *.go files under ProjectRoot are watched.
+func TestRun_GoWatchRoot_DefaultsToProjectRoot(t *testing.T) {
+	module := t.TempDir()
+	projectRoot := filepath.Join(module, "web")
+	mustMkdir(t, filepath.Join(projectRoot, "pages"))
+	mustMkdir(t, filepath.Join(projectRoot, "components"))
+	mustMkdir(t, filepath.Join(projectRoot, "static"))
+	mustWrite(t, filepath.Join(projectRoot, "pages", "index.gastro"), `---
+---
+<h1>hi</h1>
+`)
+	mustWrite(t, filepath.Join(projectRoot, "components", "card.gastro"), `---
+---
+<div>card</div>
+`)
+
+	mustMkdir(t, filepath.Join(module, "cmd", "myapp"))
+	parentGo := filepath.Join(module, "cmd", "myapp", "main.go")
+	mustWrite(t, parentGo, "package main\n\nfunc main() {}\n")
+
+	rec := newRecorder()
+
+	withChdir(t, projectRoot, func() {
+		cancel, wait := runLoop(t, devloop.Config{
+			PollInterval:  testPoll,
+			DebounceDelay: testDebounce,
+			WatchGoFiles:  true,
+			// GoWatchRoot intentionally unset — must fall back to ProjectRoot.
+			Generate:  rec.generate,
+			OnRestart: rec.onRestart,
+			OnReload:  rec.onReload,
+		})
+		defer wait()
+		defer cancel()
+
+		waitN(t, "initial generate", rec.genCh, 1)
+		waitN(t, "initial restart", rec.restartCh, 1)
+		time.Sleep(testPoll * 2)
+		drain(rec.genCh)
+		drain(rec.restartCh)
+		drain(rec.reloadCh)
+
+		// Edit the parent *.go file. With GoWatchRoot unset it must NOT
+		// trigger a restart — we never see it.
+		touchLater(t, parentGo, "package main\n\nfunc main() { println(\"hi\") }\n")
+		time.Sleep(testPoll*5 + testDebounce)
+		if extra := drain(rec.restartCh); extra > 0 {
+			t.Errorf("parent .go change should NOT restart when GoWatchRoot is unset; saw %d", extra)
+		}
+	})
+}
+
+// TestRun_GoWatchRoot_BasenameExcludesPruneNestedDirs covers the new
+// basename-match semantics for the always-on default excludes. With
+// GoWatchRoot set to a parent dir, an inner .gastro/ (under the gastro
+// project itself) and a nested vendor/ inside an arbitrary subtree must
+// both be skipped — the prefix-only logic of v1 would have walked into
+// the inner .gastro/ because its rel-path doesn't start with ".gastro/".
+func TestRun_GoWatchRoot_BasenameExcludesPruneNestedDirs(t *testing.T) {
+	module := t.TempDir()
+	projectRoot := filepath.Join(module, "web")
+	mustMkdir(t, filepath.Join(projectRoot, "pages"))
+	mustMkdir(t, filepath.Join(projectRoot, "components"))
+	mustMkdir(t, filepath.Join(projectRoot, "static"))
+	mustWrite(t, filepath.Join(projectRoot, "pages", "index.gastro"), `---
+---
+<h1>hi</h1>
+`)
+	mustWrite(t, filepath.Join(projectRoot, "components", "card.gastro"), `---
+---
+<div>card</div>
+`)
+
+	// .gastro/ under the gastro project (where generate would write).
+	// Files here MUST NOT trigger restarts — otherwise we infinite-loop.
+	nestedGastroGo := filepath.Join(projectRoot, ".gastro", "router.go")
+	mustMkdir(t, filepath.Join(projectRoot, ".gastro"))
+	mustWrite(t, nestedGastroGo, "package gastro\n")
+
+	// vendor/ deep inside the module — must also be skipped despite not
+	// matching the prefix "vendor/" relative to GoWatchRoot.
+	nestedVendorGo := filepath.Join(module, "third_party", "libfoo", "vendor", "foo.go")
+	mustMkdir(t, filepath.Dir(nestedVendorGo))
+	mustWrite(t, nestedVendorGo, "package foo\n")
+
+	// And a regular .go file that SHOULD trigger — keeps the test honest.
+	mustMkdir(t, filepath.Join(module, "cmd", "myapp"))
+	includedGo := filepath.Join(module, "cmd", "myapp", "main.go")
+	mustWrite(t, includedGo, "package main\n\nfunc main() {}\n")
+
+	rec := newRecorder()
+
+	withChdir(t, projectRoot, func() {
+		cancel, wait := runLoop(t, devloop.Config{
+			PollInterval:  testPoll,
+			DebounceDelay: testDebounce,
+			WatchGoFiles:  true,
+			GoWatchRoot:   module,
+			Generate:      rec.generate,
+			OnRestart:     rec.onRestart,
+			OnReload:      rec.onReload,
+		})
+		defer wait()
+		defer cancel()
+
+		waitN(t, "initial generate", rec.genCh, 1)
+		waitN(t, "initial restart", rec.restartCh, 1)
+		time.Sleep(testPoll * 2)
+		drain(rec.genCh)
+		drain(rec.restartCh)
+		drain(rec.reloadCh)
+
+		// Edit both excluded files. Neither should produce events.
+		touchLater(t, nestedGastroGo, "package gastro\n\nvar X = 1\n")
+		touchLater(t, nestedVendorGo, "package foo\n\nvar Y = 1\n")
+		time.Sleep(testPoll*5 + testDebounce)
+		if extra := drain(rec.restartCh); extra > 0 {
+			t.Errorf("nested-default-exclude .go edits triggered %d restarts", extra)
+		}
+
+		// Edit the regular file — must trigger.
+		touchLater(t, includedGo, "package main\n\nfunc main() { println(\"x\") }\n")
+		waitN(t, "regen after included .go change", rec.genCh, 1)
+		waitN(t, "restart after included .go change", rec.restartCh, 1)
+	})
+}

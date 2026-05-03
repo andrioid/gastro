@@ -20,6 +20,7 @@ import (
 type watcherState struct {
 	cfg                 Config
 	root                string
+	goRoot              string
 	extDeps             *watcher.ExternalDeps
 	escalate            func(watcher.ChangeType)
 	debounced           func()
@@ -27,7 +28,12 @@ type watcherState struct {
 	fileContents        map[string]string
 	markdownCache       []string
 	markdownDepsVersion uint64
-	goExcludes          []string
+	// goExcludeBasenames is matched against directory basenames anywhere
+	// in the goRoot tree (always-on defaults like vendor/, node_modules/).
+	goExcludeBasenames []string
+	// goExcludePrefixes is matched as a slash-normalised prefix relative
+	// to goRoot (user-supplied via --exclude).
+	goExcludePrefixes []string
 }
 
 // newWatcherState seeds modTimes/fileContents from the on-disk state of
@@ -44,9 +50,14 @@ func newWatcherState(
 	if root == "" {
 		root = "."
 	}
+	goRoot := cfg.GoWatchRoot
+	if goRoot == "" {
+		goRoot = root
+	}
 	s := &watcherState{
 		cfg:          cfg,
 		root:         root,
+		goRoot:       goRoot,
 		extDeps:      extDeps,
 		escalate:     escalate,
 		debounced:    debounced,
@@ -59,11 +70,11 @@ func newWatcherState(
 	s.seedFiles("static", false)
 	s.seedMarkdown()
 	if cfg.WatchGoFiles {
-		s.goExcludes = append(s.goExcludes, defaultGoExcludes...)
+		s.goExcludeBasenames = append(s.goExcludeBasenames, defaultGoExcludeBasenames...)
 		for _, ex := range cfg.ExtraExcludes {
-			s.goExcludes = append(s.goExcludes, normaliseExclude(ex))
+			s.goExcludePrefixes = append(s.goExcludePrefixes, normaliseExclude(ex))
 		}
-		seedGoFiles(s.root, s.goExcludes, s.modTimes)
+		seedGoFiles(s.goRoot, s.goExcludeBasenames, s.goExcludePrefixes, s.modTimes)
 	}
 	return s
 }
@@ -154,8 +165,9 @@ func (s *watcherState) runLoop(ctx context.Context) {
 	_ = s.extDeps // accessed via s.syncMarkdownCache()
 	escalate := s.escalate
 	debounced := s.debounced
-	root := s.root
-	goExcludes := s.goExcludes
+	goRoot := s.goRoot
+	goExcludeBasenames := s.goExcludeBasenames
+	goExcludePrefixes := s.goExcludePrefixes
 
 	for {
 		select {
@@ -273,7 +285,7 @@ func (s *watcherState) runLoop(ctx context.Context) {
 
 		// *.go (gastro watch only)
 		if cfg.WatchGoFiles {
-			goFiles := collectGoFiles(root, goExcludes)
+			goFiles := collectGoFiles(goRoot, goExcludeBasenames, goExcludePrefixes)
 			for _, f := range goFiles {
 				currentFiles[f] = true
 				info, err := os.Stat(f)
@@ -333,8 +345,8 @@ func normaliseExclude(p string) string {
 // seedGoFiles populates modTimes with every *.go file under root that
 // passes the exclude filter. Called once at startup so the first scan
 // doesn't fire restart events for the entire codebase.
-func seedGoFiles(root string, excludes []string, modTimes map[string]time.Time) {
-	for _, f := range collectGoFiles(root, excludes) {
+func seedGoFiles(root string, basenames, prefixes []string, modTimes map[string]time.Time) {
+	for _, f := range collectGoFiles(root, basenames, prefixes) {
 		info, err := os.Stat(f)
 		if err != nil {
 			continue
@@ -343,14 +355,23 @@ func seedGoFiles(root string, excludes []string, modTimes map[string]time.Time) 
 	}
 }
 
-// collectGoFiles walks root and returns *.go files not under any exclude
-// prefix. Exclude entries are slash-normalised path prefixes
-// ("vendor/", ".gastro/"). Walks return forward-slash paths via
-// filepath.ToSlash so the prefix match is portable.
+// collectGoFiles walks root and returns *.go files not blocked by either
+// exclude set:
 //
-// Errors during walk are silently skipped — the watcher recovers on the
-// next tick. This matches the existing static/ handling.
-func collectGoFiles(root string, excludes []string) []string {
+//   - basenames: matched against the bare directory or file name (e.g.
+//     "vendor", ".gastro"). Skipped wherever they appear in the tree;
+//     this is what makes nested node_modules/ inside a monorepo also
+//     get pruned, not just one at the root.
+//
+//   - prefixes: slash-normalised path prefixes relative to root (e.g.
+//     "custom/deep/"). Matched the same way the historical exclude list
+//     was, so existing user --exclude entries keep their semantics.
+//
+// Walks return forward-slash paths via filepath.ToSlash so the prefix
+// match is portable. Errors during walk are silently skipped — the
+// watcher recovers on the next tick. This matches the existing static/
+// handling.
+func collectGoFiles(root string, basenames, prefixes []string) []string {
 	var out []string
 	_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -365,8 +386,19 @@ func collectGoFiles(root string, excludes []string) []string {
 			return nil
 		}
 
-		// Apply excludes to both directories and files.
-		for _, ex := range excludes {
+		// Basename excludes apply anywhere in the tree.
+		base := filepath.Base(path)
+		for _, b := range basenames {
+			if base == b {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
+		// Prefix excludes apply relative to root.
+		for _, ex := range prefixes {
 			if rel == strings.TrimSuffix(ex, "/") || strings.HasPrefix(rel+"/", ex) {
 				if info.IsDir() {
 					return filepath.SkipDir

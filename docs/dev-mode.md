@@ -79,11 +79,36 @@ It's a small, focused, gastro-aware version of what `air` does for the slice
 of use cases gastro projects actually have.
 
 It is **not** a general-purpose Go file watcher. The watch surface is
-hardcoded to `.gastro`, `.md` (referenced via `{{ markdown ... }}`),
-`static/**`, and `*.go` files outside the always-on exclude set
-(`.gastro/`, `vendor/`, `node_modules/`, `.git/`, `tmp/`, plus any
-`--exclude` paths you add). If you need a more flexible runner, use the
+hardcoded to:
+
+- `.gastro`, `.md` (referenced via `{{ markdown ... }}`), and `static/**`,
+  rooted at the gastro project root (`--project` / `GASTRO_PROJECT` / cwd).
+- `*.go` files under the **enclosing Go module root** — by default
+  `gastro watch` walks up from the project root looking for a `go.mod` and
+  uses that directory as the Go-watch root. This means an edit to
+  `cmd/myapp/main.go` is picked up even when your gastro project lives
+  at e.g. `internal/web/`. If no `go.mod` is found before hitting a
+  `.git/` directory or `$HOME`, the Go-watch root falls back to the
+  project root (the v1 behaviour).
+
+Override or pin the Go-watch root explicitly with `--watch-root PATH`. The
+startup banner shows which directory was selected and how:
+
+```
+gastro: watching *.go under /Users/me/myapp (go.mod)
+```
+
+Any directory named `.gastro`, `vendor`, `node_modules`, `.git`, or `tmp`
+is skipped wherever it appears in the watched tree. Add project-specific
+excludes with `--exclude PATH` (matched as a path prefix relative to the
+Go-watch root). If you need a more flexible runner, use the
 [composition recipe](#composing-with-other-runners) below.
+
+> **Build commands and `--project`.** `--build` and `--run` execute with
+> cwd set to the gastro project root, not the Go module root. If your
+> gastro project lives in a subdirectory and your build refers to a
+> package in the parent (e.g. `./cmd/myapp`), use a relative path that
+> works from the subdirectory: `go build -o tmp/app ../cmd/myapp`.
 
 ## How it works
 
