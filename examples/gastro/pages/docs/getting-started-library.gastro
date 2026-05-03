@@ -1,0 +1,22 @@
+---
+import (
+    DocsLayout "components/docs-layout.gastro"
+)
+
+Title := "Getting Started — Library Mode"
+Active := "getting-started-library"
+---
+{{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
+    {{ markdown "../../../../docs/getting-started-library.md" }}
+
+    <div class="docs-nav">
+        <a href="/docs/getting-started" class="prev">
+            <div class="docs-nav-label">Previous</div>
+            <div class="docs-nav-title">Getting Started (new project)</div>
+        </a>
+        <a href="/docs/pages" class="next">
+            <div class="docs-nav-label">Next</div>
+            <div class="docs-nav-title">Pages &amp; Routing</div>
+        </a>
+    </div>
+{{ end }}

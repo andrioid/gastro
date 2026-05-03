@@ -1,18 +1,56 @@
-# Getting Started
+# Getting Started — Framework Mode
 
 Set up your first Gastro project in under a minute. You'll need Go 1.26+ installed.
 
+This page is for **building a new Gastro site from scratch**. If you're adding
+gastro to an existing Go project (an API service growing an admin UI, an
+internal tool, a status page, etc.), see [Getting Started — Library
+Mode](getting-started-library.md) instead. The runtime is identical between
+modes; what differs is the bootstrap and the dev-loop command.
+
 ## Install
 
-Install the `gastro` CLI. It acts as a dev server, code generator and language server (LSP).
+The `gastro` CLI acts as a dev server, code generator and language server
+(LSP). There are three equivalent ways to install it. Pick one:
 
 ```bash
-# With go install (recommended)
+# Option A: go install -- global, no extra tooling
 go install github.com/andrioid/gastro/cmd/gastro@latest
 
-# Or with mise
+# Option B: mise -- global, easy upgrades, version pinned per-tool
 mise use -g github:andrioid/gastro@latest
+
+# Option C: go tool -- per-project version pin in go.mod, no global install
+# Run inside an existing Go module. `gastro new` (below) sets this up for you.
+go get -tool github.com/andrioid/gastro/cmd/gastro
 ```
+
+With Option C the CLI is invoked as `go tool gastro <cmd>` instead of
+`gastro <cmd>`. The version is pinned alongside your other module
+dependencies, which is convenient for CI/CD and for teams that want every
+contributor on the same gastro version without a separate install step.
+
+### Project-local CLI via `go tool`
+
+When you run `gastro new`, the generated `go.mod` includes:
+
+```
+tool github.com/andrioid/gastro/cmd/gastro
+```
+
+and the generated `main.go` includes:
+
+```go
+//go:generate go tool gastro generate
+```
+
+So you can use `go tool gastro <cmd>` and `go generate ./...` immediately
+after scaffolding, without installing the CLI globally. If you also have
+`gastro` on `PATH`, both styles work and stay equivalent (the `tool`
+directive just gives you a project-pinned version).
+
+To add the directive to an existing project, run
+`go get -tool github.com/andrioid/gastro/cmd/gastro` inside the module.
 
 To add Gastro support in your IDE, you can install one of our extensions.
 
@@ -131,7 +169,7 @@ gastro list --json   # machine-readable output for scripts and agents
 Build a single static binary for deployment:
 
 ```bash
-gastro build
+gastro build       # or: go tool gastro build
 ./app
 ```
 

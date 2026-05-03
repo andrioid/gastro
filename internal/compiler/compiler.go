@@ -1134,12 +1134,49 @@ func generateRoutesFile(routes []router.Route, templates []templateMeta, hasStat
 // If go/format.Source rejects src, the original (unformatted) bytes are
 // included in the returned error so the failure can be diagnosed without
 // re-running the compile. The on-disk file is not touched in that case.
+//
+// Two correctness properties beyond formatting:
+//
+//   - Skip-if-equal: if the on-disk bytes already match the formatted
+//     output, the file is left untouched. This preserves the mod-time so
+//     external watchers (and the in-tree dev watcher) don't see spurious
+//     change events on no-op regenerations, and avoids spurious git diffs
+//     for downstream teams that opt into committing the .gastro/ tree.
+//
+//   - Atomic write: when the bytes do change, write to a sibling ".tmp"
+//     file first and rename into place. A rename is atomic on POSIX
+//     filesystems, so a concurrent reader (e.g. `go build` running in
+//     parallel with a regen, or a watcher killed mid-write) either sees
+//     the old complete contents or the new complete contents — never a
+//     half-written file. If formatting succeeds but the write fails, no
+//     stray ".tmp" is left behind on the success path; on the failure
+//     path we make a best-effort cleanup.
 func writeGoFile(path string, src []byte) error {
 	formatted, err := goformat.Source(src)
 	if err != nil {
 		return fmt.Errorf("gofmt %s: %w\n--- generated source ---\n%s", path, err, src)
 	}
-	return os.WriteFile(path, formatted, 0o644)
+
+	// Skip-if-equal: avoid bumping mod-time when nothing changed.
+	// os.ReadFile errors (file missing, permission denied) fall through
+	// to the write path, which will surface the real error if any.
+	if existing, rerr := os.ReadFile(path); rerr == nil && bytes.Equal(existing, formatted) {
+		return nil
+	}
+
+	// Atomic write: temp + rename. The temp file lives alongside the
+	// destination so the rename stays on the same filesystem (cross-fs
+	// renames fail with EXDEV on Linux).
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, formatted, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		// Best-effort cleanup so we don't leave .tmp turds behind.
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // dedupeStrings returns a sorted deduplicated copy of in.

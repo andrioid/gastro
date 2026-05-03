@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/alecthomas/chroma/v2 v2.23.1
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/yuin/goldmark v1.8.2
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 )

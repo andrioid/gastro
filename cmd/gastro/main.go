@@ -19,19 +19,19 @@ import (
 	"time"
 
 	"github.com/andrioid/gastro/internal/compiler"
+	"github.com/andrioid/gastro/internal/devloop"
 	"github.com/andrioid/gastro/internal/format"
 	"github.com/andrioid/gastro/internal/lsp"
 	"github.com/andrioid/gastro/internal/scaffold"
-	"github.com/andrioid/gastro/internal/watcher"
 )
 
 // Set at build time via -ldflags "-X main.version=..."
 var version = "dev"
 
-const (
-	fileWatchInterval = 500 * time.Millisecond
-	debounceDelay     = 200 * time.Millisecond
-)
+// Watch / debounce timing now lives in internal/devloop (defaultDebounce,
+// defaultPollInterval). runDev leaves them at the package defaults so the
+// observable behaviour of `gastro dev` is unchanged from before the
+// extraction.
 
 func main() {
 	if len(os.Args) < 2 {
@@ -56,9 +56,19 @@ func main() {
 			os.Exit(1)
 		}
 	case "dev":
+		if err := validateDevArgs(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
 		applyGastroProject()
 		if err := runDev(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro dev: %v\n", err)
+			os.Exit(1)
+		}
+	case "watch":
+		applyGastroProject()
+		if err := runWatch(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "gastro watch: %v\n", err)
 			os.Exit(1)
 		}
 	case "new":
@@ -141,6 +151,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  generate    Compile .gastro files to .gastro/ directory")
 	fmt.Fprintln(os.Stderr, "  build       Generate + go build -> single binary")
 	fmt.Fprintln(os.Stderr, "  dev         Watch mode with hot reload (port 4242 or PORT env)")
+	fmt.Fprintln(os.Stderr, "  watch       Watch mode for library-mode projects (gastro embedded in an existing Go service)")
 	fmt.Fprintln(os.Stderr, "  fmt         Format .gastro files")
 	fmt.Fprintln(os.Stderr, "  check       Verify .gastro/ matches the source (CI gate)")
 	fmt.Fprintln(os.Stderr, "  list        List all components and pages with their props (--json for machine output)")
@@ -490,24 +501,11 @@ func runDev() error {
 		port = p
 	}
 
-	// extDeps tracks markdown files referenced by {{ markdown "..." }}
-	// directives, as reported by the compiler. It is the single source of
-	// truth for which .md files the dev watcher polls. Out-of-tree paths
-	// (e.g. shared docs one directory above the project) are supported
-	// because the compiler reports absolute paths.
-	extDeps := &watcher.ExternalDeps{}
-
-	// Initial generation (non-strict in dev mode — warnings don't block)
-	initialResult, err := runGenerate(false)
-	if err != nil {
-		return err
-	}
-	extDeps.Set(initialResult.MarkdownDeps)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle interrupt signals
+	// SIGINT/SIGTERM — cancel the loop, then the deferred app cleanup
+	// below kills the child process.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -516,12 +514,20 @@ func runDev() error {
 		cancel()
 	}()
 
-	// Build and start the app
-	var appCmd *exec.Cmd
-	startApp := func() {
+	// App lifecycle. startApp is called by devloop's OnRestart hook —
+	// once at startup, then again on every restart-class change.
+	var (
+		appMu  sync.Mutex
+		appCmd *exec.Cmd
+	)
+	startApp := func(loopCtx context.Context) error {
+		appMu.Lock()
+		defer appMu.Unlock()
+
 		if appCmd != nil && appCmd.Process != nil {
 			appCmd.Process.Signal(syscall.SIGTERM)
 			appCmd.Wait()
+			appCmd = nil
 		}
 
 		fmt.Println("gastro: building...")
@@ -530,292 +536,52 @@ func runDev() error {
 		build.Stderr = os.Stderr
 		if err := build.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro: build failed: %v\n", err)
-			return
+			// Match historical behaviour: log and continue. devloop will
+			// retry on the next restart-class change.
+			return nil
 		}
 
 		fmt.Printf("gastro: starting server on :%s\n", port)
-		appCmd = exec.CommandContext(ctx, ".gastro/dev-server")
-		appCmd.Env = append(os.Environ(), "GASTRO_DEV=1", "PORT="+port)
-		appCmd.Stdout = os.Stdout
-		appCmd.Stderr = os.Stderr
-		if err := appCmd.Start(); err != nil {
+		cmd := exec.CommandContext(loopCtx, ".gastro/dev-server")
+		cmd.Env = append(os.Environ(), "GASTRO_DEV=1", "PORT="+port)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Start(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro: start failed: %v\n", err)
-			appCmd = nil
+			return nil
 		}
+		appCmd = cmd
+		return nil
 	}
 
-	startApp()
-
-	// Track the pending change type across the debounce window.
-	// ChangeRestart wins over ChangeReload.
-	var (
-		pendingMu     sync.Mutex
-		pendingChange = watcher.ChangeReload
-	)
-
-	escalate := func(ct watcher.ChangeType) {
-		pendingMu.Lock()
-		defer pendingMu.Unlock()
-		if ct > pendingChange {
-			pendingChange = ct
-		}
-	}
-
-	consumePending := func() watcher.ChangeType {
-		pendingMu.Lock()
-		defer pendingMu.Unlock()
-		ct := pendingChange
-		pendingChange = watcher.ChangeReload
-		return ct
-	}
-
-	debounced := watcher.Debounce(debounceDelay, func() {
-		fmt.Println("gastro: changes detected, regenerating...")
-		result, err := runGenerate(false)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "gastro: generate failed: %v\n", err)
-			// Retain last-known-good extDeps so .md edits keep reloading
-			// while the user fixes a broken .gastro file.
-			return
-		}
-		extDeps.Set(result.MarkdownDeps)
-
-		ct := consumePending()
-		if ct == watcher.ChangeRestart {
-			startApp()
-		} else {
-			writeReloadSignal()
-		}
+	// Run the watch loop. Generate hooks into the existing runGenerate
+	// helper (lenient — warnings don't block dev). OnReload writes the
+	// .gastro/.reload signal that pkg/gastro/devreload.go polls. Note
+	// that PollInterval and DebounceDelay are left at the package
+	// defaults (500ms / 200ms) so observable behaviour matches what
+	// `gastro dev` shipped before the devloop extraction.
+	loopErr := devloop.Run(ctx, devloop.Config{
+		Generate: func() ([]string, error) {
+			result, err := runGenerate(false)
+			if err != nil {
+				return nil, err
+			}
+			return result.MarkdownDeps, nil
+		},
+		OnRestart: startApp,
+		OnReload:  writeReloadSignal,
 	})
 
-	// Polling watcher — checks file mod times, classifies changes
-	go func() {
-		modTimes := make(map[string]time.Time)
-		fileContents := make(map[string]string)
-
-		// Seed the initial state so we don't trigger on first scan.
-		seedFiles := func(dir string, gastroOnly bool) {
-			var files []string
-			var err error
-			if gastroOnly {
-				files, err = watcher.CollectGastroFiles(dir)
-			} else {
-				files, err = watcher.CollectAllFiles(dir)
-			}
-			if err != nil {
-				return
-			}
-			for _, f := range files {
-				info, err := os.Stat(f)
-				if err != nil {
-					continue
-				}
-				modTimes[f] = info.ModTime()
-				if gastroOnly {
-					if content, err := os.ReadFile(f); err == nil {
-						fileContents[f] = string(content)
-					}
-				}
-			}
-		}
-
-		// Markdown files to watch come from extDeps, populated by the
-		// compiler from {{ markdown "..." }} directives. This is the sole
-		// source of markdown paths — files not referenced by any .gastro
-		// are intentionally not watched. Paths may live outside the project
-		// root (e.g. a shared docs directory resolved via "../").
-		var markdownCache []string
-		var markdownDepsVersion uint64
-
-		// syncMarkdownCache pulls the latest dep list from extDeps when its
-		// version has changed. Paths that were dropped from extDeps (e.g.
-		// because a directive was removed) are silently removed from
-		// modTimes so the deletion loop below doesn't misclassify them as a
-		// file deletion and escalate to a restart.
-		syncMarkdownCache := func() {
-			paths, ver := extDeps.Snapshot()
-			if ver == markdownDepsVersion && markdownCache != nil {
-				return
-			}
-			newSet := make(map[string]struct{}, len(paths))
-			for _, p := range paths {
-				newSet[p] = struct{}{}
-			}
-			for _, old := range markdownCache {
-				if _, ok := newSet[old]; !ok {
-					delete(modTimes, old)
-				}
-			}
-			markdownCache = paths
-			markdownDepsVersion = ver
-		}
-
-		seedMarkdown := func() {
-			syncMarkdownCache()
-			for _, f := range markdownCache {
-				info, err := os.Stat(f)
-				if err != nil {
-					continue
-				}
-				modTimes[f] = info.ModTime()
-			}
-		}
-
-		for _, dir := range []string{"pages", "components"} {
-			seedFiles(dir, true)
-		}
-		seedFiles("static", false)
-		seedMarkdown()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(fileWatchInterval):
-			}
-
-			changed := false
-
-			// Track current files to detect deletions.
-			currentFiles := make(map[string]bool)
-
-			for _, dir := range []string{"pages", "components"} {
-				files, err := watcher.CollectGastroFiles(dir)
-				if err != nil {
-					continue
-				}
-				for _, f := range files {
-					currentFiles[f] = true
-					info, err := os.Stat(f)
-					if err != nil {
-						continue
-					}
-
-					prev, known := modTimes[f]
-					if !known {
-						// New file added — needs full restart (new routes).
-						fmt.Printf("gastro: new file %s\n", f)
-						content, _ := os.ReadFile(f)
-						fileContents[f] = string(content)
-						modTimes[f] = info.ModTime()
-						escalate(watcher.ChangeRestart)
-						changed = true
-						continue
-					}
-
-					if info.ModTime().After(prev) {
-						content, err := os.ReadFile(f)
-						if err != nil {
-							continue
-						}
-						newContent := string(content)
-						oldContent := fileContents[f]
-
-						section := watcher.DetectChangedSection(oldContent, newContent)
-						ct := watcher.ClassifyChange(f, section)
-
-						label := "template"
-						if ct == watcher.ChangeRestart {
-							label = "frontmatter"
-						}
-						fmt.Printf("gastro: %s changed (%s)\n", f, label)
-
-						fileContents[f] = newContent
-						modTimes[f] = info.ModTime()
-						escalate(ct)
-						changed = true
-					}
-				}
-			}
-
-			// Watch markdown files referenced by {{ markdown "..." }}
-			// directives. The dep list is refreshed from extDeps only when
-			// the version counter changes (i.e. after a successful compile
-			// produced a different set of deps), so this is essentially
-			// free between compiles.
-			syncMarkdownCache()
-			for _, f := range markdownCache {
-				currentFiles[f] = true
-				info, err := os.Stat(f)
-				if err != nil {
-					// Stale cache entry (file deleted between rewalks).
-					// Unmark so the deletion loop below drops it from
-					// modTimes.
-					delete(currentFiles, f)
-					continue
-				}
-
-				prev, known := modTimes[f]
-				if !known {
-					fmt.Printf("gastro: new file %s\n", f)
-					modTimes[f] = info.ModTime()
-					escalate(watcher.ChangeReload)
-					changed = true
-					continue
-				}
-
-				if info.ModTime().After(prev) {
-					fmt.Printf("gastro: %s changed (markdown)\n", f)
-					modTimes[f] = info.ModTime()
-					escalate(watcher.ChangeReload)
-					changed = true
-				}
-			}
-
-			// Watch static/ files
-			if files, err := watcher.CollectAllFiles("static"); err == nil {
-				for _, f := range files {
-					currentFiles[f] = true
-					info, err := os.Stat(f)
-					if err != nil {
-						continue
-					}
-
-					prev, known := modTimes[f]
-					if !known {
-						fmt.Printf("gastro: new file %s\n", f)
-						modTimes[f] = info.ModTime()
-						escalate(watcher.ChangeReload)
-						changed = true
-						continue
-					}
-
-					if info.ModTime().After(prev) {
-						fmt.Printf("gastro: %s changed (static)\n", f)
-						modTimes[f] = info.ModTime()
-						escalate(watcher.ClassifyChange(f, watcher.SectionUnknown))
-						changed = true
-					}
-				}
-			}
-
-			// Detect deleted files.
-			for f := range modTimes {
-				if !currentFiles[f] {
-					fmt.Printf("gastro: %s deleted\n", f)
-					delete(modTimes, f)
-					delete(fileContents, f)
-					escalate(watcher.ChangeRestart)
-					changed = true
-				}
-			}
-
-			if changed {
-				debounced()
-			}
-		}
-	}()
-
-	// Wait for context cancellation
-	<-ctx.Done()
-
-	// Clean up
+	// Cleanup: kill the running app process. devloop.Run has already
+	// returned (ctx is cancelled), so no new OnRestart will race here.
+	appMu.Lock()
 	if appCmd != nil && appCmd.Process != nil {
 		appCmd.Process.Signal(syscall.SIGTERM)
 		appCmd.Wait()
 	}
+	appMu.Unlock()
 
-	return nil
+	return loopErr
 }
 
 // writeReloadSignal writes the .gastro/.reload file that signals the running

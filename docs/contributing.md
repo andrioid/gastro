@@ -39,11 +39,18 @@ default.
 # CLI (includes LSP server via `gastro lsp`)
 go build -o gastro ./cmd/gastro/
 
-# Example blog
+# Example blog -- the example go.mod has a `tool` directive plus a local
+# `replace` pointing at the working tree, so `go tool gastro` runs the
+# in-progress CLI without a separate build step.
 cd examples/blog
-../../gastro generate
+go tool gastro generate
 go build -o myblog .
 ```
+
+All four examples (`blog`, `dashboard`, `gastro`, `sse`) declare gastro
+as a `tool` in their `go.mod`. You don't need a global `gastro` on your
+`PATH` to develop in them; `go tool gastro <cmd>` is the canonical
+invocation for example work.
 
 ### Linting
 
@@ -93,12 +100,29 @@ Quick orientation:
 | `internal/codegen/` | Go code generation |
 | `internal/router/` | File-based routing |
 | `internal/compiler/` | Orchestrator |
-| `internal/watcher/` | File watching |
+| `internal/watcher/` | Change classification + file collectors |
+| `internal/devloop/` | Watch loop shared by `gastro dev` and `gastro watch` |
 | `internal/lsp/` | Language server internals |
 | `pkg/gastro/` | Runtime library (imported by generated code) |
 | `tree-sitter-gastro/` | Syntax highlighting grammar |
 | `editors/` | Editor extensions |
 | `examples/` | Example projects |
+
+## Project shapes (“framework” vs “library”)
+
+Gastro intentionally supports two project shapes as peer stories:
+
+- **Framework mode** — a project scaffolded by `gastro new`. Entry point is
+  `gastro dev`, which takes no flags by design.
+- **Library mode** — gastro added to an existing Go service via
+  `go get -tool github.com/andrioid/gastro/cmd/gastro`. Entry point is
+  `gastro watch --run …`, which the user configures.
+
+In user-facing copy (docs, CLI hints, error messages) prefer the words
+**framework** and **library** over earlier candidates like “standalone” or
+“embedded”. Internal package and identifier names stay neutral
+(`internal/devloop`, not `internal/frameworkloop`) so they don't need to
+change when the documentary framing evolves.
 
 ## Making Changes
 

@@ -18,7 +18,8 @@ Active := p.Active
                 <nav class="docs-sidebar-nav" aria-label="Documentation">
                     <h3>Documentation</h3>
                     <ul>
-                        <li><a href="/docs/getting-started" {{ if eq .Active "getting-started" }}class="active" aria-current="page"{{ end }}>Getting Started</a></li>
+                        <li><a href="/docs/getting-started" {{ if eq .Active "getting-started" }}class="active" aria-current="page"{{ end }}>Getting Started (new project)</a></li>
+                        <li><a href="/docs/getting-started-library" {{ if eq .Active "getting-started-library" }}class="active" aria-current="page"{{ end }}>Getting Started (existing project)</a></li>
                         <li><a href="/docs/pages" {{ if eq .Active "pages" }}class="active" aria-current="page"{{ end }}>Pages &amp; Routing</a></li>
                         <li><a href="/docs/components" {{ if eq .Active "components" }}class="active" aria-current="page"{{ end }}>Components</a></li>
                         <li><a href="/docs/sse" {{ if eq .Active "sse" }}class="active" aria-current="page"{{ end }}>SSE &amp; Datastar</a></li>

@@ -4,7 +4,16 @@ A web application built with [Gastro](https://github.com/andrioid/gastro).
 
 ## Getting Started
 
-Start the development server with hot reload:
+This project pins the gastro CLI in `go.mod` via a `tool` directive, so you
+can run it without a global install:
+
+```sh
+go tool gastro dev
+```
+
+If you prefer a global `gastro` binary on your `PATH`, install it via
+[mise](https://mise.jdx.dev/) (`mise use github:andrioid/gastro@latest`) or
+`go install github.com/andrioid/gastro/cmd/gastro@latest`, then run:
 
 ```sh
 gastro dev
@@ -23,11 +32,20 @@ main.go         Application entry point
 
 ## Commands
 
-| Command          | Description                              |
-|------------------|------------------------------------------|
-| `gastro dev`      | Start dev server with hot reload         |
-| `gastro build`    | Build a production binary                |
-| `gastro generate` | Regenerate the .gastro/ directory        |
+Any of these can be invoked as `go tool gastro <cmd>` (uses the version
+pinned in `go.mod`) or as `gastro <cmd>` (uses whatever is on `PATH`).
+
+| Command             | Description                              |
+|---------------------|------------------------------------------|
+| `gastro dev`        | Start dev server with hot reload         |
+| `gastro build`      | Build a production binary                |
+| `gastro generate`   | Regenerate the .gastro/ directory        |
+| `go generate ./...` | Same as `gastro generate` (uses the `//go:generate` directive in `main.go`) |
+
+`gastro dev` is the right command for this project because it was scaffolded
+by `gastro new`. If you later restructure into a library-mode layout (gastro
+embedded in a multi-binary Go module that owns its own `main.go`), switch to
+`gastro watch --run '...'`. See [Getting Started — Library Mode](https://github.com/andrioid/gastro/blob/main/docs/getting-started-library.md).
 
 ## Learn More
 

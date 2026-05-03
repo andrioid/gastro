@@ -29,30 +29,77 @@ route, build, serve). Editor support is in progress.
 
 ## Quick Start
 
-### Prerequisites
+Gastro fits two project shapes. Pick the one that matches you:
 
-- Go 1.26+
-- [mise](https://mise.jdx.dev/) (recommended) or `go install`
+### Framework mode — building a new site
 
-### Install
+For greenfield projects where gastro scaffolds the layout, owns the dev
+server, and handles the build:
 
 ```sh
-# With mise (recommended)
+# install (pick one):
 mise use github:andrioid/gastro@latest
+# or: go install github.com/andrioid/gastro/cmd/gastro@latest
 
-# Or with go install
-go install github.com/andrioid/gastro/cmd/gastro@latest
-```
-
-### Create a Project
-
-```sh
-gastro new myapp
-cd myapp
+gastro new myapp && cd myapp
 gastro dev
 ```
 
-Open [http://localhost:4242](http://localhost:4242) in your browser. Edit `pages/index.gastro` and watch it reload.
+Open [http://localhost:4242](http://localhost:4242) and edit
+`pages/index.gastro`. Full guide: [Getting Started — Framework Mode](docs/getting-started.md).
+
+### Library mode — adding gastro to an existing Go project
+
+For existing Go services growing a UI — admin tools, dashboards, status
+pages, server-rendered marketing alongside an API:
+
+```sh
+cd your-project
+go get -tool github.com/andrioid/gastro/cmd/gastro
+mkdir -p internal/web/{pages,components}
+
+# Smallest integration: render one component into an existing handler.
+# OR wire gastro.New(...) into your main.go for the full pattern.
+
+gastro watch --run 'go run ./cmd/myapp'
+```
+
+Full guide: [Getting Started — Library Mode](docs/getting-started-library.md).
+
+The **runtime is identical between modes**. What differs is the
+bootstrap (`gastro new` vs hand-wiring), the layout (scaffold vs your
+existing tree), and the dev-loop command (`gastro dev` vs
+`gastro watch`).
+
+### Prerequisites
+
+- Go 1.26+
+- One of: [mise](https://mise.jdx.dev/), `go install`, or `go get -tool`
+
+### All install methods
+
+Three equivalent ways to get the gastro CLI. Framework mode usually goes
+with the global install; library mode usually goes with `go get -tool`
+(version-pinned in your `go.mod`). All three work for either mode.
+
+```sh
+# Option A: mise -- global, easy upgrades
+mise use github:andrioid/gastro@latest
+
+# Option B: go install -- global, no extra tooling
+go install github.com/andrioid/gastro/cmd/gastro@latest
+
+# Option C: go tool -- per-project version pin in go.mod, no global install
+go get -tool github.com/andrioid/gastro/cmd/gastro
+```
+
+With Option C the CLI is invoked as `go tool gastro <cmd>` instead of
+`gastro <cmd>`, and the version is pinned in your project's `go.mod` —
+convenient for CI/CD where you'd rather not install a global binary.
+The scaffold (`gastro new`) adds the `tool` directive to the generated
+`go.mod` and a `//go:generate go tool gastro generate` directive to
+`main.go`, so `go tool gastro …` and `go generate ./...` work out of
+the box.
 
 ### Explore Your Project
 
@@ -67,7 +114,7 @@ gastro list --json
 ### Build for Production
 
 ```sh
-gastro build
+gastro build       # or: go tool gastro build
 ./app
 ```
 
@@ -218,11 +265,15 @@ dynamic pages, template helpers, and static assets.
 
 ## Documentation
 
+- [Getting Started — Framework Mode](docs/getting-started.md) -- New gastro projects
+- [Getting Started — Library Mode](docs/getting-started-library.md) -- Add gastro to an existing Go project
+- [Pages](docs/pages.md) -- Page authoring guide and API reference
+- [Components](docs/components.md) -- Component authoring guide and API reference
+- [Dev Mode](docs/dev-mode.md) -- `gastro dev`, `gastro watch`, env vars, composed setups
+- [Error Handling](docs/error-handling.md) -- Failure modes and `WithErrorHandler`
 - [Design](docs/design.md) -- Complete design document with all decisions
 - [Architecture](docs/architecture.md) -- Code architecture and package guide
 - [Contributing](docs/contributing.md) -- How to contribute
-- [Pages](docs/pages.md) -- Page authoring guide and API reference
-- [Components](docs/components.md) -- Component authoring guide and API reference
 
 ## License
 

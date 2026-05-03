@@ -15,13 +15,23 @@ const signalPollInterval = 200 * time.Millisecond
 // DevReloader is the package-level live-reload broadcaster used in dev mode.
 // The generated Routes() function calls Start() and wires HandleSSE when
 // GASTRO_DEV=1. The CLI writes .gastro/.reload after each regeneration to
-// signal connected browsers to reload.
+// signal connected browsers to reload, and .gastro/.build-error after a
+// failed build so the browser can console.warn the user.
 var DevReloader = NewDevReloader()
+
+// reloadEvent is the typed payload broadcast to subscribers. Kind is the
+// SSE event name ("reload" or "build-error"); Data is the SSE data field.
+// For reload events Data is empty/ignored; for build-error events it
+// carries the failure message (failing command + stderr).
+type reloadEvent struct {
+	Kind string
+	Data string
+}
 
 // DevReloader manages live-reload SSE connections in dev mode.
 type devReloader struct {
 	mu       sync.Mutex
-	clients  map[chan struct{}]struct{}
+	clients  map[chan reloadEvent]struct{}
 	once     sync.Once
 	stopOnce sync.Once
 	done     chan struct{}
@@ -32,7 +42,7 @@ type devReloader struct {
 // current working directory.
 func NewDevReloader() *devReloader {
 	return &devReloader{
-		clients: make(map[chan struct{}]struct{}),
+		clients: make(map[chan reloadEvent]struct{}),
 		done:    make(chan struct{}),
 		dir:     ".",
 	}
@@ -42,7 +52,7 @@ func NewDevReloader() *devReloader {
 // the given directory. Useful for testing with isolated temp directories.
 func NewDevReloaderInDir(dir string) *devReloader {
 	return &devReloader{
-		clients: make(map[chan struct{}]struct{}),
+		clients: make(map[chan reloadEvent]struct{}),
 		done:    make(chan struct{}),
 		dir:     dir,
 	}
@@ -66,8 +76,18 @@ func (d *devReloader) signalPath() string {
 	return filepath.Join(d.dir, ".gastro", ".reload")
 }
 
-// watchSignal polls for the .gastro/.reload signal file.
-// When found, it deletes the file and broadcasts a reload to all clients.
+func (d *devReloader) buildErrorPath() string {
+	return filepath.Join(d.dir, ".gastro", ".build-error")
+}
+
+// watchSignal polls for the .gastro/.reload and .gastro/.build-error
+// signal files. When found, it reads (build-error only) and deletes the
+// file, then broadcasts the appropriate event to all clients.
+//
+// .reload is checked first so a successful rebuild that lands in the
+// same poll tick as a stale .build-error file still wins — the reload
+// loads the new page, which by definition implicitly clears any prior
+// banner state on the client.
 func (d *devReloader) watchSignal() {
 	ticker := time.NewTicker(signalPollInterval)
 	defer ticker.Stop()
@@ -77,18 +97,34 @@ func (d *devReloader) watchSignal() {
 		case <-d.done:
 			return
 		case <-ticker.C:
-			// Atomic check+delete: if Remove succeeds the file existed.
 			if err := os.Remove(d.signalPath()); err == nil {
-				d.Broadcast()
+				d.broadcastEvent(reloadEvent{Kind: "reload"})
+				// A successful reload makes any pending build-error
+				// stale; remove the file without broadcasting so the
+				// next tick doesn't replay an old failure.
+				_ = os.Remove(d.buildErrorPath())
+				continue
+			}
+			// Read-then-delete the build-error payload. Reading first
+			// means we don't lose the message if Remove succeeds but
+			// the file gets recreated by a racing CLI write — worst
+			// case we re-broadcast an already-shown message, which the
+			// client console handler is idempotent against.
+			if data, err := os.ReadFile(d.buildErrorPath()); err == nil {
+				_ = os.Remove(d.buildErrorPath())
+				d.broadcastEvent(reloadEvent{Kind: "build-error", Data: string(data)})
 			}
 		}
 	}
 }
 
-// Subscribe returns a channel that receives a signal on each Broadcast call,
-// and a cancel function to unsubscribe.
-func (d *devReloader) Subscribe() (<-chan struct{}, func()) {
-	ch := make(chan struct{}, 1)
+// Subscribe returns a channel that receives an event on each broadcast,
+// and a cancel function to unsubscribe. The channel is buffered (cap 4)
+// because build-error events can closely follow reload events; a strict
+// cap-1 channel would drop the build-error if a reload was already
+// queued.
+func (d *devReloader) Subscribe() (<-chan reloadEvent, func()) {
+	ch := make(chan reloadEvent, 4)
 	d.mu.Lock()
 	d.clients[ch] = struct{}{}
 	d.mu.Unlock()
@@ -100,25 +136,37 @@ func (d *devReloader) Subscribe() (<-chan struct{}, func()) {
 	}
 }
 
-// Broadcast notifies all connected SSE clients to reload.
+// Broadcast notifies all connected SSE clients to reload. Backwards
+// compat for callers (and tests) that only care about reload events.
 func (d *devReloader) Broadcast() {
+	d.broadcastEvent(reloadEvent{Kind: "reload"})
+}
+
+func (d *devReloader) broadcastEvent(ev reloadEvent) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	for ch := range d.clients {
-		// Non-blocking send: if the channel is already full the client
-		// will be notified on the next drain; we never block the watcher.
+		// Non-blocking send: if the channel is full the client will be
+		// notified on the next drain; we never block the watcher.
 		select {
-		case ch <- struct{}{}:
+		case ch <- ev:
 		default:
 		}
 	}
 }
 
 // HandleSSE is an http.HandlerFunc for the GET /__gastro/reload endpoint.
-// It establishes an SSE stream and sends a "reload" event whenever the dev
-// CLI signals a change. A periodic heartbeat detects stale connections
-// (e.g. browser crash, network drop) so server-side goroutines don't linger.
+// It establishes an SSE stream and sends events whenever the dev CLI
+// signals a change. Two event kinds are emitted:
+//
+//   - reload — page should reload (existing behaviour, wire format unchanged)
+//   - build-error — last build failed; the data field carries the failure
+//     message. The client script logs it via console.warn; a visible
+//     banner UI is deferred (see plan §10).
+//
+// A periodic heartbeat detects stale connections (e.g. browser crash,
+// network drop) so server-side goroutines don't linger.
 func (d *devReloader) HandleSSE(w http.ResponseWriter, r *http.Request) {
 	sse := NewSSE(w, r)
 	ch, cancel := d.Subscribe()
@@ -131,8 +179,14 @@ func (d *devReloader) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-ch:
-			if err := sse.Send("reload", "reload"); err != nil {
+		case ev := <-ch:
+			data := ev.Data
+			if ev.Kind == "reload" && data == "" {
+				// Preserve the historical wire shape (data "reload")
+				// for any client script versions still in the wild.
+				data = "reload"
+			}
+			if err := sse.Send(ev.Kind, data); err != nil {
 				return
 			}
 		case <-heartbeat.C:
@@ -155,9 +209,14 @@ func (d *devReloader) Middleware(next http.Handler) http.Handler {
 }
 
 // reloadScript is inlined into every HTML page response in dev mode.
-// On receiving a "reload" SSE event the page reloads immediately.
-// On reconnect after a disconnect (e.g. server restart) the dc flag
-// triggers a reload so the page picks up the rebuilt binary.
+// On receiving a "reload" SSE event the page reloads immediately. On
+// reconnect after a disconnect (e.g. server restart) the dc flag
+// triggers a reload so the page picks up the rebuilt binary. On a
+// "build-error" event the failure message is logged to the browser
+// console via console.warn — a visible banner UI is a deferred
+// follow-up; v1 just exposes the transport so any developer with
+// DevTools open sees the failure.
+//
 // The beforeunload listener closes the EventSource so the browser
 // tears down the TCP connection immediately on navigation, preventing
 // HTTP/1.1 connection pool exhaustion.
@@ -165,6 +224,9 @@ const reloadScript = `<script>(function(){` +
 	`var e=new EventSource("/__gastro/reload"),dc=false;` +
 	`e.onerror=function(){dc=true};` +
 	`e.addEventListener("reload",function(){location.reload()});` +
+	`e.addEventListener("build-error",function(ev){` +
+	`console.warn("gastro: build failed — previous version still serving\n"+ev.data)` +
+	`});` +
 	`e.onopen=function(){if(dc)location.reload()};` +
 	`window.addEventListener("beforeunload",function(){e.close()})` +
 	`})()</script>`
