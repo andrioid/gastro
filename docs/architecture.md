@@ -271,8 +271,19 @@ The CLI binary. Three commands:
 
 The LSP server (invoked via `gastro lsp`). Handles JSON-RPC over stdin/stdout. On startup:
 1. Receives `initialize` with the project root
-2. Creates a shadow workspace
-3. Attempts to spawn gopls pointed at the shadow workspace
+2. Validates the `GASTRO_PROJECT` env var (if set) and logs the result
+3. Creates a shadow workspace _per discovered gastro project_ (lazily, on first file open)
+4. Attempts to spawn gopls pointed at each shadow workspace
+
+**Project root resolution.** For each opened file, `findProjectRoot`
+(in `util.go`) decides the project root using a tiered strategy:
+`GASTRO_PROJECT` env var → first ancestor named `pages`/`components` (its
+parent wins) → enclosing `go.mod` directory → editor's workspace root. The
+structural step exists because nested setups like `git-pm/internal/web/`
+have their `go.mod` several directories above the gastro project; without
+it, the LSP would look for `components/` and `pages/` at the wrong level.
+Multiple `projectInstance`s coexist for monorepos that contain several
+gastro projects.
 
 **Graceful degradation:** If gopls is not in PATH, the instance is still
 created with a working shadow workspace and component index. Template body

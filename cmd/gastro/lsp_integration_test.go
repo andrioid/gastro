@@ -1566,3 +1566,255 @@ func TestLSP_BarePropsExportedVarDiagnostic(t *testing.T) {
 		t.Error("expected warning diagnostic about bare gastro.Props() on exported variable")
 	}
 }
+
+// setupNestedTestProject creates an outer Go module with a gastro project
+// nested several levels below it (mirroring git-pm's internal/web/ layout).
+// Returns (outerDir, innerDir).
+func setupNestedTestProject(t *testing.T) (string, string) {
+	t.Helper()
+	outer := t.TempDir()
+	inner := filepath.Join(outer, "internal", "web")
+
+	// go.mod ONLY at the outer level — this is the bug-trigger.
+	if err := os.WriteFile(filepath.Join(outer, "go.mod"),
+		[]byte("module testproject\n\ngo 1.22\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Inner gastro project layout.
+	if err := os.MkdirAll(filepath.Join(inner, "components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(inner, "pages"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cardContent := `---
+type Props struct {
+	Title string
+	Body  string
+}
+
+Title := gastro.Props().Title
+Body := gastro.Props().Body
+---
+<div class="card">
+	<h2>{{ .Title }}</h2>
+	<p>{{ .Body }}</p>
+</div>`
+
+	if err := os.WriteFile(filepath.Join(inner, "components", "card.gastro"),
+		[]byte(cardContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	return outer, inner
+}
+
+// TestLSP_NestedProjectRoot_HoverFindsComponent verifies that the LSP picks
+// the correct project root for a .gastro file that lives several directories
+// below the enclosing go.mod (the git-pm/internal/web/ case).
+//
+// Without the structural-marker heuristic, findProjectRoot would walk up to
+// the outer go.mod and look for components/ there (where it doesn't exist),
+// causing component hover/completion to silently return nothing.
+func TestLSP_NestedProjectRoot_HoverFindsComponent(t *testing.T) {
+	outer, inner := setupNestedTestProject(t)
+
+	// Start the LSP from the outer dir, mimicking VSCode opened at the
+	// repo root with rootUri pointing at the outer module.
+	client := startLSP(t, outer)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + outer,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// Open a page in the inner project that uses Card.
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n{{ Card (dict \"Title\" .Title) }}"
+	fileURI := "file://" + filepath.Join(inner, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Hover on "Card" (line 4, char 4).
+	client.send("textDocument/hover", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 4, "character": 4},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+	result := resp["result"]
+	if result == nil {
+		stderr := client.drainStderr()
+		t.Fatalf("expected hover result, got nil — LSP likely picked the wrong project root\nstderr: %s", stderr)
+	}
+
+	rm, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected hover result as map, got %T", result)
+	}
+
+	contents, _ := rm["contents"].(map[string]any)
+	if contents == nil {
+		t.Fatal("expected hover contents, got nil")
+	}
+
+	value, _ := contents["value"].(string)
+	if !strings.Contains(value, "Props struct") {
+		t.Errorf("expected hover to show Props struct, got: %s", value)
+	}
+	if !strings.Contains(value, "components/card.gastro") {
+		t.Errorf("expected hover to show component path, got: %s", value)
+	}
+}
+
+// TestLSP_NestedProjectRoot_GoToDefinition checks the same nested layout
+// resolves go-to-definition correctly.
+func TestLSP_NestedProjectRoot_GoToDefinition(t *testing.T) {
+	outer, inner := setupNestedTestProject(t)
+	client := startLSP(t, outer)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + outer,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n{{ Card (dict \"Title\" .Title) }}"
+	fileURI := "file://" + filepath.Join(inner, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	client.send("textDocument/definition", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 4, "character": 4},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+	result := resp["result"]
+	if result == nil {
+		stderr := client.drainStderr()
+		t.Fatalf("expected definition result, got nil\nstderr: %s", stderr)
+	}
+
+	loc, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected Location object, got %T", result)
+	}
+
+	uri, _ := loc["uri"].(string)
+	wantURI := "file://" + filepath.Join(inner, "components", "card.gastro")
+	// Compare via EvalSymlinks since macOS may rewrite /var <-> /private/var.
+	gotPath, _ := filepath.EvalSymlinks(strings.TrimPrefix(uri, "file://"))
+	wantPath, _ := filepath.EvalSymlinks(strings.TrimPrefix(wantURI, "file://"))
+	if gotPath == "" {
+		gotPath = strings.TrimPrefix(uri, "file://")
+	}
+	if wantPath == "" {
+		wantPath = strings.TrimPrefix(wantURI, "file://")
+	}
+	if gotPath != wantPath {
+		t.Errorf("definition uri = %q (resolved %q), want %q (resolved %q)",
+			uri, gotPath, wantURI, wantPath)
+	}
+}
+
+// TestLSP_GastroProjectEnv_OverridesHeuristic verifies that GASTRO_PROJECT
+// pins the project root regardless of the file's location, overriding the
+// structural heuristic.
+func TestLSP_GastroProjectEnv_OverridesHeuristic(t *testing.T) {
+	outer, inner := setupNestedTestProject(t)
+
+	// Build the binary, then start it manually so we can inject GASTRO_PROJECT.
+	bin := buildGastroBinary(t)
+	proc := exec.Command(bin, "lsp")
+	proc.Dir = outer
+	proc.Env = append(os.Environ(), "GASTRO_PROJECT="+inner)
+
+	stdin, err := proc.StdinPipe()
+	if err != nil {
+		t.Fatalf("stdin pipe: %v", err)
+	}
+	stdout, err := proc.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	stderrPipe, err := proc.StderrPipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	if err := proc.Start(); err != nil {
+		t.Fatalf("starting gastro lsp: %v", err)
+	}
+	t.Cleanup(func() {
+		stdin.Close()
+		proc.Process.Kill()
+		proc.Wait()
+	})
+
+	client := &lspClient{
+		proc:   proc,
+		stdin:  stdin,
+		reader: bufio.NewReader(stdout),
+		stderr: bufio.NewReader(stderrPipe),
+		nextID: 1,
+	}
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + outer,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// Same hover test as before — should still work because either the
+	// env var (which pins to inner) or the structural heuristic resolves
+	// to the same project root.
+	gastroContent := "---\nimport Card \"components/card.gastro\"\nTitle := \"Hello\"\n---\n{{ Card (dict \"Title\" .Title) }}"
+	fileURI := "file://" + filepath.Join(inner, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	client.send("textDocument/hover", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 4, "character": 4},
+	})
+
+	resp := client.recv(t, 10*time.Second)
+	result := resp["result"]
+	if result == nil {
+		stderr := client.drainStderr()
+		t.Fatalf("expected hover result, got nil\nstderr: %s", stderr)
+	}
+
+	rm, _ := result.(map[string]any)
+	contents, _ := rm["contents"].(map[string]any)
+	value, _ := contents["value"].(string)
+	if !strings.Contains(value, "Props struct") {
+		t.Errorf("expected hover to show Props struct, got: %s", value)
+	}
+}

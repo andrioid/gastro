@@ -55,7 +55,50 @@ internal/web/             ← gastro project root
 
 you cannot run `gastro dev` from `internal/web/` because it will try to build
 a dev server from a `main.go` that doesn't exist there. Instead, compose the
-watcher and server separately:
+watcher and server separately.
+
+Two env vars work together to make this ergonomic:
+
+- **`GASTRO_PROJECT`** — tells the `gastro` CLI _and_ the `gastro lsp`
+  language server where the gastro project lives. Both will operate as if
+  they were invoked from that directory, so you can run `gastro generate`,
+  `gastro check`, `gastro list`, `gastro fmt`, etc. from anywhere in your
+  repo without `cd`.
+- **`GASTRO_DEV_ROOT`** — tells your already-built _runtime_ where to find
+  `.gastro/templates/` and `static/` at request time, when the server
+  process is launched from somewhere other than the gastro project root.
+
+### `GASTRO_PROJECT`
+
+Set this once at the top of your `mise.toml` (or in `.envrc`) and every
+gastro CLI command picks it up:
+
+```toml
+# mise.toml at the repo root
+[env]
+GASTRO_PROJECT = "{{ config_root }}/internal/web"
+
+[tasks."verify:generated"]
+run = "gastro check"      # no `dir =` needed
+
+[tasks."generate:web"]
+run = "gastro generate"    # no `dir =` needed
+```
+
+If the value is missing or points at a path that doesn't exist, the CLI exits
+with a clear error.
+
+The LSP also honours `GASTRO_PROJECT` when set: it pins all `.gastro` files
+to that root, which is useful if your editor's structural heuristic picks
+the wrong root (rare, but possible for unusual layouts). When unset, the LSP
+falls back to a structural heuristic that walks up from each file looking for
+a `pages/` or `components/` ancestor — this works zero-config for the common
+case including nested-project setups like git-pm.
+
+Note that `GASTRO_PROJECT` does **not** propagate from `mise.toml` `[env]`
+into VS Code unless you launch VS Code from a mise-activated shell. The LSP
+heuristic exists precisely so that nested projects work without needing the
+env var to be set in the editor's environment.
 
 ### `GASTRO_DEV_ROOT`
 
@@ -75,39 +118,45 @@ when the process is not started from the gastro project root.
 
 ### Example `mise` dev tasks
 
+With `GASTRO_PROJECT` set in `[env]`, pure-gastro tasks lose their `dir =`
+lines. Tasks that mix in `tailwindcss`, `touch .gastro/.reload`, or
+`watchexec` paths still need an explicit `dir` because those tools resolve
+paths relative to cwd:
+
 ```toml
-# mise.toml (project root)
+# mise.toml (repo root)
+
+[env]
+GASTRO_PROJECT = "{{ config_root }}/internal/web"
 
 [tasks."dev:gastro"]
 description = "Watch .gastro sources and regenerate on change"
-run = """
-  cd internal/web
-  watchexec -e gastro -- sh -c 'gastro generate && touch .gastro/.reload'
-"""
+dir = "{{ config_root }}/internal/web"
+run = "watchexec -e gastro -- sh -c 'gastro generate && touch .gastro/.reload'"
 
 [tasks."dev:server"]
 description = "Run the app in dev mode"
-run = """
-  cd internal/web
-  GASTRO_DEV=1 go run ../../cmd/myapp --repo ../..
-"""
+dir = "{{ config_root }}/internal/web"
+run = "GASTRO_DEV=1 go run ../../cmd/myapp --repo ../.."
 
 [tasks.dev]
 description = "Start the full dev loop"
 depends = ["dev:gastro", "dev:server"]
 ```
 
-The `cd internal/web` is required because `GASTRO_DEV_ROOT` tells gastro's
-_runtime_ where to find templates, but `gastro generate` must still be run from
-the gastro project root so it can find `components/`, `pages/`, and `static/`.
+The `dir =` on `dev:server` is still needed because `GASTRO_DEV_ROOT` tells
+gastro's _runtime_ where to find templates, but it doesn't change cwd for
+`go run`. (You could also set `GASTRO_DEV_ROOT={{ config_root }}/internal/web`
+in `[env]` and drop the `dir`.)
 
-If your process can always be started from the gastro project root, the
-`cd` + `GASTRO_DEV_ROOT` dance is unnecessary.
+If your process can always be started from the gastro project root, neither
+`GASTRO_DEV_ROOT` nor the `cd` dance is necessary.
 
 ## Environment variables
 
 | Variable | Default | Description |
 |---|---|---|
+| `GASTRO_PROJECT` | `""` (cwd) | Absolute or relative path to the gastro project root. When set, the `gastro` CLI changes to this directory before running project-level subcommands (`generate`, `build`, `dev`, `list`, `check`, and `fmt` with no targets). The LSP honours it as a global pin for all `.gastro` files. Invalid values cause the CLI to exit with an error and the LSP to log a warning and fall back to its heuristic. |
 | `GASTRO_DEV` | `""` | Set to `1` to enable dev mode (live templates, SSE reload) |
 | `GASTRO_DEV_ROOT` | `.` (cwd) | Absolute path to the gastro project root; used to locate `.gastro/templates/` and `static/` when the server process runs from a different directory |
 | `PORT` | `4242` | Port for `gastro dev` (standalone projects only) |

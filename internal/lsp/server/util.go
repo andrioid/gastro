@@ -83,18 +83,55 @@ func cursorPosToBodyOffset(content string, pos proxy.Position, templateBodyLine 
 	return offset
 }
 
-// findProjectRoot walks up from filePath to find the nearest directory
-// containing go.mod. Returns fallback if no go.mod is found.
+// findProjectRoot resolves the gastro project root for a .gastro file using a
+// tiered strategy:
+//
+//  1. If GASTRO_PROJECT is set to an existing directory, use it (global pin).
+//     This mirrors the CLI behavior and lets users with unusual layouts force
+//     a specific root.
+//  2. Walk up from the file's directory; the first ancestor named "pages" or
+//     "components" tells us the project root is its parent. This is the
+//     structural heuristic that handles nested gastro projects like
+//     git-pm/internal/web/ where go.mod lives several levels above.
+//  3. If no structural marker is found within the enclosing module, fall back
+//     to the directory containing go.mod (the original behavior, which still
+//     works for flat layouts and is a reasonable default for unconventional
+//     trees).
+//  4. Final fallback: the caller-provided fallback (typically the editor's
+//     workspace root).
 func findProjectRoot(filePath, fallback string) string {
+	if env := os.Getenv("GASTRO_PROJECT"); env != "" {
+		if abs, err := filepath.Abs(env); err == nil {
+			if info, err := os.Stat(abs); err == nil && info.IsDir() {
+				return abs
+			}
+		}
+		// Invalid env var: log once at LSP startup, not here. Fall through
+		// to the heuristic so the LSP keeps working.
+	}
+
 	resolved, err := filepath.EvalSymlinks(filePath)
 	if err != nil {
 		resolved = filePath
 	}
+
 	dir := filepath.Dir(resolved)
 	for {
+		base := filepath.Base(dir)
+		if base == "pages" || base == "components" {
+			// The file lives under <parent>/pages/... or <parent>/components/...,
+			// so <parent> is the gastro project root.
+			return filepath.Dir(dir)
+		}
+
+		// Stop walking when we reach a go.mod boundary. The structural
+		// check above takes precedence (handles nested gastro projects
+		// like git-pm/internal/web). If we get here without a structural
+		// match, this is a flat layout where go.mod is the right answer.
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
 		}
+
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return fallback

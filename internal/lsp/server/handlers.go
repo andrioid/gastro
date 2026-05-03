@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"path/filepath"
 )
 
 type initializeParams struct {
@@ -35,6 +36,22 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 		s.projectDir, _ = os.Getwd()
 	}
 	log.Printf("project dir (fallback root): %s", s.projectDir)
+
+	// Validate GASTRO_PROJECT once at startup so a typo gets a single,
+	// loud warning instead of silently being ignored on every file open.
+	// findProjectRoot also re-checks per call (and stays silent there).
+	if env := os.Getenv("GASTRO_PROJECT"); env != "" {
+		abs, absErr := filepath.Abs(env)
+		if absErr != nil {
+			log.Printf("warning: GASTRO_PROJECT=%q is not a valid path: %v (falling back to heuristic)", env, absErr)
+		} else if info, err := os.Stat(abs); err != nil {
+			log.Printf("warning: GASTRO_PROJECT=%q does not exist: %v (falling back to heuristic)", env, err)
+		} else if !info.IsDir() {
+			log.Printf("warning: GASTRO_PROJECT=%q is not a directory (falling back to heuristic)", env)
+		} else {
+			log.Printf("GASTRO_PROJECT=%s (pinning all .gastro files to this root)", abs)
+		}
+	}
 
 	// Instances are created lazily when files are opened (see instanceForURI)
 

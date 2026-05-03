@@ -193,6 +193,28 @@ Integration tests for the LSP are in `cmd/gastro/lsp_integration_test.go`.
 They spawn `gastro lsp` as a subprocess and communicate via JSON-RPC over
 stdin/stdout.
 
+#### Project root resolution
+
+`findProjectRoot` (in `internal/lsp/server/util.go`) decides which directory
+each `.gastro` file belongs to. The order is:
+
+1. **`GASTRO_PROJECT` env var.** If set to an existing directory, every file
+   gets pinned to it. Invalid values are ignored with a one-time warning.
+2. **Structural heuristic.** Walk up from the file. The first ancestor named
+   `pages` or `components` wins (its parent is the project root). This is
+   what makes nested-project setups like `git-pm/internal/web/` work
+   zero-config.
+3. **Enclosing `go.mod`.** If we never see a structural marker, the directory
+   containing `go.mod` is used. This preserves the original behavior for
+   flat layouts.
+4. **Fallback.** The editor's workspace root, used when there's no `go.mod`
+   anywhere up the tree.
+
+When adding a feature that depends on the project root (component discovery,
+shadow workspace setup, etc.), prefer `instanceForURI(uri)` over
+recomputing roots yourself — it caches one `projectInstance` per discovered
+root and handles the multi-project case correctly.
+
 ## Deprecation Policy
 
 When a public-facing API is being replaced rather than removed outright,
