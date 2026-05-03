@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.18](https://github.com/andrioid/gastro/compare/v0.1.17...v0.1.18) (2026-05-03)
+
+
+### Features
+
+* **cli:** add GASTRO_PROJECT env var to set project root ([5260a08](https://github.com/andrioid/gastro/commit/5260a0846dbb293eae9e9081c5b5a42457548a54))
+* **lsp:** support nested gastro projects via structural heuristic ([15a1ed7](https://github.com/andrioid/gastro/commit/15a1ed74dedfb749c3d534030ffc3e9cd0b619f1))
+
 ## [0.1.17](https://github.com/andrioid/gastro/compare/v0.1.16...v0.1.17) (2026-05-02)
 
 
