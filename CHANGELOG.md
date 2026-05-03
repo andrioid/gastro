@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.19](https://github.com/andrioid/gastro/compare/v0.1.18...v0.1.19) (2026-05-03)
+
+
+### Features
+
+* **cli:** adopt `go tool gastro` as a first-class install method ([be7ec19](https://github.com/andrioid/gastro/commit/be7ec1943304d8952dfabf2b658b6816f0c6a8b2))
+* **cli:** two stories — `gastro watch` + framework/library docs split ([ba9d6da](https://github.com/andrioid/gastro/commit/ba9d6da5790209d5b952460f80ea52f57d052564))
+
 ## [0.1.18](https://github.com/andrioid/gastro/compare/v0.1.17...v0.1.18) (2026-05-03)
 
 
