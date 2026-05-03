@@ -44,36 +44,43 @@ func main() {
 		fmt.Println(version)
 		return
 	case "generate":
+		applyGastroProject()
 		if _, err := runGenerate(true); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro generate: %v\n", err)
 			os.Exit(1)
 		}
 	case "build":
+		applyGastroProject()
 		if err := runBuild(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro build: %v\n", err)
 			os.Exit(1)
 		}
 	case "dev":
+		applyGastroProject()
 		if err := runDev(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro dev: %v\n", err)
 			os.Exit(1)
 		}
 	case "new":
+		// `new` takes a target dir as an argument; GASTRO_PROJECT does not apply.
 		if err := runNew(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro new: %v\n", err)
 			os.Exit(1)
 		}
 	case "fmt":
+		// `fmt` honours GASTRO_PROJECT only when no targets are given (handled inside runFmt).
 		if err := runFmt(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro fmt: %v\n", err)
 			os.Exit(1)
 		}
 	case "list":
+		applyGastroProject()
 		if err := runList(); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro list: %v\n", err)
 			os.Exit(1)
 		}
 	case "check":
+		applyGastroProject()
 		if err := runCheck(); err != nil {
 			if err == errDrift {
 				// Drift: the diff has already been printed by runCheck.
@@ -83,10 +90,43 @@ func main() {
 			os.Exit(2)
 		}
 	case "lsp":
+		// LSP applies GASTRO_PROJECT internally per-file (see internal/lsp/server).
 		lsp.Serve(version)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 		printUsage()
+		os.Exit(1)
+	}
+}
+
+// applyGastroProject changes the working directory to GASTRO_PROJECT if the
+// env var is set. It exits with a clear error if the value is invalid.
+// Called by project-level commands (generate, build, dev, list, check) and
+// optionally by fmt when no targets are supplied.
+func applyGastroProject() {
+	root := os.Getenv("GASTRO_PROJECT")
+	if root == "" {
+		return
+	}
+
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gastro: GASTRO_PROJECT %q: %v\n", root, err)
+		os.Exit(1)
+	}
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "gastro: GASTRO_PROJECT %q: %v\n", root, err)
+		os.Exit(1)
+	}
+	if !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "gastro: GASTRO_PROJECT %q is not a directory\n", root)
+		os.Exit(1)
+	}
+
+	if err := os.Chdir(abs); err != nil {
+		fmt.Fprintf(os.Stderr, "gastro: cannot chdir to GASTRO_PROJECT %q: %v\n", root, err)
 		os.Exit(1)
 	}
 }
@@ -105,6 +145,11 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  check       Verify .gastro/ matches the source (CI gate)")
 	fmt.Fprintln(os.Stderr, "  list        List all components and pages with their props (--json for machine output)")
 	fmt.Fprintln(os.Stderr, "  version     Print version")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Environment:")
+	fmt.Fprintln(os.Stderr, "  GASTRO_PROJECT   Path to the gastro project root. When set, the CLI")
+	fmt.Fprintln(os.Stderr, "                   chdir's here before running project-level commands.")
+	fmt.Fprintln(os.Stderr, "                   Useful for nested projects (e.g. internal/web/).")
 }
 
 var skipDirs = map[string]bool{
@@ -141,7 +186,11 @@ func runFmt() error {
 		if (stat.Mode() & os.ModeCharDevice) == 0 {
 			return fmtStdin(stdinFilepath, check)
 		}
-		// No targets and no stdin — default to current directory
+		// No targets and no stdin — honour GASTRO_PROJECT (if set) before
+		// defaulting to current directory. User-supplied targets are sacred
+		// (relative to the user's cwd), so we only chdir when no targets are
+		// given. Stdin mode also skips it because the path is conceptual.
+		applyGastroProject()
 		targets = []string{"."}
 	}
 
