@@ -9,4 +9,5 @@ require github.com/andrioid/gastro v0.0.0
 // replace github.com/andrioid/gastro => ../gastro
 {{ else -}}
 require github.com/andrioid/gastro v{{ .GastroVersion }}
-{{ end -}}
+{{ end }}
+tool github.com/andrioid/gastro/cmd/gastro

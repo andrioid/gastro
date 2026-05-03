@@ -81,7 +81,7 @@ func newServer(version string) *server {
 // This is the only exported function in the server package.
 func Run(version string) {
 	log.SetOutput(os.Stderr)
-	log.Println("gastro lsp: starting")
+	log.Printf("gastro lsp: starting (version %s)", version)
 
 	server := newServer(version)
 	server.run()

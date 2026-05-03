@@ -12,3 +12,5 @@ require (
 )
 
 replace github.com/andrioid/gastro => ../..
+
+tool github.com/andrioid/gastro/cmd/gastro

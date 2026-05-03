@@ -4,11 +4,17 @@
 -- Installation:
 -- 1. Copy or symlink this file to ~/.config/nvim/after/plugin/gastro.lua
 --    (or use `mise run link:neovim`)
--- 2. Ensure gastro is in your PATH (go install or mise use)
---
--- The LSP starts automatically for .gastro files. To customize the LSP
--- command, call require("gastro").setup({ cmd = { "/path/to/gastro", "lsp" } })
--- in your Neovim config.
+-- 2. Make the gastro CLI available, one of three ways:
+--      a) Global install via `go install github.com/andrioid/gastro/cmd/gastro@latest`
+--         or `mise use github:andrioid/gastro@latest`. The default `cmd` below
+--         ("gastro") picks it up from PATH.
+--      b) Per-project pin: add `tool github.com/andrioid/gastro/cmd/gastro` to
+--         your project's go.mod (`go get -tool github.com/andrioid/gastro/cmd/gastro`),
+--         then point the LSP at it:
+--             require("gastro").setup({ cmd = { "go", "tool", "gastro", "lsp" } })
+--         The `gastro new` scaffold sets the tool directive up for you.
+--      c) Custom binary path:
+--             require("gastro").setup({ cmd = { "/path/to/gastro", "lsp" } })
 
 local M = {}
 

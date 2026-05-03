@@ -60,6 +60,9 @@ func TestGenerate_GoModContainsModuleName(t *testing.T) {
 	if !strings.Contains(text, "github.com/andrioid/gastro v0.1.0") {
 		t.Errorf("go.mod should require gastro v0.1.0, got:\n%s", text)
 	}
+	if !strings.Contains(text, "tool github.com/andrioid/gastro/cmd/gastro") {
+		t.Errorf("go.mod should declare the gastro CLI as a tool, got:\n%s", text)
+	}
 }
 
 func TestGenerate_GoModDevVersion(t *testing.T) {
@@ -82,6 +85,9 @@ func TestGenerate_GoModDevVersion(t *testing.T) {
 	if !strings.Contains(text, "replace github.com/andrioid/gastro") {
 		t.Errorf("go.mod should contain commented replace directive for dev, got:\n%s", text)
 	}
+	if !strings.Contains(text, "tool github.com/andrioid/gastro/cmd/gastro") {
+		t.Errorf("go.mod should declare the gastro CLI as a tool even in dev mode, got:\n%s", text)
+	}
 }
 
 func TestGenerate_MainGoImportsGastroPackage(t *testing.T) {
@@ -103,6 +109,9 @@ func TestGenerate_MainGoImportsGastroPackage(t *testing.T) {
 	}
 	if !strings.Contains(text, "gastro.Routes()") {
 		t.Errorf("main.go should call gastro.Routes(), got:\n%s", text)
+	}
+	if !strings.Contains(text, "//go:generate go tool gastro generate") {
+		t.Errorf("main.go should contain go:generate directive for gastro generate, got:\n%s", text)
 	}
 }
 

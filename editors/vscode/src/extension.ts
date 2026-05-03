@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   LanguageClient,
@@ -8,18 +10,137 @@ import {
 
 let client: LanguageClient | undefined;
 
-export async function activate(
-  context: vscode.ExtensionContext,
-): Promise<void> {
+interface ResolvedServer {
+  command: string;
+  args: string[];
+  cwd?: string;
+  /** Human-readable label describing how the LSP was launched, for logs. */
+  source: "lspPath setting" | "go tool (project-pinned)" | "PATH";
+}
+
+/**
+ * Decide how to launch `gastro lsp`. Resolution order:
+ *
+ *   1. `gastro.lspPath` setting (explicit override -- launched as-is, no args).
+ *   2. `go tool gastro lsp` -- if the workspace's `go.mod` contains
+ *      `tool github.com/andrioid/gastro/cmd/gastro`, use the project-pinned
+ *      version. Spawned with cwd = the directory containing that `go.mod`
+ *      so `go tool` can resolve the module.
+ *   3. `gastro` from PATH (legacy default).
+ *
+ * The `go tool` probe walks up from the workspace root, supporting both
+ * single-line `tool foo` and grouped `tool ( ... )` directives.
+ */
+function resolveServerCommand(): ResolvedServer {
   const config = vscode.workspace.getConfiguration("gastro");
   const customPath = config.get<string>("lspPath");
 
-  const command = customPath || "gastro";
-  const args = customPath ? [] : ["lsp"];
+  if (customPath && customPath.trim() !== "") {
+    return { command: customPath, args: [], source: "lspPath setting" };
+  }
+
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    for (const folder of folders) {
+      const goModDir = findGoModWithGastroTool(folder.uri.fsPath);
+      if (goModDir) {
+        return {
+          command: "go",
+          args: ["tool", "gastro", "lsp"],
+          cwd: goModDir,
+          source: "go tool (project-pinned)",
+        };
+      }
+    }
+  }
+
+  return { command: "gastro", args: ["lsp"], source: "PATH" };
+}
+
+/**
+ * Walk up from `start` looking for a `go.mod` that declares the gastro CLI
+ * as a tool dependency. Returns the directory containing that `go.mod`,
+ * or undefined if none is found. Stops at the filesystem root.
+ */
+function findGoModWithGastroTool(start: string): string | undefined {
+  let dir = start;
+  // Bound the walk to avoid pathological cases. 32 is more than enough for
+  // any sane project layout.
+  for (let i = 0; i < 32; i++) {
+    const candidate = path.join(dir, "go.mod");
+    try {
+      const stat = fs.statSync(candidate);
+      if (stat.isFile()) {
+        const content = fs.readFileSync(candidate, "utf8");
+        if (goModDeclaresGastroTool(content)) {
+          return dir;
+        }
+        // Found a go.mod but it doesn't pin gastro -- this is the module
+        // boundary; don't keep walking into a parent module.
+        return undefined;
+      }
+    } catch {
+      // ENOENT or other -- keep walking up.
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return undefined;
+    }
+    dir = parent;
+  }
+  return undefined;
+}
+
+/**
+ * Match either:
+ *   tool github.com/andrioid/gastro/cmd/gastro
+ * or:
+ *   tool (
+ *     github.com/andrioid/gastro/cmd/gastro
+ *   )
+ *
+ * Comments and other tools in the block are tolerated.
+ */
+function goModDeclaresGastroTool(content: string): boolean {
+  const target = "github.com/andrioid/gastro/cmd/gastro";
+  const lines = content.split(/\r?\n/);
+  let inToolBlock = false;
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\/\/.*$/, "").trim();
+    if (line === "") continue;
+
+    if (inToolBlock) {
+      if (line.startsWith(")")) {
+        inToolBlock = false;
+        continue;
+      }
+      if (line === target) return true;
+      continue;
+    }
+
+    if (line.startsWith("tool ")) {
+      const rest = line.slice("tool ".length).trim();
+      if (rest === "(") {
+        inToolBlock = true;
+        continue;
+      }
+      if (rest === target) return true;
+    } else if (line === "tool (") {
+      inToolBlock = true;
+    }
+  }
+  return false;
+}
+
+export async function activate(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  const resolved = resolveServerCommand();
 
   const serverOptions: ServerOptions = {
-    command,
-    args,
+    command: resolved.command,
+    args: resolved.args,
+    options: resolved.cwd ? { cwd: resolved.cwd } : undefined,
     transport: TransportKind.stdio,
   };
 
@@ -32,6 +153,15 @@ export async function activate(
     "Gastro Language Server",
     serverOptions,
     clientOptions,
+  );
+
+  // Surface how the LSP was launched in the output channel so users can
+  // verify whether they're getting the project-pinned binary or the one
+  // on PATH. Mirrors the LSP server's own startup log line.
+  client.outputChannel.appendLine(
+    `[gastro-vscode] launching LSP via ${resolved.source}: ` +
+      `${resolved.command} ${resolved.args.join(" ")}` +
+      (resolved.cwd ? ` (cwd: ${resolved.cwd})` : ""),
   );
 
   // Register notifications before start so none are missed during init
@@ -83,14 +213,17 @@ export async function activate(
     await client.start();
   } catch {
     const action = await vscode.window.showErrorMessage(
-      `Gastro LSP failed to start. Is "gastro" installed and on your PATH?\n\n` +
-        `Install with: go install github.com/andrioid/gastro/cmd/gastro@latest\n` +
-        `Or: mise use github:andrioid/gastro@latest`,
-      "Install gastro",
+      `Gastro LSP failed to start. Install gastro one of three ways:\n\n` +
+        `  • Per-project (recommended for teams): ` +
+        `go get -tool github.com/andrioid/gastro/cmd/gastro (then reload)\n` +
+        `  • Global with mise: mise use github:andrioid/gastro@latest\n` +
+        `  • Global with go install: ` +
+        `go install github.com/andrioid/gastro/cmd/gastro@latest`,
+      "Install gastro (go install)",
       "Reload Window",
     );
 
-    if (action === "Install gastro") {
+    if (action === "Install gastro (go install)") {
       const terminal = vscode.window.createTerminal("Install Gastro");
       terminal.show();
       terminal.sendText(
@@ -115,10 +248,20 @@ export async function activate(
     serverVersion !== "dev" &&
     serverVersion !== extensionVersion
   ) {
-    const action = await vscode.window.showWarningMessage(
-      `Gastro version mismatch: the gastro binary is v${serverVersion} ` +
+    const launchedViaGoTool = resolved.source === "go tool (project-pinned)";
+    const message = launchedViaGoTool
+      ? `Gastro version mismatch: the LSP is v${serverVersion} (pinned via ` +
+        `\`go tool\` in your project's go.mod) but the extension is ` +
+        `v${extensionVersion}. To realign, update the pin with ` +
+        `\`go get -tool github.com/andrioid/gastro/cmd/gastro@latest\` ` +
+        `or downgrade the extension. Some features may not work correctly ` +
+        `until the versions match.`
+      : `Gastro version mismatch: the gastro binary is v${serverVersion} ` +
         `but the extension expects v${extensionVersion}. ` +
-        `Some features may not work correctly.`,
+        `Some features may not work correctly.`;
+
+    const action = await vscode.window.showWarningMessage(
+      message,
       "Update gastro",
       "Dismiss",
     );
@@ -126,7 +269,9 @@ export async function activate(
       const terminal = vscode.window.createTerminal("Update Gastro");
       terminal.show();
       terminal.sendText(
-        "go install github.com/andrioid/gastro/cmd/gastro@latest",
+        launchedViaGoTool
+          ? "go get -tool github.com/andrioid/gastro/cmd/gastro@latest"
+          : "go install github.com/andrioid/gastro/cmd/gastro@latest",
       );
 
       const reload = await vscode.window.showInformationMessage(

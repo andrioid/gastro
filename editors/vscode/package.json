@@ -41,6 +41,7 @@
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@types/node": "^20.19.39",
     "@types/vscode": "^1.80.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.8.0"
@@ -52,7 +53,7 @@
         "gastro.lspPath": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to the gastro binary. Leave empty to find it on PATH."
+          "description": "Absolute path to the gastro binary. Leave empty to use auto-detection: the extension prefers `go tool gastro lsp` when the workspace's go.mod declares the gastro CLI as a tool, and otherwise falls back to `gastro lsp` from PATH."
         },
         "gastro-lsp.trace.server": {
           "type": "string",

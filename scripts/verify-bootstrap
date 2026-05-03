@@ -24,8 +24,15 @@ echo "Adding local replace directive..."
 echo "Running go mod tidy..."
 (cd "$TEMP_DIR/testproject" && go mod tidy)
 
+echo "Verifying 'go tool gastro' resolves via the tool directive..."
+(cd "$TEMP_DIR/testproject" && go tool gastro list >/dev/null)
+
+echo "Verifying 'go generate ./...' runs the //go:generate directive..."
+(cd "$TEMP_DIR/testproject" && go generate ./... >/dev/null)
+
 echo "Building scaffolded project..."
 (cd "$TEMP_DIR/testproject" && go build -o /dev/null .)
 
 echo ""
 echo "Bootstrap verification passed."
+
