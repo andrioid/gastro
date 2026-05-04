@@ -562,6 +562,63 @@ func parseStructFieldsLegacy(hoistedTypes string) []StructField {
 	return fields
 }
 
+// FindFrontmatterStart returns the 1-indexed line number in the
+// generated handler/component source where the user's frontmatter
+// content begins. Used by the LSP shadow workspace to translate
+// .gastro line numbers into virtual .go line numbers for diagnostics
+// and hover.
+//
+// The codegen templates always insert exactly one blank line between
+// the last fixed boilerplate line (the "anchor") and the
+// {{ .Frontmatter }} substitution, so frontmatter starts on
+// (anchorLine + 2). Anchors are stable across handlerTmpl /
+// componentTmpl revisions and are asserted by codegen tests so a
+// template change that breaks this contract fails loudly here rather
+// than silently shifting LSP diagnostics by a few lines.
+//
+//	page (handlerTmpl):              "defer gastroRuntime.Recover(w, r)"
+//	component, no Props struct:      "_ = __children"
+//	component, with Props struct:    "_ = __props"
+//
+// Returns 0 if the anchor is not found, which indicates the input is
+// not a codegen handler/component output (callers should treat this
+// as "no frontmatter present").
+func FindFrontmatterStart(generated string, isComponent bool, hasProps bool) int {
+	var anchor string
+	switch {
+	case !isComponent:
+		anchor = "defer gastroRuntime.Recover(w, r)"
+	case hasProps:
+		anchor = "_ = __props"
+	default:
+		anchor = "_ = __children"
+	}
+
+	for i, line := range strings.Split(generated, "\n") {
+		if strings.TrimSpace(line) == anchor {
+			return i + 3 // 0-indexed anchor + blank line + 1 to convert to 1-indexed
+		}
+	}
+	return 0
+}
+
+// CountLeadingBlankLines returns the number of leading blank
+// (whitespace-only) lines in s. Used by the LSP shadow to align the
+// source map with codegen's strings.TrimSpace step on frontmatter:
+// codegen strips leading whitespace so the user's first non-blank
+// frontmatter line — not their first frontmatter line — is what lands
+// at FindFrontmatterStart's position.
+func CountLeadingBlankLines(s string) int {
+	n := 0
+	for _, line := range strings.Split(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			break
+		}
+		n++
+	}
+	return n
+}
+
 // HandlerFuncName derives a Go function name from a .gastro file path.
 // For pages: "pages/index.gastro" -> "pageIndex"
 // For components: "components/card.gastro" -> "componentCard"

@@ -534,3 +534,107 @@ func assertNotContains(t *testing.T, haystack, needle string) {
 		t.Errorf("expected output NOT to contain %q, but it did.\noutput:\n%s", needle, haystack)
 	}
 }
+
+func TestFindFrontmatterStart_Page(t *testing.T) {
+	file, err := parser.Parse("pages/index.gastro", "---\nimport \"fmt\"\n\nTitle := fmt.Sprint(\"hi\")\n---\n<h1>{{ .Title }}</h1>")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	info, err := codegen.AnalyzeFrontmatter(file.Frontmatter)
+	if err != nil {
+		t.Fatalf("AnalyzeFrontmatter: %v", err)
+	}
+	out, err := codegen.GenerateHandler(file, info, false)
+	if err != nil {
+		t.Fatalf("GenerateHandler: %v", err)
+	}
+	line := codegen.FindFrontmatterStart(out, false, false)
+	if line == 0 {
+		t.Fatalf("FindFrontmatterStart returned 0; output:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	got := strings.TrimSpace(lines[line-1])
+	// codegen's strings.TrimSpace strips leading blanks of frontmatter.
+	// The user's `import "fmt"` is also stripped because parser.Parse
+	// pulls imports out of the frontmatter into file.Imports. The first
+	// remaining non-blank line is `Title := fmt.Sprint("hi")`.
+	if !strings.Contains(got, "Title :=") {
+		t.Errorf("expected first frontmatter line to contain `Title :=`, got %q", got)
+	}
+}
+
+func TestFindFrontmatterStart_ComponentWithProps(t *testing.T) {
+	src := "---\ntype Props struct {\n\tTitle string\n}\n\np := gastro.Props()\nHeading := p.Title\n---\n<h2>{{ .Heading }}</h2>"
+	file, err := parser.Parse("components/card.gastro", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	info, err := codegen.AnalyzeFrontmatter(file.Frontmatter)
+	if err != nil {
+		t.Fatalf("AnalyzeFrontmatter: %v", err)
+	}
+	out, err := codegen.GenerateHandler(file, info, true)
+	if err != nil {
+		t.Fatalf("GenerateHandler: %v", err)
+	}
+	line := codegen.FindFrontmatterStart(out, true, true)
+	if line == 0 {
+		t.Fatalf("FindFrontmatterStart returned 0; output:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	got := strings.TrimSpace(lines[line-1])
+	// codegen rewrites `gastro.Props()` to `__props`.
+	if !strings.Contains(got, "p := __props") {
+		t.Errorf("expected first frontmatter line to contain `p := __props`, got %q", got)
+	}
+}
+
+func TestFindFrontmatterStart_ComponentNoProps(t *testing.T) {
+	src := "---\nKlass := \"divider\"\n---\n<hr class=\"{{ .Klass }}\" />"
+	file, err := parser.Parse("components/divider.gastro", src)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	info, err := codegen.AnalyzeFrontmatter(file.Frontmatter)
+	if err != nil {
+		t.Fatalf("AnalyzeFrontmatter: %v", err)
+	}
+	out, err := codegen.GenerateHandler(file, info, true)
+	if err != nil {
+		t.Fatalf("GenerateHandler: %v", err)
+	}
+	line := codegen.FindFrontmatterStart(out, true, false)
+	if line == 0 {
+		t.Fatalf("FindFrontmatterStart returned 0; output:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	got := strings.TrimSpace(lines[line-1])
+	if !strings.Contains(got, "Klass :=") {
+		t.Errorf("expected first frontmatter line to contain `Klass :=`, got %q", got)
+	}
+}
+
+func TestFindFrontmatterStart_NoAnchorReturnsZero(t *testing.T) {
+	if got := codegen.FindFrontmatterStart("package main\n\nfunc main() {}\n", false, false); got != 0 {
+		t.Errorf("expected 0 for non-codegen input, got %d", got)
+	}
+}
+
+func TestCountLeadingBlankLines(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+	}{
+		{"", 1}, // empty string is one blank line per strings.Split
+		{"abc", 0},
+		{"\nabc", 1},
+		{"\n\n\nabc", 3},
+		{"   \n\t\nabc", 2},
+		{"abc\n\ndef", 0},
+	}
+	for _, tc := range cases {
+		if got := codegen.CountLeadingBlankLines(tc.in); got != tc.want {
+			t.Errorf("CountLeadingBlankLines(%q) = %d, want %d", tc.in, got, tc.want)
+		}
+	}
+}
