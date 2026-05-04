@@ -532,6 +532,51 @@ _, _ = gastro.Render.NoSuchComponent("anything")
 	}
 }
 
+// TestWorkspace_NestedProjectFindsModuleRoot verifies the git-pm-shaped
+// case: a gastro project at <module>/internal/web/ where go.mod lives
+// at <module>/, not at the gastro project root. The shadow workspace
+// must walk up to find go.mod or the codegen output won't type-check
+// (it imports gastroRuntime, which only resolves under the module
+// graph).
+func TestWorkspace_NestedProjectFindsModuleRoot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: invokes go build")
+	}
+	moduleRoot := createGastroLinkedProject(t)
+
+	// Place the gastro project two levels deep, mimicking
+	// git-pm/internal/web/ structure.
+	gastroProject := filepath.Join(moduleRoot, "internal", "web")
+	if err := os.MkdirAll(filepath.Join(gastroProject, "pages"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := shadow.NewWorkspace(gastroProject)
+	if err != nil {
+		t.Fatalf("NewWorkspace: %v", err)
+	}
+	defer ws.Close()
+
+	// Even though projectDir = <module>/internal/web (no go.mod
+	// there), the shadow workspace should have go.mod at its root.
+	if _, err := os.Stat(filepath.Join(ws.Dir(), "go.mod")); err != nil {
+		t.Fatalf("shadow workspace should have go.mod at root: %v", err)
+	}
+
+	// Round-trip: a simple page should type-check end to end.
+	if _, err := ws.UpdateFile("pages/index.gastro", "---\nimport \"fmt\"\n\nTitle := fmt.Sprint(\"hi\")\n---\n<h1>{{ .Title }}</h1>"); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Dir(ws.VirtualFilePath("pages/index.gastro"))
+	rel, _ := filepath.Rel(ws.Dir(), pkgDir)
+	cmd := exec.Command("go", "build", "-o", os.DevNull, "./"+rel)
+	cmd.Dir = ws.Dir()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("nested-project shadow should type-check, got:\n%s", out)
+	}
+}
+
 // --- helpers -----------------------------------------------------
 
 // createTestProject creates a minimal Go project for tests that don't

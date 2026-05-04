@@ -2,6 +2,8 @@ package shadow
 
 import (
 	"fmt"
+	"go/ast"
+	goparser "go/parser"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +48,14 @@ type componentScan struct {
 	hasChildren  bool
 	propsFields  []codegen.StructField
 	propsType    string // hoisted type name (e.g. "Props"); already unique-renamed
+	// neededImports maps the package qualifier used in Props field
+	// types (e.g. "boardview" in `Backlog []boardview.CardData`) to
+	// the full Go import path (e.g.
+	// "github.com/example/internal/web/boardview"). Only qualifiers
+	// actually referenced by the projected XProps are populated, so
+	// the Router stub does not pull in unused imports that would
+	// trigger "imported and not used" errors.
+	neededImports map[string]string
 }
 
 // NewWorkspace creates a shadow workspace for the given project
@@ -239,22 +249,39 @@ func (ws *Workspace) Close() {
 	os.RemoveAll(ws.dir)
 }
 
-// symlinkProject mirrors the user's project tree into the shadow
-// workspace. go.mod and go.sum are copied (and go.mod is patched to
-// rewrite relative `replace` directives to absolute paths) rather than
+// symlinkProject mirrors the user's Go module into the shadow
+// workspace. The mirror starts at the module root (the nearest
+// ancestor of projectDir containing a go.mod), not projectDir itself,
+// so nested layouts like git-pm/internal/web/ — where the gastro
+// project sits below the module root — still get full module
+// visibility. Without this, the codegen output (which imports
+// gastroRuntime and references project-internal packages) fails
+// type-checking with "go.mod not found".
+//
+// go.mod and go.sum are copied (and go.mod is patched to rewrite
+// relative `replace` directives to absolute paths) rather than
 // symlinked so the shadow's temp directory can resolve modules
-// independently of the project's relative layout. Everything else is
-// symlinked for cheap reuse.
+// independently of the original project's relative layout.
+// Everything else is symlinked for cheap reuse.
 func (ws *Workspace) symlinkProject() error {
-	entries, err := os.ReadDir(ws.projectDir)
+	moduleRoot := findModuleRoot(ws.projectDir)
+	if moduleRoot == "" {
+		// No go.mod anywhere upstream — symlink projectDir as a
+		// best-effort fallback. The shadow won't type-check against
+		// the real runtime in this case but the LSP will still parse
+		// the file and report syntactic issues.
+		moduleRoot = ws.projectDir
+	}
+
+	entries, err := os.ReadDir(moduleRoot)
 	if err != nil {
 		return err
 	}
 
 	for _, entry := range entries {
 		name := entry.Name()
-		// Skip hidden directories, .gastro output, and any prior
-		// shadow subdirectories.
+		// Skip hidden directories (including .gastro output, .git, etc.)
+		// and any prior shadow subdirectories.
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
@@ -262,11 +289,11 @@ func (ws *Workspace) symlinkProject() error {
 			continue
 		}
 
-		src := filepath.Join(ws.projectDir, name)
+		src := filepath.Join(moduleRoot, name)
 		dst := filepath.Join(ws.dir, name)
 
 		if name == "go.mod" {
-			if err := copyAndPatchGoMod(src, dst, ws.projectDir); err != nil {
+			if err := copyAndPatchGoMod(src, dst, moduleRoot); err != nil {
 				return fmt.Errorf("patching go.mod: %w", err)
 			}
 			continue
@@ -287,6 +314,26 @@ func (ws *Workspace) symlinkProject() error {
 	}
 
 	return nil
+}
+
+// findModuleRoot walks up from start looking for a directory that
+// contains a go.mod file. Returns "" if none is found before reaching
+// the filesystem root. Used so the shadow workspace can mirror the
+// full Go module — not just the gastro project subtree — for nested
+// layouts where the gastro project (pages/, components/) sits below
+// the module root.
+func findModuleRoot(start string) string {
+	dir := start
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
 
 // copyAndPatchGoMod copies a go.mod from src to dst, rewriting any
@@ -463,17 +510,139 @@ func scanComponents(projectDir string) []componentScan {
 			propsType = funcName + strings.ToUpper(fInfo.PropsTypeName[:1]) + fInfo.PropsTypeName[1:]
 		}
 
+		// Determine which of the component's frontmatter imports are
+		// referenced by its Props field types. Without this, the stub
+		// can't compile field types like `Backlog []boardview.CardData`
+		// because the boardview import isn't in scope.
+		needed := neededImportsForFields(fields, parsed.Imports)
+
 		out = append(out, componentScan{
-			relPath:      rel,
-			exportedName: exported,
-			hasProps:     fInfo.PropsTypeName != "",
-			hasChildren:  strings.Contains(parsed.TemplateBody, "{{ .Children }}"),
-			propsFields:  fields,
-			propsType:    propsType,
+			relPath:       rel,
+			exportedName:  exported,
+			hasProps:      fInfo.PropsTypeName != "",
+			hasChildren:   strings.Contains(parsed.TemplateBody, "{{ .Children }}"),
+			propsFields:   fields,
+			propsType:     propsType,
+			neededImports: needed,
 		})
 		return nil
 	})
 	return out
+}
+
+// neededImportsForFields walks each Props field type and returns the
+// subset of the component's frontmatter imports whose package name
+// appears as a qualifier in any field type. This drives the
+// "import only what's actually used" property of the Router stub.
+func neededImportsForFields(fields []codegen.StructField, imports []string) map[string]string {
+	if len(fields) == 0 || len(imports) == 0 {
+		return nil
+	}
+	// Map package name → import path. The package name is the last
+	// segment of the path by Go convention; this is wrong for
+	// renamed packages (e.g. "v2" suffix) but those are rare in
+	// .gastro frontmatter and the consequence of a miss is a stub
+	// compile error in cmd/auditshadow, not a user-visible
+	// regression — gopls will still parse the page and surface the
+	// real frontmatter diagnostics.
+	byName := make(map[string]string, len(imports))
+	for _, p := range imports {
+		byName[importPackageName(p)] = p
+	}
+
+	used := map[string]bool{}
+	for _, f := range fields {
+		for _, q := range typeQualifiers(f.Type) {
+			used[q] = true
+		}
+	}
+
+	out := make(map[string]string)
+	for name := range used {
+		if path, ok := byName[name]; ok {
+			out[name] = path
+		}
+	}
+	return out
+}
+
+// importPackageName guesses the package name of an import path by
+// taking the last path segment. Correct for almost every Go module;
+// renamed packages (e.g. via `package` declaration that differs from
+// the path) need a real source scan but those are rare enough in
+// frontmatter that the heuristic is acceptable for the LSP.
+func importPackageName(path string) string {
+	if i := strings.LastIndex(path, "/"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
+}
+
+// typeQualifiers returns the package-qualifier identifiers used in a
+// Go type expression, e.g. "boardview" in "[]boardview.CardData" or
+// "pkg" and "other" in "map[pkg.Key]other.Value". Falls back to a
+// regex-like scan if go/parser rejects the type (which happens for
+// some valid frontmatter shapes the parser doesn't expect at top
+// level).
+func typeQualifiers(typeStr string) []string {
+	expr, err := goparser.ParseExpr(typeStr)
+	if err != nil {
+		return typeQualifiersFallback(typeStr)
+	}
+	var quals []string
+	seen := map[string]bool{}
+	ast.Inspect(expr, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		id, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if !seen[id.Name] {
+			seen[id.Name] = true
+			quals = append(quals, id.Name)
+		}
+		return false
+	})
+	return quals
+}
+
+// typeQualifiersFallback handles type strings that go/parser can't
+// digest. Naive: every "ident." prefix that isn't preceded by a "."
+// itself counts as a qualifier. Good enough for the rare cases the
+// AST path misses.
+func typeQualifiersFallback(typeStr string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for i := 0; i < len(typeStr); i++ {
+		c := typeStr[i]
+		if !(isIdentStart(c)) {
+			continue
+		}
+		j := i
+		for j < len(typeStr) && isIdentPart(typeStr[j]) {
+			j++
+		}
+		if j < len(typeStr) && typeStr[j] == '.' && (i == 0 || typeStr[i-1] != '.') {
+			ident := typeStr[i:j]
+			if !seen[ident] {
+				seen[ident] = true
+				out = append(out, ident)
+			}
+		}
+		i = j
+	}
+	return out
+}
+
+func isIdentStart(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+func isIdentPart(c byte) bool {
+	return isIdentStart(c) || (c >= '0' && c <= '9')
 }
 
 // routerStub builds the synthetic stub file that lives alongside each
@@ -499,13 +668,35 @@ func scanComponents(projectDir string) []componentScan {
 // typically O(10) components — but if it ever becomes a hot path the
 // stub can be cached on the Workspace.
 func (ws *Workspace) routerStub(pkgName string) string {
+	// Aggregate all component-needed imports (deduped by path).
+	extraImports := map[string]bool{}
+	for _, c := range ws.componentMD {
+		for _, p := range c.neededImports {
+			extraImports[p] = true
+		}
+	}
+
 	var sb strings.Builder
 	sb.WriteString("// Auto-generated by gastro LSP shadow. DO NOT EDIT.\n")
 	sb.WriteString("package " + pkgName + "\n\n")
-	sb.WriteString("import (\n\t\"html/template\"\n\t\"net/http\"\n)\n\n")
 
-	// Suppress unused-import warnings for Router-stub-only files where
-	// no component method takes an http.Request.
+	sb.WriteString("import (\n")
+	sb.WriteString("\t\"html/template\"\n")
+	sb.WriteString("\t\"net/http\"\n")
+	// Sorted iteration so the stub is deterministic across runs —
+	// helps debugging by keeping diffs minimal when components
+	// change.
+	sortedExtras := sortedKeys(extraImports)
+	for _, p := range sortedExtras {
+		fmt.Fprintf(&sb, "\t%q\n", p)
+	}
+	sb.WriteString(")\n\n")
+
+	// Suppress unused-import warnings for the always-on imports.
+	// Component-driven imports are guaranteed to be referenced by at
+	// least one XProps field type — that's why neededImportsForFields
+	// only includes packages whose name appears in a field qualifier
+	// — so they don't need suppression lines.
 	sb.WriteString("var _ http.ResponseWriter\nvar _ template.HTML\n\n")
 
 	sb.WriteString("type Router struct{}\n\n")
@@ -519,6 +710,21 @@ func (ws *Workspace) routerStub(pkgName string) string {
 		writeComponentStub(&sb, c)
 	}
 	return sb.String()
+}
+
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	// Use sort.Strings via the strings package (avoid pulling sort)
+	// — small list, insertion sort is fine.
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j-1] > out[j]; j-- {
+			out[j-1], out[j] = out[j], out[j-1]
+		}
+	}
+	return out
 }
 
 // writeComponentStub emits the per-component XProps type (alias or
