@@ -2,6 +2,7 @@
 bin/
 /gastro
 /gastro-lsp
+/auditshadow
 *.exe
 *.dylib
 

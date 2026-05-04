@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Audit the LSP shadow workspace against examples/gastro (shadow ↔ codegen parity gate)"
+
+set -euo pipefail
+
+go run ./cmd/auditshadow "${1:-examples/gastro}"
