@@ -217,6 +217,66 @@ Integration tests for the LSP are in `cmd/gastro/lsp_integration_test.go`.
 They spawn `gastro lsp` as a subprocess and communicate via JSON-RPC over
 stdin/stdout.
 
+#### Auditing the shadow workspace
+
+The shadow workspace generates a virtual `.go` file per `.gastro` source by
+calling `codegen.GenerateHandler` directly (R6) — the same source
+`gastro generate` writes to `.gastro/<file>.go`. To check that the shadow
+output type-checks against the real runtime end-to-end, run:
+
+```sh
+mise run audit                       # default: examples/gastro
+go run ./cmd/auditshadow ~/path/to/your/project
+```
+
+The harness walks every `.gastro` under the target, drives each through
+`shadow.Workspace.UpdateFile`, runs `go build` against the generated
+package, and reports any non-import diagnostics. A green run means
+gopls would be quiet on those files. Use this before/after touching
+anything in `internal/lsp/shadow/` or `internal/codegen/generate.go`.
+
+#### LSP binary refresh when hacking on gastro
+
+The LSP is a long-running process. When you change gastro source the
+running LSP keeps the *old* code in memory until it is restarted, even
+if rebuilds happen on disk. The full picture, depending on how the
+editor launches `gastro`:
+
+| Launch path                       | Build refresh                              | Process refresh           |
+| --------------------------------- | ------------------------------------------ | ------------------------- |
+| `go tool gastro lsp` (recommended) | Automatic via Go's content-addressed cache | Restart LSP in editor     |
+| `gastro` from PATH                | Manual: `mise run install:gastro`          | Restart LSP in editor     |
+
+**Recommended setup for hacking on gastro from a downstream project:**
+
+1. In the downstream's `go.mod`, add a `replace` pointing at your local
+   gastro checkout and a `tool` directive for the gastro CLI:
+
+   ```
+   replace github.com/andrioid/gastro => /path/to/gastro
+   tool github.com/andrioid/gastro/cmd/gastro
+   ```
+
+2. Use the in-tree VS Code extension (or rebuild + install with
+   `mise run install:vscode`). Versions 0.1.20+ detect the `tool`
+   directive and launch via `go tool gastro lsp`, which routes
+   through the `replace` and rebuilds your local source via the Go
+   build cache. No `go install` step.
+
+3. After editing gastro source, restart the LSP in your editor:
+   - VS Code: `Cmd+Shift+P` → *Developer: Reload Window* (or the
+     gastro-specific restart command if your build exposes one).
+   - Neovim: `:LspRestart` or `:e` on the file.
+
+If the editor extension you have predates `go tool` resolution, it
+falls back to `gastro` from PATH. In that case the binary on PATH must
+match the active mise/Go context where the editor launched: a binary
+installed by `mise run install:gastro` from the gastro repo lands in
+gastro's `mise.toml`-pinned Go bin directory, which is *not necessarily
+the same* as a downstream project's active Go bin directory. The
+`go tool` flow sidesteps this entirely; reach for `mise run install:vscode`
+if you find yourself debugging "wrong binary on PATH" mismatches.
+
 #### Project root resolution
 
 `findProjectRoot` (in `internal/lsp/server/util.go`) decides which directory
