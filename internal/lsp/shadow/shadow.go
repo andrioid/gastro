@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/lsp/sourcemap"
 	"github.com/andrioid/gastro/internal/parser"
 )
@@ -16,97 +17,57 @@ type VirtualFile struct {
 	FrontmatterEndLine int                  // 1-indexed gastro line of the closing ---
 }
 
-// GenerateVirtualFile creates a virtual .go file from a .gastro file's content.
-// The frontmatter is wrapped in a valid Go function so gopls can analyze it.
-// Import declarations are converted to comments to preserve line numbers.
-// For files without frontmatter, returns a minimal valid Go file.
+// GenerateVirtualFile creates a virtual .go file from a .gastro file's
+// content using the real codegen pipeline. The result is the same
+// source `gastro generate` would emit (with `package gastro` rewritten
+// to a synthetic per-file package name and stripped of any external
+// runtime references that require a project context).
+//
+// Used by tests and one-shot callers that don't need a long-lived
+// Workspace. Production LSP traffic goes through Workspace.UpdateFile,
+// which additionally writes the virtual file plus a Router-stub
+// companion to disk so gopls can analyse them as a Go package.
+//
+// For files without frontmatter (.gastro fragments used purely for
+// markup), returns a minimal `package main` shell so callers receive a
+// valid VirtualFile rather than nil.
 func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 	parsed, err := parser.Parse(filename, gastroContent)
 	if err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", filename, err)
 	}
 
-	// No frontmatter means no Go code for gopls to analyze.
 	if parsed.FrontmatterLine == 0 {
 		return &VirtualFile{
-			GoSource:  "package __gastro_virtual\n",
+			GoSource:  "package main\n\nfunc main() {}\n",
 			SourceMap: sourcemap.New(1, 1),
 			Filename:  filename,
 		}, nil
 	}
 
-	// Reconstruct the raw frontmatter (before stripping) by getting lines
-	// between the delimiters. We need the original lines including import
-	// statements to preserve line numbers.
-	rawFrontmatter := extractRawFrontmatter(gastroContent)
-
-	// Comment out import lines to preserve line numbers
-	processedFrontmatter := commentOutImports(rawFrontmatter)
-
-	// Build the virtual .go file
-	var sb strings.Builder
-
-	// Line 1: package
-	sb.WriteString("package __gastro_virtual\n")
-
-	// Lines 2+: imports.
-	// Track B (docs/history/frictions-plan.md §4.2) makes pages reference the
-	// ambient r and w; the synthetic wrapper passes both as parameters
-	// so frontmatter that calls r.Method, w.WriteHeader, etc. type-checks
-	// in gopls. net/http is added unconditionally for the same reason.
-	sb.WriteString("\nimport (\n\t\"net/http\"\n")
-	for _, imp := range parsed.Imports {
-		sb.WriteString(fmt.Sprintf("\t%q\n", imp))
+	info, err := codegen.AnalyzeFrontmatter(parsed.Frontmatter)
+	if err != nil {
+		return nil, fmt.Errorf("analyzing frontmatter for %s: %w", filename, err)
 	}
-	sb.WriteString(")\n")
 
-	// Suppress unused-import warnings if frontmatter doesn't reference net/http.
-	sb.WriteString("\nvar _ http.ResponseWriter\n")
+	isComponent := info.IsComponent
+	if !isComponent && strings.HasPrefix(filename, "components/") {
+		isComponent = true
+	}
 
-	// Gastro package stub so gopls doesn't error on gastro.Context() etc.
-	sb.WriteString("\nvar gastro = struct{ Context func() interface{} }{}\n")
+	src, err := codegen.GenerateHandler(parsed, info, isComponent)
+	if err != nil {
+		return nil, fmt.Errorf("generating shadow source for %s: %w", filename, err)
+	}
 
-	// Function wrapper start. Track B injects (w, r) ambient parameters.
-	// `_ = w` / `_ = r` suppress unused-parameter warnings for pages
-	// that don't touch them and for components (which never do).
-	sb.WriteString("\nfunc __handler(w http.ResponseWriter, r *http.Request) {\n")
-	sb.WriteString("\t_ = w\n\t_ = r\n")
-	virtualFMStart := strings.Count(sb.String(), "\n") + 1
-
-	// Frontmatter content (with import lines commented out)
-	sb.WriteString(processedFrontmatter)
-	sb.WriteString("\n}\n")
-
-	sm := sourcemap.New(parsed.FrontmatterLine, virtualFMStart)
+	hasProps := info.PropsTypeName != ""
+	virtualFmStart := codegen.FindFrontmatterStart(src, isComponent, hasProps)
+	gastroFmStart := firstFrontmatterContentLine(gastroContent, parsed.FrontmatterLine, parsed.TemplateBodyLine-1, isComponent)
 
 	return &VirtualFile{
-		GoSource:  sb.String(),
-		SourceMap: sm,
-		Filename:  filename,
+		GoSource:           src,
+		SourceMap:          sourcemap.New(gastroFmStart, virtualFmStart),
+		Filename:           filename,
+		FrontmatterEndLine: parsed.TemplateBodyLine - 1,
 	}, nil
-}
-
-// extractRawFrontmatter gets the content between --- delimiters from raw
-// .gastro file content, without any processing.
-func extractRawFrontmatter(content string) string {
-	lines := strings.Split(content, "\n")
-	firstDelim := -1
-	secondDelim := -1
-
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "---" {
-			if firstDelim == -1 {
-				firstDelim = i
-			} else {
-				secondDelim = i
-				break
-			}
-		}
-	}
-
-	if firstDelim == -1 || secondDelim == -1 {
-		return ""
-	}
-
-	return strings.Join(lines[firstDelim+1:secondDelim], "\n")
 }

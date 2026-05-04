@@ -1,12 +1,17 @@
 package shadow_test
 
 import (
+	"go/parser"
+	"go/token"
 	"strings"
 	"testing"
 
 	"github.com/andrioid/gastro/internal/lsp/shadow"
 )
 
+// TestGenerateVirtualFile_BasicPage verifies that a page with imports and
+// frontmatter produces a parseable Go file containing the user's imports
+// and frontmatter code.
 func TestGenerateVirtualFile_BasicPage(t *testing.T) {
 	gastroContent := `---
 import "fmt"
@@ -21,28 +26,39 @@ Title := "Hello"
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should have package declaration
-	if !strings.Contains(vf.GoSource, "package") {
-		t.Error("virtual file should have package declaration")
+	// Output must be a parseable Go file.
+	if _, err := parser.ParseFile(token.NewFileSet(), vf.Filename, vf.GoSource, 0); err != nil {
+		t.Fatalf("virtual file is not valid Go: %v\n--- source ---\n%s", err, vf.GoSource)
 	}
 
-	// Should have the import
+	// User's import is present at file-level (codegen hoists it into
+	// the generated file's import block).
 	if !strings.Contains(vf.GoSource, `"fmt"`) {
-		t.Error("virtual file should contain the import")
+		t.Error("virtual file should contain user's import")
 	}
 
-	// Should have frontmatter code
+	// User's frontmatter assignment is present (after codegen rewrites
+	// `gastro.Context()` to `gastroRuntime.NewContext(w, r)`).
 	if !strings.Contains(vf.GoSource, `Title := "Hello"`) {
 		t.Error("virtual file should contain frontmatter code")
 	}
 
-	// Source map should exist
+	// gastro.Context() is rewritten by codegen, not preserved literally.
+	if strings.Contains(vf.GoSource, "gastro.Context()") {
+		t.Error("gastro.Context() should be rewritten, not preserved")
+	}
+
 	if vf.SourceMap == nil {
 		t.Fatal("source map should not be nil")
 	}
 }
 
-func TestGenerateVirtualFile_ImportLinesBecomeComments(t *testing.T) {
+// TestGenerateVirtualFile_ComponentImports verifies that .gastro files
+// importing other components produce a parseable Go file. Component
+// imports (e.g. `import Card "components/card.gastro"`) are not real
+// Go imports — codegen recognises them as Use declarations and keeps
+// them out of the import block.
+func TestGenerateVirtualFile_ComponentImports(t *testing.T) {
 	gastroContent := `---
 import Card "components/card.gastro"
 import Layout "components/layout.gastro"
@@ -56,17 +72,20 @@ Title := "Hello"
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Component import lines should be commented out, not present as raw import code
-	if strings.Contains(vf.GoSource, "\nimport Card") {
-		t.Error("component imports should be commented out in virtual file")
+	if _, err := parser.ParseFile(token.NewFileSet(), vf.Filename, vf.GoSource, 0); err != nil {
+		t.Fatalf("virtual file is not valid Go: %v\n--- source ---\n%s", err, vf.GoSource)
 	}
 
-	// Should be converted to comments to preserve line numbers
-	if !strings.Contains(vf.GoSource, "// import Card") {
-		t.Errorf("import declarations should appear as comments, got:\n%s", vf.GoSource)
+	// Component imports must not appear as real Go imports — they
+	// reference .gastro paths that aren't valid Go module paths.
+	if strings.Contains(vf.GoSource, `"components/card.gastro"`) {
+		t.Errorf("component import path should not appear as Go import:\n%s", vf.GoSource)
 	}
 }
 
+// TestGenerateVirtualFile_EmptyFrontmatterReturnsError verifies that
+// an empty frontmatter block (--- ---) is reported as a parse error,
+// matching the parser's contract.
 func TestGenerateVirtualFile_EmptyFrontmatterReturnsError(t *testing.T) {
 	gastroContent := `---
 ---
@@ -78,6 +97,9 @@ func TestGenerateVirtualFile_EmptyFrontmatterReturnsError(t *testing.T) {
 	}
 }
 
+// TestGenerateVirtualFile_NoFrontmatter verifies that .gastro files
+// without any frontmatter delimiters produce a minimal, parseable
+// virtual file (cleared diagnostics for the gopls session).
 func TestGenerateVirtualFile_NoFrontmatter(t *testing.T) {
 	gastroContent := `<h1>Hello</h1>
 <p>No frontmatter here</p>`
@@ -87,16 +109,17 @@ func TestGenerateVirtualFile_NoFrontmatter(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(vf.GoSource, "package") {
-		t.Error("no-frontmatter file should produce a valid Go file")
+	if _, err := parser.ParseFile(token.NewFileSet(), vf.Filename, vf.GoSource, 0); err != nil {
+		t.Fatalf("virtual file is not valid Go: %v", err)
 	}
 
 	if vf.SourceMap == nil {
 		t.Fatal("source map should not be nil")
 	}
 
-	// Should not contain function wrapper or frontmatter code
-	if strings.Contains(vf.GoSource, "__handler") {
-		t.Error("no-frontmatter file should not have __handler function wrapper")
+	// No frontmatter ⇒ no codegen wrapping; the virtual file is the
+	// minimal "package main; func main() {}" shell.
+	if !strings.Contains(vf.GoSource, "package main") {
+		t.Errorf("expected minimal `package main` shell for no-frontmatter file, got:\n%s", vf.GoSource)
 	}
 }
