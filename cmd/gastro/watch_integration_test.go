@@ -768,4 +768,3 @@ func TestWatch_WatchRootOverride(t *testing.T) {
 	}
 	t.Fatalf("server did not pick up --watch-root edit; last body: %q", getBody(t, port))
 }
-

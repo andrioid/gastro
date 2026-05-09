@@ -412,9 +412,9 @@ func TestWorkspace_TypeChecksAgainstRealRuntime(t *testing.T) {
 	defer ws.Close()
 
 	cases := []struct {
-		name      string
-		path      string
-		content   string
+		name    string
+		path    string
+		content string
 	}{
 		{"page with frontmatter", "pages/test_page.gastro",
 			"---\nimport \"fmt\"\n\nTitle := fmt.Sprint(\"hi\")\n---\n<h1>{{ .Title }}</h1>"},

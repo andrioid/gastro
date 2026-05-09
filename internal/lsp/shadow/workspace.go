@@ -686,7 +686,7 @@ func sortedKeys(m map[string]bool) []string {
 //   - HasProps && !HasChildren: XProps is an alias to the user's
 //     hoisted Props struct.
 //   - HasChildren:              XProps is a fresh struct combining
-//                               user fields + Children template.HTML.
+//     user fields + Children template.HTML.
 //   - !HasProps && !HasChildren: no XProps type; method takes no args.
 func writeComponentStub(sb *strings.Builder, c componentScan) {
 	switch {

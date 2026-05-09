@@ -216,11 +216,11 @@ Example:
 // the build/run lifecycle, and drives devloop.Run with WatchGoFiles=true.
 //
 // The lifecycle is:
-//   1. Initial onRestart: run all --build commands, then start --run.
-//      Build failure → log + write build-error signal + don't start run.
-//   2. On each restart-class change: cancel any in-flight build (R3),
-//      stop the previous --run (R4 keep-alive only on FAILURE; on
-//      success we replace), run builds in order, start fresh --run.
+//  1. Initial onRestart: run all --build commands, then start --run.
+//     Build failure → log + write build-error signal + don't start run.
+//  2. On each restart-class change: cancel any in-flight build (R3),
+//     stop the previous --run (R4 keep-alive only on FAILURE; on
+//     success we replace), run builds in order, start fresh --run.
 func runWatch(args []string) error {
 	flags, err := parseWatchArgs(args)
 	if err != nil {

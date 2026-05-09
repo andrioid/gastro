@@ -258,8 +258,8 @@ func TestPropsByPath_OmitsComponentsWithoutFields(t *testing.T) {
 func TestDiscoverProjects_SingleRoot(t *testing.T) {
 	tmp := t.TempDir()
 	writeTreeT(t, tmp, map[string]string{
-		"pages/index.gastro":         `<p>x</p>`,
-		"components/card.gastro":     `<div>card</div>`,
+		"pages/index.gastro":     `<p>x</p>`,
+		"components/card.gastro": `<div>card</div>`,
 	})
 
 	got, err := codegen.DiscoverProjects(tmp)
@@ -283,9 +283,9 @@ func TestDiscoverProjects_NestedProject(t *testing.T) {
 	// descend through internal/ to find it.
 	tmp := t.TempDir()
 	writeTreeT(t, tmp, map[string]string{
-		"go.mod":                            "module example\ngo 1.26\n",
-		"internal/web/pages/index.gastro":   `<p>x</p>`,
-		"internal/web/components/x.gastro":  `<p>x</p>`,
+		"go.mod":                           "module example\ngo 1.26\n",
+		"internal/web/pages/index.gastro":  `<p>x</p>`,
+		"internal/web/components/x.gastro": `<p>x</p>`,
 	})
 
 	got, err := codegen.DiscoverProjects(tmp)
@@ -324,9 +324,9 @@ func TestDiscoverProjects_MultipleProjects(t *testing.T) {
 func TestDiscoverProjects_SkipsHiddenAndTestdata(t *testing.T) {
 	tmp := t.TempDir()
 	writeTreeT(t, tmp, map[string]string{
-		"pages/index.gastro":             `<p>x</p>`,
+		"pages/index.gastro": `<p>x</p>`,
 		// Codegen output: must not be reported as a separate project.
-		".gastro/pages/leak.gastro":      `<p>x</p>`,
+		".gastro/pages/leak.gastro": `<p>x</p>`,
 		// Test fixtures: must not be reported.
 		"testdata/proj/pages/leak.gastro": `<p>x</p>`,
 		// node_modules nesting: same.

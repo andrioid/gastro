@@ -152,18 +152,18 @@ func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent
 	}
 
 	data := generateData{
-		PackageName:    "gastro",
-		FuncName:       funcName,
-		ExportedName:   ExportedComponentName(funcName),
-		Imports:        dedupeAutoImports(file.Imports),
-		Frontmatter:    frontmatter,
-		ExportedVars:   exportedVarEmit,
-		TemplateBody:   file.TemplateBody,
-		IsPage:         info.IsPage,
-		PropsTypeName:  propsTypeName,
-		IsComponent:    isComponent,
-		HoistedDecls:   hoistedBlock,
-		Uses:           uses,
+		PackageName:   "gastro",
+		FuncName:      funcName,
+		ExportedName:  ExportedComponentName(funcName),
+		Imports:       dedupeAutoImports(file.Imports),
+		Frontmatter:   frontmatter,
+		ExportedVars:  exportedVarEmit,
+		TemplateBody:  file.TemplateBody,
+		IsPage:        info.IsPage,
+		PropsTypeName: propsTypeName,
+		IsComponent:   isComponent,
+		HoistedDecls:  hoistedBlock,
+		Uses:          uses,
 	}
 
 	tmpl := handlerTmpl
@@ -240,8 +240,8 @@ type generateData struct {
 	TemplateBody  string
 	IsPage        bool
 	IsComponent   bool
-	PropsTypeName string // e.g. "Props" — from type Props struct in the frontmatter
-	HoistedDecls  string // rendered text block of all hoisted package-scope decls
+	PropsTypeName string    // e.g. "Props" — from type Props struct in the frontmatter
+	HoistedDecls  string    // rendered text block of all hoisted package-scope decls
 	Uses          []UseInfo // component imports used by this page
 }
 

@@ -135,8 +135,8 @@ func RewriteHoistedRefsInDecl(declSrc string, names map[string]string) string {
 	var edits []edit
 
 	walker := &refRewriter{
-		names:        names,
-		skipDeclLHS:  true, // don't rewrite the hoisted decl's own LHS
+		names:       names,
+		skipDeclLHS: true, // don't rewrite the hoisted decl's own LHS
 		visit: func(id *ast.Ident) {
 			mangled := names[id.Name]
 			start := fset.Position(id.Pos()).Offset - prefixLen
@@ -165,7 +165,7 @@ func RewriteHoistedRefsInDecl(declSrc string, names map[string]string) string {
 // whose name matches a key in names.
 type refRewriter struct {
 	names       map[string]string
-	skipDeclLHS bool                   // skip top-level decl LHS (used by *InDecl)
+	skipDeclLHS bool // skip top-level decl LHS (used by *InDecl)
 	visit       func(id *ast.Ident)
 }
 

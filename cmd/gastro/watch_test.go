@@ -253,9 +253,9 @@ func TestParseWatchArgs(t *testing.T) {
 // cases don't.
 func TestSuspectedBuildOutputCollision(t *testing.T) {
 	cases := []struct {
-		cmd      string
-		flagged  bool
-		hint     string
+		cmd     string
+		flagged bool
+		hint    string
 	}{
 		{"go build -o tmp/app ./cmd/myapp", false, ""},
 		{"go build -o ./tmp/app ./cmd/myapp", false, ""},
