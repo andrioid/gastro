@@ -39,6 +39,13 @@ type projectInstance struct {
 	componentsScannedAt time.Time
 	componentPropsCache map[string][]codegen.StructField // componentPath -> Props struct fields
 	goplsOpenFiles      map[string]int                   // virtualURI -> version
+
+	// goplsReady is set to true on the first publishDiagnostics this
+	// instance receives from gopls. Until then, type/field probes can
+	// silently return empty results because gopls is still loading the
+	// virtual package, so any template diagnostics computed in that window
+	// are flagged stale and re-run once gopls signals readiness.
+	goplsReady bool
 }
 
 // fieldInfo represents a field discovered from gopls completions.
@@ -60,6 +67,8 @@ type server struct {
 	typeCache            map[string]map[string]string                   // URI -> varName -> type string
 	fieldCache           map[string]map[string][]fieldInfo              // URI -> varName -> fields
 	typeFieldCache       map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
+	templateDiagsStale   map[string]bool                                // URI -> needs re-run once gopls is ready (typeMap was empty despite expecting types)
+	templateDiagsRetries map[string]int                                 // URI -> count of stale-driven re-runs since last cache reset (capped to avoid loops)
 	notifiedGoplsMissing sync.Once                                      // ensures gopls-unavailable notification is sent only once
 	notifiedGoMissing    sync.Once                                      // ensures go-unavailable notification is sent only once
 }
@@ -71,16 +80,26 @@ func newServer(version string) *server {
 		instances:      make(map[string]*projectInstance),
 		goplsDiags:     make(map[string][]map[string]any),
 		templateDiags:  make(map[string][]map[string]any),
-		typeCache:      make(map[string]map[string]string),
-		fieldCache:     make(map[string]map[string][]fieldInfo),
-		typeFieldCache: make(map[string]map[string][]lsptemplate.FieldEntry),
+		typeCache:          make(map[string]map[string]string),
+		fieldCache:         make(map[string]map[string][]fieldInfo),
+		typeFieldCache:     make(map[string]map[string][]lsptemplate.FieldEntry),
+		templateDiagsStale:   make(map[string]bool),
+		templateDiagsRetries: make(map[string]int),
 	}
 }
 
 // Run starts the LSP server and processes messages from stdin.
 // This is the only exported function in the server package.
 func Run(version string) {
-	log.SetOutput(os.Stderr)
+	if p := os.Getenv("GASTRO_LSP_LOG"); p != "" {
+		if f, err := os.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644); err == nil {
+			log.SetOutput(f)
+		} else {
+			log.SetOutput(os.Stderr)
+		}
+	} else {
+		log.SetOutput(os.Stderr)
+	}
 	log.Printf("gastro lsp: starting (version %s)", version)
 
 	server := newServer(version)

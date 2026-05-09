@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -22,6 +23,26 @@ type lspClient struct {
 	reader *bufio.Reader
 	stderr *bufio.Reader
 	nextID int
+
+	// msgs is the single channel of incoming LSP messages from the server.
+	// A dedicated dispatcher goroutine reads from c.reader and pushes
+	// readResults here, so test helpers (recv / recvNotification) consume
+	// from one place instead of each spawning their own reader goroutine.
+	// That earlier pattern produced concurrent reads on c.reader whenever
+	// a recv timed out and the orphaned goroutine kept reading — visible
+	// to -race as a data race on the bufio.Reader's internal buffer.
+	msgs chan readResult
+	done chan struct{}
+
+	// stderrMu serialises drainStderr calls so tests that call it from
+	// multiple goroutines (or reentrantly inside fatal helpers) don't race
+	// on c.stderr's bufio.Reader.
+	stderrMu sync.Mutex
+}
+
+type readResult struct {
+	msg map[string]any
+	err error
 }
 
 func startLSP(t *testing.T, projectDir string) *lspClient {
@@ -57,19 +78,52 @@ func startLSP(t *testing.T, projectDir string) *lspClient {
 		t.Fatalf("starting gastro lsp: %v", err)
 	}
 
-	t.Cleanup(func() {
-		stdin.Close()
-		proc.Process.Kill()
-		proc.Wait()
-	})
+	return newLSPClient(t, proc, stdin, stdout, stderrPipe)
+}
 
-	return &lspClient{
+// newLSPClient wires up the lspClient struct, starts the single dispatcher
+// goroutine that owns c.reader, and registers a t.Cleanup that tears
+// everything down. Used by startLSP and any test that needs to spawn the
+// LSP subprocess with custom env / args (e.g. TestLSP_GastroProjectEnv_*).
+// All test entry points must go through this helper so the dispatcher
+// goroutine is the sole reader of c.reader — otherwise recv timeouts can
+// leave orphan reader goroutines racing on the bufio.Reader's buffer.
+func newLSPClient(t *testing.T, proc *exec.Cmd, stdin io.WriteCloser, stdout, stderrPipe io.Reader) *lspClient {
+	t.Helper()
+	client := &lspClient{
 		proc:   proc,
 		stdin:  stdin,
 		reader: bufio.NewReader(stdout),
 		stderr: bufio.NewReader(stderrPipe),
 		nextID: 1,
+		msgs:   make(chan readResult, 64),
+		done:   make(chan struct{}),
 	}
+
+	t.Cleanup(func() {
+		close(client.done)
+		stdin.Close()
+		proc.Process.Kill()
+		proc.Wait()
+	})
+
+	// Single dispatcher goroutine. It owns c.reader exclusively, so no two
+	// goroutines ever read from the same bufio.Reader concurrently.
+	go func() {
+		for {
+			msg, err := readOneLSPMessage(client.reader)
+			select {
+			case client.msgs <- readResult{msg, err}:
+			case <-client.done:
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	return client
 }
 
 func (c *lspClient) send(method string, params any) int {
@@ -113,19 +167,8 @@ func (c *lspClient) recv(t *testing.T, timeout time.Duration) map[string]any {
 	deadline := time.After(timeout)
 
 	for {
-		type result struct {
-			msg map[string]any
-			err error
-		}
-		ch := make(chan result, 1)
-
-		go func() {
-			msg, err := readOneLSPMessage(c.reader)
-			ch <- result{msg, err}
-		}()
-
 		select {
-		case r := <-ch:
+		case r := <-c.msgs:
 			if r.err != nil {
 				stderr := c.drainStderr()
 				t.Fatalf("reading LSP message: %v\nstderr: %s", r.err, stderr)
@@ -151,19 +194,8 @@ func (c *lspClient) recvNotification(t *testing.T, method string, timeout time.D
 	deadline := time.After(timeout)
 
 	for {
-		type result struct {
-			msg map[string]any
-			err error
-		}
-		ch := make(chan result, 1)
-
-		go func() {
-			msg, err := readOneLSPMessage(c.reader)
-			ch <- result{msg, err}
-		}()
-
 		select {
-		case r := <-ch:
+		case r := <-c.msgs:
 			if r.err != nil {
 				stderr := c.drainStderr()
 				t.Fatalf("reading LSP message: %v\nstderr: %s", r.err, stderr)
@@ -180,6 +212,8 @@ func (c *lspClient) recvNotification(t *testing.T, method string, timeout time.D
 }
 
 func (c *lspClient) drainStderr() string {
+	c.stderrMu.Lock()
+	defer c.stderrMu.Unlock()
 	var sb strings.Builder
 	buf := make([]byte, 4096)
 	for {
@@ -1873,19 +1907,7 @@ func TestLSP_GastroProjectEnv_OverridesHeuristic(t *testing.T) {
 	if err := proc.Start(); err != nil {
 		t.Fatalf("starting gastro lsp: %v", err)
 	}
-	t.Cleanup(func() {
-		stdin.Close()
-		proc.Process.Kill()
-		proc.Wait()
-	})
-
-	client := &lspClient{
-		proc:   proc,
-		stdin:  stdin,
-		reader: bufio.NewReader(stdout),
-		stderr: bufio.NewReader(stderrPipe),
-		nextID: 1,
-	}
+	client := newLSPClient(t, proc, stdin, stdout, stderrPipe)
 
 	client.send("initialize", map[string]any{
 		"rootUri":      "file://" + outer,
@@ -1926,5 +1948,180 @@ func TestLSP_GastroProjectEnv_OverridesHeuristic(t *testing.T) {
 	value, _ := contents["value"].(string)
 	if !strings.Contains(value, "Props struct") {
 		t.Errorf("expected hover to show Props struct, got: %s", value)
+	}
+}
+
+// TestLSP_RangeOverLocalTypeDiagnostic mirrors the dashboard.gastro bug: a
+// page ranges over a slice of a locally-declared struct and references an
+// unknown field on the element. Before the fix, queryVariableTypes ran before
+// gopls had the virtual file open, returned an empty (and cached) typeMap,
+// and the walker silently skipped field validation inside the range scope —
+// leaving the unknown field unflagged. The fix is twofold: (1) don't cache an
+// empty typeMap when the frontmatter has exported variables, and (2) re-run
+// template diagnostics on the first gopls publishDiagnostics so the populated
+// typeMap reaches the walker.
+func TestLSP_RangeOverLocalTypeDiagnostic(t *testing.T) {
+	projectDir := setupTestProject(t)
+	client := startLSP(t, projectDir)
+
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	gastroContent := `---
+type RowData struct {
+	Y     int
+	Agent string
+}
+
+rows := []RowData{{Y: 0, Agent: "x"}}
+Rows := rows
+---
+<svg>
+	{{ range .Rows }}
+		<text>{{ .Agents }}</text>
+	{{ end }}
+</svg>
+`
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// gopls warm-up plus the re-run round-trip can take a while on a cold
+	// machine. Loop on publishDiagnostics until we see the .Agents flag or
+	// hit the deadline.
+	found := false
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		notification := client.recvNotification(t, "textDocument/publishDiagnostics", 2*time.Second)
+		if notification == nil {
+			continue
+		}
+		params, _ := notification["params"].(map[string]any)
+		diags, _ := params["diagnostics"].([]any)
+		for _, d := range diags {
+			dm, _ := d.(map[string]any)
+			msg, _ := dm["message"].(string)
+			src, _ := dm["source"].(string)
+			if src == "gastro" && strings.Contains(msg, ".Agents") {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+
+	if !found {
+		t.Errorf("expected gastro diagnostic flagging .Agents (typo of .Agent) inside range scope; never observed within deadline")
+	}
+}
+
+// TestLSP_ChainedFieldDefinition_InsideRange exercises go-to-definition on
+// a chained sub-field reference inside a {{ range .Slice }} scope. Before
+// the insertProbe anchor fix in internal/lsp/server/definition.go this
+// silently returned no result for every page and component, because the
+// shadow Go source no longer has a closing `}` adjacent to the `_ = `
+// suppression block. codegen_lsp_contract_test.go locks down the anchor
+// invariant; this test exercises the user-visible LSP feature on top of it.
+func TestLSP_ChainedFieldDefinition_InsideRange(t *testing.T) {
+	projectDir := setupTestProject(t)
+
+	// Define a `db.Post` type the page references via a Posts slice so
+	// the LSP shadow can derive RowData -> Post fields via gopls.
+	dbDir := filepath.Join(projectDir, "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dbSrc := `package db
+
+type Post struct {
+	Title  string
+	Author string
+}
+
+func List() []Post { return nil }
+`
+	if err := os.WriteFile(filepath.Join(dbDir, "db.go"), []byte(dbSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	client := startLSP(t, projectDir)
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// line 5: <p>{{ range .Posts }}{{ .Title }}{{ end }}</p>
+	gastroContent := "---\n" +
+		"import \"testproject/db\"\n" +
+		"\n" +
+		"Posts := db.List()\n" +
+		"---\n" +
+		"<p>{{ range .Posts }}{{ .Title }}{{ end }}</p>\n"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Cursor inside `.Title` (a few chars past the dot so we land on
+	// the segment, not its leading `.`).
+	templateLine := "<p>{{ range .Posts }}{{ .Title }}{{ end }}</p>"
+	titleAt := strings.Index(templateLine, ".Title")
+	if titleAt < 0 {
+		t.Fatalf("test setup: .Title not found in template line")
+	}
+	ch := titleAt + 3
+
+	client.send("textDocument/definition", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 5, "character": ch},
+	})
+
+	resp := client.recv(t, 30*time.Second)
+	result := resp["result"]
+	if result == nil {
+		t.Fatal("expected definition result for chained field, got nil — insertProbe anchor likely regressed")
+	}
+
+	// gopls returns either a single Location or a []Location. Either is
+	// acceptable; what matters is that we get a non-empty answer pointing
+	// inside the db package (where Post.Title is declared).
+	var uri string
+	switch v := result.(type) {
+	case map[string]any:
+		uri, _ = v["uri"].(string)
+	case []any:
+		if len(v) == 0 {
+			t.Fatal("definition result was empty array — chain probe returned no fields")
+		}
+		if first, ok := v[0].(map[string]any); ok {
+			uri, _ = first["uri"].(string)
+		}
+	default:
+		t.Fatalf("unexpected definition result type %T: %v", result, result)
+	}
+
+	if !strings.Contains(uri, "/db/db.go") {
+		t.Errorf("expected definition uri to point into db/db.go, got %q", uri)
 	}
 }

@@ -255,20 +255,27 @@ func findSuppressionLine(source, name string) (line, char int, found bool) {
 	return 0, 0, false
 }
 
-// insertProbe finds the index of the line at which a probe should be
-// inserted in the shadow Go source. Mirrors probeFieldsViaChain's
-// approach: insert just before the closing brace of the handler
-// function, immediately after the trailing block of `_ = VarName`
-// suppression lines so the probe shares scope with them.
+// insertProbe returns the line index at which a probe assignment should
+// be inserted in the shadow Go source so it sits in the same scope as
+// the trailing block of `_ = VarName` suppression lines emitted by the
+// codegen. The returned index is one past the LAST suppression line,
+// pushing the probe immediately after the suppression block but ahead
+// of any later code (BodyWritten check, __data construction, template
+// execution) that the page-model and component-model handlers emit.
+//
+// Earlier versions of this function searched for a closing `}`
+// immediately preceded by a `_ = ` line. That heuristic broke when the
+// codegen started emitting more code between the suppression block and
+// the function close — the anchor never matched, the probe silently
+// returned `nil`, and chain-based go-to-definition / hover regressed
+// for every page and component without any test catching it.
+// codegen_lsp_contract_test.go locks in the contract this function
+// depends on.
 func insertProbe(source, _ string) (int, bool) {
 	lines := strings.Split(source, "\n")
-	for i, line := range lines {
-		if strings.TrimSpace(line) != "}" || i == 0 {
-			continue
-		}
-		prev := strings.TrimSpace(lines[i-1])
-		if strings.HasPrefix(prev, "_ = ") {
-			return i, true
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "_ = ") {
+			return i + 1, true
 		}
 	}
 	return 0, false

@@ -97,11 +97,16 @@ func (s *server) handleDidOpen(msg *jsonRPCMessage) {
 
 	log.Printf("opened: %s", uri)
 
-	// Run template diagnostics before syncing to gopls so that
-	// templateDiags is populated before gopls can respond and trigger
-	// publishMergedDiagnostics from the gopls reader goroutine.
-	s.runTemplateDiagnostics(uri, params.TextDocument.Text)
+	// Sync to gopls first so it has the virtual file before we ask it for
+	// variable types. queryVariableTypes works by sending hover requests
+	// against `_ = VarName` lines in the virtual source — those return
+	// empty unless gopls has loaded the file. Even so, gopls finishes
+	// analysis asynchronously, so the initial run here will typically
+	// still observe an empty typeMap; runTemplateDiagnostics flags the
+	// URI stale and handleGoplsNotification re-runs once gopls publishes
+	// its first diagnostic set for the virtual file.
 	s.syncToGopls(uri, params.TextDocument.Text)
+	s.runTemplateDiagnostics(uri, params.TextDocument.Text)
 }
 
 type didChangeParams struct {
@@ -127,11 +132,18 @@ func (s *server) handleDidChange(msg *jsonRPCMessage) {
 		delete(s.typeCache, uri) // invalidate caches on change
 		delete(s.fieldCache, uri)
 		delete(s.typeFieldCache, uri)
+		delete(s.templateDiagsRetries, uri)
 		s.invalidateComponentPropsCache(uri)
 		s.dataMu.Unlock()
 
-		s.runTemplateDiagnostics(uri, content)
+		// Push the new content to gopls before running template diagnostics:
+		// queryVariableTypes hovers against the virtual file, so gopls needs
+		// the latest content for type info to reflect the user's edits. If
+		// gopls hasn't finished re-analysing yet, runTemplateDiagnostics
+		// marks the URI stale and handleGoplsNotification re-runs once gopls
+		// publishes its updated diagnostic set.
 		s.syncToGopls(uri, content)
+		s.runTemplateDiagnostics(uri, content)
 	}
 }
 
@@ -153,6 +165,8 @@ func (s *server) handleDidClose(msg *jsonRPCMessage) {
 	delete(s.typeCache, uri)
 	delete(s.fieldCache, uri)
 	delete(s.typeFieldCache, uri)
+	delete(s.templateDiagsStale, uri)
+	delete(s.templateDiagsRetries, uri)
 	s.invalidateComponentPropsCache(uri)
 	s.dataMu.Unlock()
 }

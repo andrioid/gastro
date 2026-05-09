@@ -217,6 +217,23 @@ Integration tests for the LSP are in `cmd/gastro/lsp_integration_test.go`.
 They spawn `gastro lsp` as a subprocess and communicate via JSON-RPC over
 stdin/stdout.
 
+#### Capturing LSP logs
+
+Set `GASTRO_LSP_LOG=<path>` to redirect the LSP's `log.Printf` output
+from stderr to a file. Useful when the editor swallows stderr or when
+debugging an integration test that runs the LSP as a subprocess.
+
+```sh
+# Editor: configure once, then `tail -f` the file
+GASTRO_LSP_LOG=/tmp/gastro-lsp.log gastro lsp
+
+# Integration test:
+GASTRO_LSP_LOG=/tmp/gastro-lsp-debug.log go test -run TestLSP_... ./cmd/gastro
+```
+
+The file is truncated on each LSP start. If the env var is unset (or the
+path can't be opened) the LSP falls back to stderr as before.
+
 #### Auditing the shadow workspace
 
 The shadow workspace generates a virtual `.go` file per `.gastro` source by

@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/lsp/proxy"
@@ -18,6 +19,18 @@ import (
 const (
 	diagnosticSeverityError   = 1
 	diagnosticSeverityWarning = 2
+)
+
+// Stale-diagnostic retry tuning. The walker depends on gopls type / field
+// info to validate range/with field accesses. On a cold workspace gopls
+// can take a few seconds to load the virtual package, during which probes
+// silently return empty. We retry a small bounded number of times with a
+// short delay so the diagnostics catch up once gopls warms up, but cap the
+// loop so a genuinely-empty type or a broken gopls install can't spin
+// forever.
+const (
+	templateDiagsMaxRetries = 5
+	templateDiagsRetryDelay = 250 * time.Millisecond
 )
 
 // runTemplateDiagnostics parses the document, runs template-body diagnostics
@@ -46,9 +59,14 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 	types := s.queryVariableTypes(uri)
 	inst := s.instanceForURI(uri)
 	var resolver lsptemplate.FieldResolver
+	sawEmptyResolve := false
 	if inst != nil && inst.gopls != nil {
 		resolver = func(typeName string, chainExpr string) []lsptemplate.FieldEntry {
-			return s.resolveFieldsViaChain(uri, typeName, chainExpr)
+			res := s.resolveFieldsViaChain(uri, typeName, chainExpr)
+			if len(res) == 0 {
+				sawEmptyResolve = true
+			}
+			return res
 		}
 	}
 
@@ -100,10 +118,54 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 		})
 	}
 
+	// Mark the URI stale until we're confident gopls produced real results.
+	// Two windows can cause silent under-reporting in range/with field
+	// validation:
+	//   1. queryVariableTypes returns an empty typeMap because gopls hasn't
+	//      loaded the virtual file yet — the walker has no type info to act
+	//      on at all.
+	//   2. typeMap is populated but the field-resolver probes return empty
+	//      because gopls is still building completion data for the package.
+	// In both cases the walker silently skips field validation. The fix is
+	// to flag the URI stale and trigger a re-run; sawEmptyResolve covers
+	// the second window even after goplsReady flipped to true mid-run.
+	hadExports := len(info.ExportedVars) > 0
+
 	s.dataMu.Lock()
+	goplsNowReady := inst != nil && inst.goplsReady
+	stale := (!goplsNowReady && hadExports) || sawEmptyResolve
 	s.templateDiags[uri] = lspDiags
+	if stale {
+		s.templateDiagsStale[uri] = true
+	} else {
+		delete(s.templateDiagsStale, uri)
+		delete(s.templateDiagsRetries, uri)
+	}
 	s.publishMergedDiagnostics(uri)
+
+	// If we set stale AFTER gopls already flipped to ready (a race where
+	// handleGoplsNotification ran during the walker, before this critical
+	// section), the per-instance ready transition won't fire again to drive
+	// a re-run. Schedule one ourselves, capped by templateDiagsMaxRetries
+	// so a broken probe response can't loop us forever.
+	selfRetry := stale && goplsNowReady && s.templateDiagsRetries[uri] < templateDiagsMaxRetries
+	if selfRetry {
+		s.templateDiagsRetries[uri]++
+		delete(s.templateDiagsStale, uri) // consume so handleGoplsNotification doesn't double-trigger
+	}
 	s.dataMu.Unlock()
+
+	if selfRetry {
+		go func() {
+			time.Sleep(templateDiagsRetryDelay)
+			s.dataMu.RLock()
+			doc := s.documents[uri]
+			s.dataMu.RUnlock()
+			if doc != "" {
+				s.runTemplateDiagnostics(uri, doc)
+			}
+		}()
+	}
 }
 
 // publishMergedDiagnostics combines gopls (frontmatter) and template (body)
@@ -235,6 +297,37 @@ func (s *server) handleGoplsNotification(method string, params json.RawMessage, 
 	// Cache gopls diagnostics and publish merged set
 	s.goplsDiags[gastroURI] = mappedDiags
 	s.publishMergedDiagnostics(gastroURI)
+
+	// First publishDiagnostics for this instance signals gopls has finished
+	// its initial analysis pass. After that, probe queries will return real
+	// results, so any template diagnostics that were computed in the
+	// warm-up window need to be re-run. We schedule re-runs on goroutines
+	// so we don't recurse under dataMu, and consume templateDiagsStale
+	// atomically so probe-induced publishes during the re-run don't queue
+	// duplicate work. The retry counter is bounded by templateDiagsMaxRetries
+	// so a broken probe can't loop us forever.
+	if !inst.goplsReady {
+		inst.goplsReady = true
+		for staleURI := range s.templateDiagsStale {
+			content := s.documents[staleURI]
+			if content == "" || s.templateDiagsRetries[staleURI] >= templateDiagsMaxRetries {
+				continue
+			}
+			delete(s.templateDiagsStale, staleURI)
+			s.templateDiagsRetries[staleURI]++
+			go s.runTemplateDiagnostics(staleURI, content)
+		}
+		return
+	}
+
+	if s.templateDiagsStale[gastroURI] && s.templateDiagsRetries[gastroURI] < templateDiagsMaxRetries {
+		delete(s.templateDiagsStale, gastroURI)
+		s.templateDiagsRetries[gastroURI]++
+		content := s.documents[gastroURI]
+		if content != "" {
+			go s.runTemplateDiagnostics(gastroURI, content)
+		}
+	}
 }
 
 // resolveAllComponentProps builds a map from component name to its Props

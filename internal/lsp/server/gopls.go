@@ -148,6 +148,7 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 	types := make(map[string]string)
 
 	// Find `_ = VarName` lines in the virtual source and hover on VarName
+	sawSuppressionLines := false
 	for lineIdx, line := range strings.Split(vf.GoSource, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "_ = ") {
@@ -157,6 +158,7 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 		if varName == "" {
 			continue
 		}
+		sawSuppressionLines = true
 
 		// Position the cursor on the variable name (after "_ = ")
 		charOffset := strings.Index(line, "_ = ") + 4
@@ -178,6 +180,13 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 		}
 	}
 
+	// Don't cache empty results when the frontmatter had suppression lines:
+	// gopls likely hadn't finished loading the virtual file yet. The caller
+	// should retry once gopls is ready (e.g. via templateDiagsStale + the
+	// re-run scheduled from handleGoplsNotification).
+	if sawSuppressionLines && len(types) == 0 {
+		return types
+	}
 	s.typeCache[gastroURI] = types
 	return types
 }
@@ -330,18 +339,22 @@ func (s *server) probeFieldsViaChain(uri, chainExpr string, inst *projectInstanc
 	virtualURI := "file://" + virtualPath
 
 	goLines := strings.Split(vf.GoSource, "\n")
-	probeLine := -1
 	probeText := fmt.Sprintf("\t_ = %s.", chainExpr)
 
-	// Find the closing brace of the handler function to insert before it
-	for i, line := range goLines {
-		if strings.TrimSpace(line) == "}" && i > 0 {
-			// Check if previous line is a "_ = VarName" suppression line
-			prev := strings.TrimSpace(goLines[i-1])
-			if strings.HasPrefix(prev, "_ = ") {
-				probeLine = i
-				break
-			}
+	// Find an insertion point inside the handler function where the
+	// probed expression is in scope. The page-model codegen emits a
+	// block of `_ = VarName` suppression lines immediately after the
+	// frontmatter body; there may be more code between them and the
+	// closing `}` of the handler (BodyWritten check, __data construction,
+	// template execution). Insert right after the LAST `_ = VarName`
+	// suppression line so the probe sits in the same scope as those
+	// variables but ahead of any later code that might shadow or reuse
+	// them. codegen_lsp_contract_test.go locks in this contract.
+	probeLine := -1
+	for i := len(goLines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(goLines[i]), "_ = ") {
+			probeLine = i + 1
+			break
 		}
 	}
 
