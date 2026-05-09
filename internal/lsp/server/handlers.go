@@ -167,6 +167,7 @@ func (s *server) handleDidClose(msg *jsonRPCMessage) {
 	delete(s.typeFieldCache, uri)
 	delete(s.templateDiagsStale, uri)
 	delete(s.templateDiagsRetries, uri)
+	delete(s.templateDiagsSkipLogAt, uri)
 	s.invalidateComponentPropsCache(uri)
 	s.dataMu.Unlock()
 }

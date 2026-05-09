@@ -40,11 +40,11 @@ func (s *server) syncToGopls(gastroURI, content string) {
 	virtualURI := "file://" + virtualPath
 	log.Printf("syncToGopls: gastro=%s virtual=%s", relPath, virtualURI)
 
-	version, alreadyOpen := inst.goplsOpenFiles[virtualURI]
+	version, alreadyOpen := inst.getGoplsOpenFileVersion(virtualURI)
 	if !alreadyOpen {
 		// First time: send didOpen
 		version = 1
-		inst.goplsOpenFiles[virtualURI] = version
+		inst.setGoplsOpenFileVersion(virtualURI, version)
 		if err := inst.gopls.Notify("textDocument/didOpen", map[string]any{
 			"textDocument": map[string]any{
 				"uri":        virtualURI,
@@ -58,7 +58,7 @@ func (s *server) syncToGopls(gastroURI, content string) {
 	} else {
 		// Subsequent: send didChange with incremented version
 		version++
-		inst.goplsOpenFiles[virtualURI] = version
+		inst.setGoplsOpenFileVersion(virtualURI, version)
 		if err := inst.gopls.Notify("textDocument/didChange", map[string]any{
 			"textDocument": map[string]any{
 				"uri":     virtualURI,
@@ -122,7 +122,7 @@ func (s *server) forwardToGopls(gastroURI, method string, pos proxy.Position) an
 // type string (e.g. "[]db.Post", "string"). Results are cached per URI and
 // invalidated on document changes.
 func (s *server) queryVariableTypes(gastroURI string) map[string]string {
-	if cached, ok := s.typeCache[gastroURI]; ok {
+	if cached := s.getTypeCache(gastroURI); cached != nil {
 		return cached
 	}
 
@@ -148,7 +148,6 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 	types := make(map[string]string)
 
 	// Find `_ = VarName` lines in the virtual source and hover on VarName
-	sawSuppressionLines := false
 	for lineIdx, line := range strings.Split(vf.GoSource, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if !strings.HasPrefix(trimmed, "_ = ") {
@@ -158,7 +157,6 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 		if varName == "" {
 			continue
 		}
-		sawSuppressionLines = true
 
 		// Position the cursor on the variable name (after "_ = ")
 		charOffset := strings.Index(line, "_ = ") + 4
@@ -180,14 +178,12 @@ func (s *server) queryVariableTypes(gastroURI string) map[string]string {
 		}
 	}
 
-	// Don't cache empty results when the frontmatter had suppression lines:
-	// gopls likely hadn't finished loading the virtual file yet. The caller
-	// should retry once gopls is ready (e.g. via templateDiagsStale + the
-	// re-run scheduled from handleGoplsNotification).
-	if sawSuppressionLines && len(types) == 0 {
-		return types
+	// Cache positive results only. Empty results mean gopls wasn't ready
+	// or the file has no frontmatter exports — either way, the caller's
+	// stale-retry mechanism handles re-probing once gopls warms up.
+	if len(types) > 0 {
+		s.setTypeCache(gastroURI, types)
 	}
-	s.typeCache[gastroURI] = types
 	return types
 }
 
@@ -287,8 +283,7 @@ func (s *server) queryFieldsFromGopls(gastroURI, varName, typeName string) []fie
 	}
 
 	// Sync the change to gopls
-	version := inst.goplsOpenFiles[virtualURI] + 1
-	inst.goplsOpenFiles[virtualURI] = version
+	version := inst.incGoplsOpenFileVersion(virtualURI)
 	inst.gopls.Notify("textDocument/didChange", map[string]any{
 		"textDocument": map[string]any{
 			"uri":     virtualURI,
@@ -372,8 +367,7 @@ func (s *server) probeFieldsViaChain(uri, chainExpr string, inst *projectInstanc
 		return nil
 	}
 
-	version := inst.goplsOpenFiles[virtualURI] + 1
-	inst.goplsOpenFiles[virtualURI] = version
+	version := inst.incGoplsOpenFileVersion(virtualURI)
 	inst.gopls.Notify("textDocument/didChange", map[string]any{
 		"textDocument": map[string]any{
 			"uri":     virtualURI,
@@ -404,8 +398,7 @@ func (s *server) probeFieldsViaChain(uri, chainExpr string, inst *projectInstanc
 // restoreVirtualFile writes back the original virtual file content and syncs to gopls.
 func (s *server) restoreVirtualFile(virtualPath string, vf *shadow.VirtualFile, virtualURI string, inst *projectInstance) {
 	os.WriteFile(virtualPath, []byte(vf.GoSource), 0o644)
-	version := inst.goplsOpenFiles[virtualURI] + 1
-	inst.goplsOpenFiles[virtualURI] = version
+	version := inst.incGoplsOpenFileVersion(virtualURI)
 	inst.gopls.Notify("textDocument/didChange", map[string]any{
 		"textDocument": map[string]any{
 			"uri":     virtualURI,
@@ -460,10 +453,8 @@ func parseFieldCompletions(raw json.RawMessage) []fieldInfo {
 // getCachedFields returns the field list for a variable, using the cache or
 // querying gopls on a cache miss.
 func (s *server) getCachedFields(uri, varName string) []fieldInfo {
-	if perURI, ok := s.fieldCache[uri]; ok {
-		if fields, ok := perURI[varName]; ok {
-			return fields
-		}
+	if fields, ok := s.getFieldCacheEntry(uri, varName); ok {
+		return fields
 	}
 
 	types := s.queryVariableTypes(uri)
@@ -486,10 +477,7 @@ func (s *server) getCachedFields(uri, varName string) []fieldInfo {
 		return nil
 	}
 
-	if s.fieldCache[uri] == nil {
-		s.fieldCache[uri] = make(map[string][]fieldInfo)
-	}
-	s.fieldCache[uri][varName] = fields
+	s.setFieldCacheEntry(uri, varName, fields)
 	return fields
 }
 
@@ -497,10 +485,8 @@ func (s *server) getCachedFields(uri, varName string) []fieldInfo {
 // a chain expression. Results are cached per URI + type name.
 func (s *server) resolveFieldsViaChain(uri, typeName, chainExpr string) []lsptemplate.FieldEntry {
 	// Check type-keyed cache
-	if perURI, ok := s.typeFieldCache[uri]; ok {
-		if entries, ok := perURI[typeName]; ok {
-			return entries
-		}
+	if entries, ok := s.getTypeFieldCacheEntry(uri, typeName); ok {
+		return entries
 	}
 
 	rfInst := s.instanceForURI(uri)
@@ -518,9 +504,6 @@ func (s *server) resolveFieldsViaChain(uri, typeName, chainExpr string) []lsptem
 		entries[i] = lsptemplate.FieldEntry{Name: f.Label, Type: f.Detail}
 	}
 
-	if s.typeFieldCache[uri] == nil {
-		s.typeFieldCache[uri] = make(map[string][]lsptemplate.FieldEntry)
-	}
-	s.typeFieldCache[uri][typeName] = entries
+	s.setTypeFieldCacheEntry(uri, typeName, entries)
 	return entries
 }

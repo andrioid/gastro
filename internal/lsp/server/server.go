@@ -37,8 +37,10 @@ type projectInstance struct {
 	componentsMu        sync.RWMutex
 	components          []componentInfo
 	componentsScannedAt time.Time
-	componentPropsCache map[string][]codegen.StructField // componentPath -> Props struct fields
-	goplsOpenFiles      map[string]int                   // virtualURI -> version
+
+	mu                  sync.RWMutex                                 // protects componentPropsCache, goplsOpenFiles, goplsReady
+	componentPropsCache map[string]cacheEntry[[]codegen.StructField] // componentPath -> Props struct fields
+	goplsOpenFiles      map[string]int                               // virtualURI -> version
 
 	// goplsReady is set to true on the first publishDiagnostics this
 	// instance receives from gopls. Until then, type/field probes can
@@ -55,36 +57,47 @@ type fieldInfo struct {
 }
 
 type server struct {
-	version              string
-	snippetSupport       bool                                           // client supports snippet insertTextFormat; set once during initialize, read-only after
-	documents            map[string]string                              // URI -> content
-	projectDir           string                                         // global root from editor (fallback)
-	instances            map[string]*projectInstance                    // projectRoot -> instance
-	writeMu              sync.Mutex                                     // protects stdout writes from concurrent goroutines
-	dataMu               sync.RWMutex                                   // protects diagnostic and document maps from concurrent access
-	goplsDiags           map[string][]map[string]any                    // URI -> gopls diagnostics (frontmatter)
-	templateDiags        map[string][]map[string]any                    // URI -> template diagnostics (body)
-	typeCache            map[string]map[string]string                   // URI -> varName -> type string
-	fieldCache           map[string]map[string][]fieldInfo              // URI -> varName -> fields
-	typeFieldCache       map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
-	templateDiagsStale   map[string]bool                                // URI -> needs re-run once gopls is ready (typeMap was empty despite expecting types)
-	templateDiagsRetries map[string]int                                 // URI -> count of stale-driven re-runs since last cache reset (capped to avoid loops)
-	notifiedGoplsMissing sync.Once                                      // ensures gopls-unavailable notification is sent only once
-	notifiedGoMissing    sync.Once                                      // ensures go-unavailable notification is sent only once
+	version        string
+	snippetSupport bool                        // client supports snippet insertTextFormat; set once during initialize, read-only after
+	documents      map[string]string           // URI -> content
+	projectDir     string                      // global root from editor (fallback)
+	instances      map[string]*projectInstance // projectRoot -> instance
+	writeMu        sync.Mutex                  // protects stdout writes from concurrent goroutines
+	dataMu         sync.RWMutex                // protects diagnostic and document maps from concurrent access
+	goplsDiags     map[string][]map[string]any // URI -> gopls diagnostics (frontmatter)
+	templateDiags  map[string][]map[string]any // URI -> template diagnostics (body)
+	// typeCache stores positive results only — absence means "not yet known" or
+	// "gopls wasn't ready". Invalidated on didChange. Protected by dataMu.
+	typeCache map[string]map[string]string // URI -> varName -> type string
+
+	// fieldCache stores positive results only (gopls returned non-nil fields).
+	// Absence means "ask again". Invalidated on didChange. Protected by dataMu.
+	fieldCache map[string]map[string][]fieldInfo // URI -> varName -> fields
+
+	// typeFieldCache stores positive results only (gopls returned non-nil entries).
+	// Absence means "ask again". Invalidated on didChange. Protected by dataMu.
+	typeFieldCache map[string]map[string][]lsptemplate.FieldEntry // URI -> typeName -> resolved fields
+
+	templateDiagsStale     map[string]bool      // URI -> needs re-run once gopls is ready; protected by dataMu
+	templateDiagsRetries   map[string]int       // URI -> count of stale-driven re-runs since last cache reset (capped to avoid loops); protected by dataMu
+	templateDiagsSkipLogAt map[string]time.Time // URI -> last time a scope-skip log was emitted for this URI (5s dedup window); protected by dataMu
+	notifiedGoplsMissing   sync.Once            // ensures gopls-unavailable notification is sent only once
+	notifiedGoMissing      sync.Once            // ensures go-unavailable notification is sent only once
 }
 
 func newServer(version string) *server {
 	return &server{
-		version:        version,
-		documents:      make(map[string]string),
-		instances:      make(map[string]*projectInstance),
-		goplsDiags:     make(map[string][]map[string]any),
-		templateDiags:  make(map[string][]map[string]any),
-		typeCache:          make(map[string]map[string]string),
-		fieldCache:         make(map[string]map[string][]fieldInfo),
-		typeFieldCache:     make(map[string]map[string][]lsptemplate.FieldEntry),
-		templateDiagsStale:   make(map[string]bool),
-		templateDiagsRetries: make(map[string]int),
+		version:                version,
+		documents:              make(map[string]string),
+		instances:              make(map[string]*projectInstance),
+		goplsDiags:             make(map[string][]map[string]any),
+		templateDiags:          make(map[string][]map[string]any),
+		typeCache:              make(map[string]map[string]string),
+		fieldCache:             make(map[string]map[string][]fieldInfo),
+		typeFieldCache:         make(map[string]map[string][]lsptemplate.FieldEntry),
+		templateDiagsStale:     make(map[string]bool),
+		templateDiagsRetries:   make(map[string]int),
+		templateDiagsSkipLogAt: make(map[string]time.Time),
 	}
 }
 

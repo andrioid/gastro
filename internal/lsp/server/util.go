@@ -246,7 +246,7 @@ func (s *server) instanceForURI(uri string) *projectInstance {
 	// Create and initialize outside the lock (I/O happens here)
 	newInst := &projectInstance{
 		root:                root,
-		componentPropsCache: make(map[string][]codegen.StructField),
+		componentPropsCache: make(map[string]cacheEntry[[]codegen.StructField]),
 		goplsOpenFiles:      make(map[string]int),
 	}
 	goplsErr := s.initInstance(newInst)

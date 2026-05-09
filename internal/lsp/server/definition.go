@@ -190,10 +190,9 @@ func (s *server) chainedFieldDefinition(uri string, target *lsptemplate.HoverTar
 	}
 	defer s.restoreVirtualFile(virtualPath, vf, virtualURI, inst)
 
-	version := inst.goplsOpenFiles[virtualURI] + 1
-	inst.goplsOpenFiles[virtualURI] = version
+	version := inst.incGoplsOpenFileVersion(virtualURI)
 	inst.gopls.Notify("textDocument/didChange", map[string]any{
-		"textDocument": map[string]any{"uri": virtualURI, "version": version},
+		"textDocument":   map[string]any{"uri": virtualURI, "version": version},
 		"contentChanges": []map[string]any{{"text": probeSource}},
 	})
 

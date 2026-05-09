@@ -121,7 +121,7 @@ func TestGetComponents_PicksUpNewFiles(t *testing.T) {
 		root:                tmpDir,
 		components:          discoverComponentsIn(tmpDir),
 		componentsScannedAt: time.Now().Add(-10 * time.Second), // expired cache
-		componentPropsCache: make(map[string][]codegen.StructField),
+		componentPropsCache: make(map[string]cacheEntry[[]codegen.StructField]),
 	}
 
 	if len(inst.getComponents()) != 1 {
@@ -153,7 +153,7 @@ func TestGetComponents_CacheHit(t *testing.T) {
 		root:                tmpDir,
 		components:          discoverComponentsIn(tmpDir),
 		componentsScannedAt: time.Now(), // fresh cache
-		componentPropsCache: make(map[string][]codegen.StructField),
+		componentPropsCache: make(map[string]cacheEntry[[]codegen.StructField]),
 	}
 
 	// Add a new file — but cache should still be fresh
@@ -176,7 +176,7 @@ func TestGetComponents_Concurrent(t *testing.T) {
 		root:                tmpDir,
 		components:          discoverComponentsIn(tmpDir),
 		componentsScannedAt: time.Now().Add(-10 * time.Second), // expired
-		componentPropsCache: make(map[string][]codegen.StructField),
+		componentPropsCache: make(map[string]cacheEntry[[]codegen.StructField]),
 	}
 
 	var wg sync.WaitGroup

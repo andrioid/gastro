@@ -223,12 +223,18 @@ func OffsetToLineChar(text string, offset int) (int, int) {
 //
 // propsMap maps component names to their Props struct fields for prop
 // validation. Pass nil to skip component prop checks.
-func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.UseDeclaration, typeMap map[string]string, resolver FieldResolver, propsMap map[string][]codegen.StructField) []Diagnostic {
+//
+// The second return value is a WalkReport carrying telemetry from the AST
+// walker — currently a count and sample of range/with scopes silently
+// skipped due to missing type info. It is empty when the template doesn't
+// parse to an AST (the walker doesn't run in that case).
+func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.UseDeclaration, typeMap map[string]string, resolver FieldResolver, propsMap map[string][]codegen.StructField) ([]Diagnostic, WalkReport) {
 	// Strip raw blocks — their content is literal text, not template logic.
 	// This prevents false diagnostics for {{ .Var }} inside raw blocks.
 	templateBody = stripRawBlocks(templateBody)
 
 	var diags []Diagnostic
+	var report WalkReport
 
 	exportedNames := make(map[string]bool, len(info.ExportedVars))
 	for _, v := range info.ExportedVars {
@@ -247,13 +253,15 @@ func Diagnose(templateBody string, info *codegen.FrontmatterInfo, uses []parser.
 	// Attempt AST-based scope-aware variable checking
 	tree, err := ParseTemplateBody(templateBody, uses)
 	if err == nil && tree != nil {
-		diags = append(diags, WalkDiagnostics(tree, templateBody, exportedNames, typeMap, resolver)...)
+		walkDiags, wr := WalkDiagnostics(tree, templateBody, exportedNames, typeMap, resolver)
+		diags = append(diags, walkDiags...)
+		report = wr
 	}
 
 	diags = append(diags, diagnoseUnknownComponents(templateBody, uses)...)
 	diags = append(diags, DiagnoseComponentProps(templateBody, tree, uses, propsMap)...)
 
-	return diags
+	return diags, report
 }
 
 // diagnoseDoubleDot detects invalid double-dot syntax (e.g. {{ ..Title }}).

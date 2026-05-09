@@ -18,14 +18,21 @@ type FieldEntry struct {
 // Returns nil if the type is unknown or can't be resolved.
 type FieldResolver func(typeName string, chainExpr string) []FieldEntry
 
+// WalkReport provides additional information about a walk, including counts
+// of scopes that were silently skipped because type information was unavailable.
+type WalkReport struct {
+	SkippedScopes  int
+	SkippedSamples []string // first few scope/field names for debug logging
+}
+
 // WalkDiagnostics walks a parsed template tree and produces diagnostics for
 // unknown variable references, respecting scope changes from range/with blocks.
 //
 // typeMap maps top-level variable names to their type strings (e.g. "Posts" → "[]db.Post").
 // resolver lazily resolves a type name to its fields. Both can be nil for basic checking.
-func WalkDiagnostics(tree *parse.Tree, body string, exportedNames map[string]bool, typeMap map[string]string, resolver FieldResolver) []Diagnostic {
+func WalkDiagnostics(tree *parse.Tree, body string, exportedNames map[string]bool, typeMap map[string]string, resolver FieldResolver) ([]Diagnostic, WalkReport) {
 	if tree == nil || tree.Root == nil {
-		return nil
+		return nil, WalkReport{}
 	}
 
 	w := &walker{
@@ -36,7 +43,7 @@ func WalkDiagnostics(tree *parse.Tree, body string, exportedNames map[string]boo
 	}
 	root := walkScope{depth: 0}
 	w.walkList(tree.Root, root)
-	return w.diags
+	return w.diags, WalkReport{SkippedScopes: w.skippedScopes, SkippedSamples: w.skippedSamples}
 }
 
 type walker struct {
@@ -45,6 +52,9 @@ type walker struct {
 	typeMap       map[string]string // top-level var → type string
 	resolver      FieldResolver
 	diags         []Diagnostic
+
+	skippedScopes  int      // number of range/with/field scopes silently skipped due to missing type info
+	skippedSamples []string // first few scope/field names for debug logging
 }
 
 // walkScope tracks the current template scope during AST walking.
@@ -164,11 +174,13 @@ func (w *walker) resolveRangeScope(pipe *parse.PipeNode, outer walkScope) walkSc
 	}
 
 	if containerType == "" || w.resolver == nil {
+		w.recordSkippedScope(rangeVar)
 		return inner
 	}
 
 	elemType := ElementTypeFromContainer(containerType)
 	if elemType == "" {
+		w.recordSkippedScope(rangeVar)
 		return inner
 	}
 
@@ -177,6 +189,7 @@ func (w *walker) resolveRangeScope(pipe *parse.PipeNode, outer walkScope) walkSc
 
 	fields := w.resolver(queryType, chainExpr)
 	if fields == nil {
+		w.recordSkippedScope(rangeVar)
 		return inner
 	}
 
@@ -213,6 +226,7 @@ func (w *walker) resolveWithScope(pipe *parse.PipeNode, outer walkScope) walkSco
 	}
 
 	if varType == "" || w.resolver == nil {
+		w.recordSkippedScope(withVar)
 		return inner
 	}
 
@@ -223,6 +237,7 @@ func (w *walker) resolveWithScope(pipe *parse.PipeNode, outer walkScope) walkSco
 
 	fields := w.resolver(queryType, chainExpr)
 	if fields == nil {
+		w.recordSkippedScope(withVar)
 		return inner
 	}
 
@@ -230,6 +245,15 @@ func (w *walker) resolveWithScope(pipe *parse.PipeNode, outer walkScope) walkSco
 	inner.typeName = varType
 	inner.chainExpr = chainExpr
 	return inner
+}
+
+// recordSkippedScope increments the skip counter and stores the first few
+// scope or field names for debug logging.
+func (w *walker) recordSkippedScope(name string) {
+	w.skippedScopes++
+	if len(w.skippedSamples) < 3 {
+		w.skippedSamples = append(w.skippedSamples, name)
+	}
 }
 
 // fieldEntryMap converts a slice of FieldEntry to a map keyed by name.
@@ -260,6 +284,7 @@ func (w *walker) checkField(n *parse.FieldNode, scope walkScope) {
 	} else {
 		// Inside range/with: check against allowed fields
 		if scope.allowedFields == nil {
+			w.recordSkippedScope(fieldName)
 			return // no type info — skip silently
 		}
 		entry, ok := scope.allowedFields[fieldName]
@@ -657,7 +682,7 @@ func nodeAtCursorNode(node parse.Node, cursor int) *HoverTarget {
 				seg := n.Ident[i]
 				var start, end int
 				if i == 1 {
-					start = segOffset // '$'
+					start = segOffset          // '$'
 					end = start + 2 + len(seg) // '$' + '.' + name
 				} else {
 					start = segOffset

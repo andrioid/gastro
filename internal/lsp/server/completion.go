@@ -342,14 +342,21 @@ func (s *server) cachedComponentProps(inst *projectInstance, compPath string) []
 	if inst == nil {
 		return nil
 	}
-	if cached, ok := inst.componentPropsCache[compPath]; ok {
-		return cached
+	if cached, ok := inst.getComponentPropsCacheEntry(compPath); ok {
+		if cached.HasValue() {
+			return cached.Value()
+		}
+		return nil
 	}
 	fields, err := lsptemplate.ResolveComponentProps(inst.root, compPath, s.documents)
 	if err != nil {
 		return nil
 	}
-	inst.componentPropsCache[compPath] = fields
+	if fields != nil {
+		inst.setComponentPropsCacheEntry(compPath, cacheEntry[[]codegen.StructField]{value: fields})
+	} else {
+		inst.setComponentPropsCacheEntry(compPath, cacheEntry[[]codegen.StructField]{negative: true})
+	}
 	return fields
 }
 

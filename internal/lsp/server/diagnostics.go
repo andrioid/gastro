@@ -73,7 +73,25 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 	// Resolve component Props structs for prop validation
 	propsMap := s.resolveAllComponentProps(parsed.Uses, inst)
 
-	templateDiags := lsptemplate.Diagnose(parsed.TemplateBody, info, parsed.Uses, types, resolver, propsMap)
+	templateDiags, walkReport := lsptemplate.Diagnose(parsed.TemplateBody, info, parsed.Uses, types, resolver, propsMap)
+
+	// Log when the walker silently skipped scopes due to missing type info.
+	// Suppress repeat logs for the same URI within a 5-second window so
+	// rapid typing doesn't flood the log.
+	if walkReport.SkippedScopes > 0 {
+		logSkip := false
+		s.dataMu.Lock()
+		lastLog, ok := s.templateDiagsSkipLogAt[uri]
+		now := time.Now()
+		if !ok || now.Sub(lastLog) > 5*time.Second {
+			s.templateDiagsSkipLogAt[uri] = now
+			logSkip = true
+		}
+		s.dataMu.Unlock()
+		if logSkip {
+			log.Printf("template diagnostics: %d range/with scope(s) skipped for %s — gopls type info unavailable (sample: %v)", walkReport.SkippedScopes, uri, walkReport.SkippedSamples)
+		}
+	}
 
 	// Convert to LSP diagnostic format, offsetting positions by the template body start line.
 	// TemplateBodyLine is 1-indexed; LSP positions are 0-indexed.
@@ -132,7 +150,7 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 	hadExports := len(info.ExportedVars) > 0
 
 	s.dataMu.Lock()
-	goplsNowReady := inst != nil && inst.goplsReady
+	goplsNowReady := inst != nil && inst.isGoplsReady()
 	stale := (!goplsNowReady && hadExports) || sawEmptyResolve
 	s.templateDiags[uri] = lspDiags
 	if stale {
@@ -306,8 +324,8 @@ func (s *server) handleGoplsNotification(method string, params json.RawMessage, 
 	// atomically so probe-induced publishes during the re-run don't queue
 	// duplicate work. The retry counter is bounded by templateDiagsMaxRetries
 	// so a broken probe can't loop us forever.
-	if !inst.goplsReady {
-		inst.goplsReady = true
+	if !inst.isGoplsReady() {
+		inst.setGoplsReady()
 		for staleURI := range s.templateDiagsStale {
 			content := s.documents[staleURI]
 			if content == "" || s.templateDiagsRetries[staleURI] >= templateDiagsMaxRetries {
@@ -339,9 +357,9 @@ func (s *server) resolveAllComponentProps(uses []parser.UseDeclaration, inst *pr
 
 	result := make(map[string][]codegen.StructField, len(uses))
 	for _, u := range uses {
-		if cached, ok := inst.componentPropsCache[u.Path]; ok {
-			if cached != nil {
-				result[u.Name] = cached
+		if cached, ok := inst.getComponentPropsCacheEntry(u.Path); ok {
+			if cached.HasValue() {
+				result[u.Name] = cached.Value()
 			}
 			continue
 		}
@@ -352,9 +370,11 @@ func (s *server) resolveAllComponentProps(uses []parser.UseDeclaration, inst *pr
 			continue
 		}
 
-		inst.componentPropsCache[u.Path] = fields
 		if fields != nil {
+			inst.setComponentPropsCacheEntry(u.Path, cacheEntry[[]codegen.StructField]{value: fields})
 			result[u.Name] = fields
+		} else {
+			inst.setComponentPropsCacheEntry(u.Path, cacheEntry[[]codegen.StructField]{negative: true})
 		}
 	}
 
@@ -376,5 +396,5 @@ func (s *server) invalidateComponentPropsCache(uri string) {
 	if err != nil {
 		return
 	}
-	delete(inst.componentPropsCache, relPath)
+	inst.deleteComponentPropsCacheEntry(relPath)
 }

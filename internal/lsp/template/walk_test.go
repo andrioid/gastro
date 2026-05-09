@@ -12,7 +12,8 @@ func parseAndWalk(t *testing.T, body string, exportedNames map[string]bool) []ls
 	if err != nil {
 		t.Fatalf("ParseTemplateBody failed: %v", err)
 	}
-	return lsptemplate.WalkDiagnostics(tree, body, exportedNames, nil, nil)
+	d, _ := lsptemplate.WalkDiagnostics(tree, body, exportedNames, nil, nil)
+	return d
 }
 
 func hasDiagMessage(diags []lsptemplate.Diagnostic, msg string) bool {
@@ -170,7 +171,7 @@ func TestWalk_ChainedFieldAccessUnknownRoot(t *testing.T) {
 }
 
 func TestWalk_EmptyTree(t *testing.T) {
-	diags := lsptemplate.WalkDiagnostics(nil, "", nil, nil, nil)
+	diags, _ := lsptemplate.WalkDiagnostics(nil, "", nil, nil, nil)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics for nil tree, got %d", len(diags))
 	}
@@ -494,7 +495,7 @@ func TestWalk_RangeWithFieldInfo_UnknownField(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
 
 	if !hasDiagMessage(diags, `unknown field ".Titl" on type "db.Post"`) {
 		t.Errorf("expected diagnostic for .Titl inside range, got: %v", diags)
@@ -517,7 +518,7 @@ func TestWalk_RangeWithFieldInfo_KnownField(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics for known field, got: %v", diags)
 	}
@@ -543,7 +544,7 @@ func TestWalk_NestedRangeWithFieldInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
 
 	if !hasDiagMessage(diags, `unknown field ".Missing" on type "db.Item"`) {
 		t.Errorf("expected diagnostic for .Missing in nested range, got: %v", diags)
@@ -570,7 +571,7 @@ func TestWalk_ChainedFieldWithTypeInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
 
 	if !hasDiagMessage(diags, `unknown field ".Missing" on type "db.Post"`) {
 		t.Errorf("expected diagnostic for .Post.Missing, got: %v", diags)
@@ -592,7 +593,7 @@ func TestWalk_ChainedFieldKnown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics for .Post.Title, got: %v", diags)
 	}
@@ -611,7 +612,7 @@ func TestWalk_RangeElseBranchKeepsOuterScope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
 
 	// .Title in else branch should be checked against exports (not skipped)
 	if hasDiagMessage(diags, `unknown template variable ".Title"`) {
@@ -639,7 +640,7 @@ func TestWalk_WithFieldInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, typeMap, resolver)
 
 	if hasDiagMessage(diags, `unknown field ".Name"`) {
 		t.Error(".Name should not be flagged — it's a known field on db.Author")
@@ -658,7 +659,7 @@ func TestWalk_RangeNoFieldInfo_StillSkips(t *testing.T) {
 	}
 
 	// No typeMap or resolver — should skip silently
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics without type info, got: %v", diags)
 	}
@@ -674,7 +675,7 @@ func TestWalk_GoBuiltinFunctions(t *testing.T) {
 		t.Fatalf("template with Go builtins should parse: %v", err)
 	}
 
-	diags := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
+	diags, _ := lsptemplate.WalkDiagnostics(tree, body, exports, nil, nil)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diagnostics for template with builtins, got: %v", diags)
 	}
@@ -699,4 +700,49 @@ func TestWalk_PositionAccuracy(t *testing.T) {
 	if d.StartChar != 3 {
 		t.Errorf("expected StartChar=3, got %d", d.StartChar)
 	}
+}
+
+// TestWalkerSkipReport verifies that when no type information is available,
+// the walker reports a non-zero skip count with sample names.
+func TestWalkerSkipReport(t *testing.T) {
+	body := `{{ range .Items }}{{ .Name }}{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No typeMap and no resolver — the walker should silently skip
+	// the range scope and the field inside it.
+	exportedNames := map[string]bool{"Items": true}
+	diags, report := lsptemplate.WalkDiagnostics(tree, body, exportedNames, nil, nil)
+
+	// Without type info, the walker emits no diagnostics (it skips
+	// silently) but records the skip for telemetry.
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics with no type info, got %d", len(diags))
+	}
+
+	// The skip count must be non-zero because the range scope couldn't
+	// be resolved (no typeMap, no resolver).
+	if report.SkippedScopes == 0 {
+		t.Error("expected non-zero skip count when no resolver is available")
+	}
+
+	// Should have at least one sample name
+	if len(report.SkippedSamples) == 0 {
+		t.Error("expected at least one skipped sample name")
+	}
+
+	// With a fully populated typeMap and resolver, there should be
+	// zero skips.
+	typeMap := map[string]string{"Items": "[]string"}
+	resolver := func(typeName string, chainExpr string) []lsptemplate.FieldEntry {
+		return []lsptemplate.FieldEntry{{Name: "Name", Type: "string"}}
+	}
+	diags2, report2 := lsptemplate.WalkDiagnostics(tree, body, exportedNames, typeMap, resolver)
+	if report2.SkippedScopes != 0 {
+		t.Errorf("expected 0 skips with full resolver, got %d", report2.SkippedScopes)
+	}
+	// lint diags2 unused — keep the result for documentation
+	_ = diags2
 }

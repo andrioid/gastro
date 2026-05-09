@@ -25,7 +25,7 @@ func TestInvalidateComponentPropsCacheNoDeadlock(t *testing.T) {
 	// Pre-populate an instance so lookupInstanceLocked finds it
 	s.instances[tmpDir] = &projectInstance{
 		root:                tmpDir,
-		componentPropsCache: make(map[string][]codegen.StructField),
+		componentPropsCache: make(map[string]cacheEntry[[]codegen.StructField]),
 	}
 
 	uri := "file://" + filepath.Join(tmpDir, "page.gastro")
@@ -58,7 +58,7 @@ func TestHandleDidChangeNoDeadlock(t *testing.T) {
 	// Pre-populate an instance
 	s.instances[tmpDir] = &projectInstance{
 		root:                tmpDir,
-		componentPropsCache: make(map[string][]codegen.StructField),
+		componentPropsCache: make(map[string]cacheEntry[[]codegen.StructField]),
 		goplsOpenFiles:      make(map[string]int),
 	}
 
