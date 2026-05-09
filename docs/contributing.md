@@ -202,9 +202,11 @@ see extension logs.
 
 ### Working on the LSP
 
-The LSP has a known issue: gopls proxy completions and diagnostics are not yet
-working reliably. See `.opencode/plans/lsp-debugging.md` for the investigation
-plan and hypotheses.
+The LSP runs as `gastro lsp` and combines gastro's own template intelligence
+with a gopls proxy for the Go frontmatter. It maintains a shadow workspace of
+virtual `.go` files (one per `.gastro` file) that gopls indexes; cursor and
+range positions are translated between the two via `internal/lsp/sourcemap`.
+For a deeper tour, start at [System Architecture](architecture.md).
 
 Key files:
 - `internal/lsp/server/` -- LSP server, message routing, gopls integration
