@@ -616,6 +616,148 @@ func TestDiagnoseComponentProps_WithChildren(t *testing.T) {
 	}
 }
 
+// TestDiagnoseComponentProps_ChildrenDictKey_GitPM is a regression for the
+// drift documented in tmp/lsp-shadow-audit (and the original git-pm bug
+// report): when a page passes Children as an explicit dict key on a
+// children-rendering layout, the LSP previously flagged it as an
+// unknown prop because its DiagnoseComponentProps did not special-case
+// the synthetic key the way codegen.ValidateDictKeys did. Phase 2
+// unified the two via codegen.SyntheticPropKey.
+//
+// If this test ever fails, check that codegen.SyntheticPropKey still
+// classifies "Children" as SyntheticChildren AND that
+// codegen.ValidateDictKeysFromAST routes that classification through
+// to a silent skip (not a diagnostic).
+func TestDiagnoseComponentProps_ChildrenDictKey_GitPM(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Layout": {
+			{Name: "Title", Type: "string"},
+		},
+	}
+	templateBody := `{{ Layout (dict "Title" .Title "Children" .Body) }}`
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
+	for _, d := range diags {
+		if strings.Contains(d.Message, "unknown prop \"Children\"") {
+			t.Errorf("Children must not be flagged as unknown prop; got: %s", d.Message)
+		}
+	}
+}
+
+// TestDiagnoseComponentProps_DeprecatedUnderscoreChildren is a regression
+// for the deprecated-key hint. Phase 3 mirrored the codegen-side
+// ValidateDictKeys hint into the LSP so users editing legacy templates
+// see the migration guidance in their editor without running
+// `gastro generate`. The expected severity is Warning (2), not Error.
+func TestDiagnoseComponentProps_DeprecatedUnderscoreChildren(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Layout": {
+			{Name: "Title", Type: "string"},
+		},
+	}
+	templateBody := `{{ Layout (dict "Title" .Title "__children" .Body) }}`
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
+
+	var found bool
+	for _, d := range diags {
+		if !strings.Contains(d.Message, "__children") {
+			continue
+		}
+		if !strings.Contains(d.Message, "no longer recognised") {
+			t.Errorf("deprecated-key message changed shape; got: %s", d.Message)
+		}
+		if d.Severity != 2 {
+			t.Errorf("deprecated-key diagnostic must be a Warning (severity 2), got %d", d.Severity)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("expected a __children deprecation hint; got %d diagnostics: %v", len(diags), diags)
+	}
+}
+
+// TestDiagnoseComponentProps_WrapFormFallback exercises the regex
+// fallback that handles `{{ wrap X (...) }}...{{ end }}` form. Go's
+// text/template/parse rejects this because `wrap` isn't a built-in
+// block keyword, so DiagnoseComponentProps gets a nil tree and the
+// fallback path runs. The fallback delegates synthetic-key
+// classification to codegen.SyntheticPropKey, so wrap-form and
+// bare-call form agree on which keys are valid — this test asserts
+// the canonical Children case is silently accepted, the deprecated
+// __children produces a warning, and an unknown key produces an error.
+func TestDiagnoseComponentProps_WrapFormFallback(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Layout", Path: "components/layout.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Layout": {{Name: "Title", Type: "string"}},
+	}
+
+	cases := []struct {
+		name    string
+		body    string
+		want    string // expected diagnostic substring; empty = none
+		wantSev int    // expected severity if non-zero
+	}{
+		{
+			name: "Children dict key on wrap form is silent",
+			body: `{{ wrap Layout (dict "Title" .Title "Children" .Body) }}<p>x</p>{{ end }}`,
+			want: "",
+		},
+		{
+			name:    "__children on wrap form is deprecated warning",
+			body:    `{{ wrap Layout (dict "Title" .Title "__children" .Body) }}<p>x</p>{{ end }}`,
+			want:    `dict key "__children" is no longer recognised`,
+			wantSev: 2,
+		},
+		{
+			name:    "unknown key on wrap form is error",
+			body:    `{{ wrap Layout (dict "Title" .Title "Bogus" "x") }}<p>x</p>{{ end }}`,
+			want:    `unknown prop "Bogus"`,
+			wantSev: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// ParseTemplateBody returns nil tree for wrap form —
+			// confirm so we know the fallback is what's being tested.
+			tree, err := lsptemplate.ParseTemplateBody(tc.body, uses)
+			if err == nil && tree != nil {
+				t.Fatalf("sanity: expected ParseTemplateBody to fail on wrap form, got tree=%v err=%v", tree, err)
+			}
+			diags := lsptemplate.DiagnoseComponentProps(tc.body, nil, uses, propsMap)
+			if tc.want == "" {
+				// Silent path — no key-related diagnostic should fire.
+				for _, d := range diags {
+					if strings.Contains(d.Message, "unknown prop") || strings.Contains(d.Message, "__children") {
+						t.Errorf("expected silent acceptance, got diagnostic: %s", d.Message)
+					}
+				}
+				return
+			}
+			var matched bool
+			for _, d := range diags {
+				if strings.Contains(d.Message, tc.want) {
+					matched = true
+					if tc.wantSev != 0 && d.Severity != tc.wantSev {
+						t.Errorf("severity for %q: got %d, want %d", d.Message, d.Severity, tc.wantSev)
+					}
+				}
+			}
+			if !matched {
+				t.Errorf("expected diagnostic containing %q; got %d diagnostics: %v", tc.want, len(diags), diags)
+			}
+		})
+	}
+}
+
 func TestDiagnoseComponentProps_BareCall(t *testing.T) {
 	uses := []parser.UseDeclaration{
 		{Name: "KpiCard", Path: "components/kpi-card.gastro"},

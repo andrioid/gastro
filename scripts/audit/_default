@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-#MISE description="Audit the LSP shadow workspace against examples/gastro (shadow ↔ codegen parity gate)"
+#MISE description="Audit the LSP shadow workspace against every gastro project under the repo (shadow ↔ codegen parity gate)"
+
+# Phase 5 (LSP drift fix plan): auditshadow auto-discovers projects, so
+# pointing it at the repo root walks every examples/* tree and the
+# scaffold template fixture in one pass. Pass an explicit path as the
+# first argument to audit a single subtree (e.g. an external project).
 
 set -euo pipefail
 
-go run ./cmd/auditshadow "${1:-examples/gastro}"
+go run ./cmd/auditshadow "${1:-.}"

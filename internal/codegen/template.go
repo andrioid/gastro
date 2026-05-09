@@ -11,6 +11,29 @@ import (
 // wrapRegex matches {{ wrap ComponentName ... }} where ComponentName is PascalCase.
 var wrapRegex = regexp.MustCompile(`\{\{\s*wrap\s+([A-Z][a-zA-Z0-9]*)(\s*)`)
 
+// childrenActionRegex matches a template action that renders the
+// synthetic Children value, with optional whitespace-trim markers and
+// optional surrounding whitespace inside the action delimiters.
+//
+// Matches: {{ .Children }}, {{.Children}}, {{- .Children -}},
+//
+//	{{- .Children}}, {{.Children -}}, etc.
+//
+// Used by both the compiler (to set HasChildren on a component) and the
+// LSP shadow workspace (to project the synthetic Children field into the
+// stub XProps struct). Kept as a single regex so adding new shapes (e.g.
+// {{ .Children | trim }} support, if that ever becomes a thing) only
+// requires touching one place.
+var childrenActionRegex = regexp.MustCompile(`\{\{-?\s*\.Children\s*-?\}\}`)
+
+// TemplateRendersChildren reports whether body contains an action that
+// renders the synthetic .Children value. This is the single source of
+// truth for the "is this a children-rendering component?" question; all
+// other call sites must go through this function.
+func TemplateRendersChildren(body string) bool {
+	return childrenActionRegex.MatchString(body)
+}
+
 // oldPropSyntaxRegex detects old Gastro-specific {.Expr} prop syntax in HTML tags.
 // This pattern cannot appear in valid HTML, so it's a reliable migration signal.
 var oldPropSyntaxRegex = regexp.MustCompile(`<[A-Z][a-zA-Z0-9]*[^>]*\w+=\{[^}]+\}`)

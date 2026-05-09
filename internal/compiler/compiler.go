@@ -317,31 +317,34 @@ type compileResult struct {
 // same path that appears in `import X "components/foo.gastro"`). Files
 // without a Props struct are omitted; readers are expected to treat a
 // missing key as "no schema, skip validation".
+//
+// Delegates to codegen.ScanComponents (the canonical project-walker)
+// and then filters down to the subset the compiler discovered via
+// discoverFiles. The filter is necessary because discoverFiles and
+// codegen.ScanComponents have slightly different walk policies (the
+// former includes hidden directories, the latter skips them); the
+// per-file compile pass uses discoverFiles' list, so the schema map
+// keyed by that list keeps everything aligned.
 func gatherComponentSchemas(componentFiles []string, projectDir string) (map[string][]codegen.StructField, error) {
-	schemas := make(map[string][]codegen.StructField, len(componentFiles))
-	for _, relPath := range componentFiles {
-		absPath := filepath.Join(projectDir, relPath)
-		content, err := os.ReadFile(absPath)
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", relPath, err)
-		}
-		file, err := parser.Parse(relPath, string(content))
-		if err != nil {
-			// Parse errors will surface during the main pass with full
-			// context; don't abort the schema gather over them.
-			continue
-		}
-		info, err := codegen.AnalyzeFrontmatter(file.Frontmatter)
-		if err != nil || info.PropsTypeName == "" {
-			continue
-		}
-		_, hoisted := codegen.HoistTypeDeclarations(file.Frontmatter)
-		fields := codegen.ParseStructFields(hoisted)
-		if len(fields) > 0 {
-			schemas[relPath] = fields
-		}
+	schemas, err := codegen.ScanComponents(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("scanning components: %w", err)
 	}
-	return schemas, nil
+	discovered := make(map[string]bool, len(componentFiles))
+	for _, p := range componentFiles {
+		discovered[p] = true
+	}
+	out := make(map[string][]codegen.StructField, len(schemas))
+	for _, s := range schemas {
+		if !discovered[s.RelPath] {
+			continue
+		}
+		if len(s.PropsFields) == 0 {
+			continue
+		}
+		out[s.RelPath] = s.PropsFields
+	}
+	return out, nil
 }
 
 func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath map[string][]codegen.StructField) (compileResult, error) {
@@ -362,8 +365,11 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		return compileResult{}, err
 	}
 
-	// Check for children usage before template transformation
-	hasChildren := strings.Contains(file.TemplateBody, "{{ .Children }}")
+	// Check for children usage before template transformation. Goes
+	// through codegen.TemplateRendersChildren so the LSP shadow's
+	// componentScan and this compile pass can never disagree on whether
+	// a component renders children — see internal/codegen/template.go.
+	hasChildren := codegen.TemplateRendersChildren(file.TemplateBody)
 
 	// Expand {{ markdown "path" }} directives before template transformation
 	// so the resulting HTML is treated as part of the template body by all

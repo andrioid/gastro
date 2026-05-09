@@ -380,6 +380,96 @@ func TestNodeAtCursor_NilTree(t *testing.T) {
 	}
 }
 
+// TestNodeAtCursor_ChainedFieldSegments is a regression for Phase 4.2.
+// Previously NodeAtCursor only matched the *first* segment of a chained
+// field reference like `.Agent.Name`, so hovering on `.Name` produced
+// no target and the user got no type info. After the rewrite, every
+// segment in the chain is reachable and the returned HoverTarget
+// carries the full Chain plus ChainIdx so consumers can resolve the
+// segment's type via FieldResolver.
+func TestNodeAtCursor_ChainedFieldSegments(t *testing.T) {
+	body := `<text>{{ .Agent.Name }}</text>`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// `.Agent` spans bytes 9-15 (the leading dot through 'Agent').
+	// `.Name`  spans bytes 15-20 (dot through 'Name').
+	tests := []struct {
+		cursor   int
+		wantSeg  string
+		wantIdx  int
+		wantPos  int
+		wantEnd  int
+		wantKind string
+	}{
+		{cursor: 9, wantSeg: "Agent", wantIdx: 0, wantPos: 9, wantEnd: 15, wantKind: "field"},
+		{cursor: 12, wantSeg: "Agent", wantIdx: 0, wantPos: 9, wantEnd: 15, wantKind: "field"},
+		{cursor: 14, wantSeg: "Agent", wantIdx: 0, wantPos: 9, wantEnd: 15, wantKind: "field"},
+		{cursor: 15, wantSeg: "Name", wantIdx: 1, wantPos: 15, wantEnd: 20, wantKind: "field"},
+		{cursor: 17, wantSeg: "Name", wantIdx: 1, wantPos: 15, wantEnd: 20, wantKind: "field"},
+		{cursor: 19, wantSeg: "Name", wantIdx: 1, wantPos: 15, wantEnd: 20, wantKind: "field"},
+	}
+
+	wantChain := []string{"Agent", "Name"}
+	for _, tt := range tests {
+		target := lsptemplate.NodeAtCursor(tree, tt.cursor)
+		if target == nil {
+			t.Errorf("cursor=%d: expected target on chain segment, got nil", tt.cursor)
+			continue
+		}
+		if target.Kind != tt.wantKind || target.Name != tt.wantSeg || target.ChainIdx != tt.wantIdx {
+			t.Errorf("cursor=%d: got {Kind=%s Name=%q ChainIdx=%d}, want {Kind=%s Name=%q ChainIdx=%d}",
+				tt.cursor, target.Kind, target.Name, target.ChainIdx, tt.wantKind, tt.wantSeg, tt.wantIdx)
+		}
+		if target.Pos != tt.wantPos || target.EndPos != tt.wantEnd {
+			t.Errorf("cursor=%d: span got [%d,%d), want [%d,%d)", tt.cursor, target.Pos, target.EndPos, tt.wantPos, tt.wantEnd)
+		}
+		if !equalStringSlices(target.Chain, wantChain) {
+			t.Errorf("cursor=%d: Chain = %v, want %v", tt.cursor, target.Chain, wantChain)
+		}
+	}
+}
+
+// TestNodeAtCursor_ChainedDollarVariable mirrors the chained-field test
+// for $.A.B.C references. Same plumbing, slightly different offset math
+// because of the leading '$'.
+func TestNodeAtCursor_ChainedDollarVariable(t *testing.T) {
+	body := `{{ $.User.Name }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// `$.User` spans bytes 3-9 ('$' + '.' + 'User').
+	// `.Name`  spans bytes 9-14 ('.' + 'Name').
+	target := lsptemplate.NodeAtCursor(tree, 5) // inside $.User
+	if target == nil || target.Kind != "variable" || target.Name != "User" || target.ChainIdx != 0 {
+		t.Fatalf("cursor=5 inside $.User: got %+v", target)
+	}
+	target = lsptemplate.NodeAtCursor(tree, 11) // inside .Name
+	if target == nil || target.Kind != "variable" || target.Name != "Name" || target.ChainIdx != 1 {
+		t.Fatalf("cursor=11 inside .Name: got %+v", target)
+	}
+	want := []string{"User", "Name"}
+	if !equalStringSlices(target.Chain, want) {
+		t.Errorf("Chain = %v, want %v", target.Chain, want)
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // mockResolver returns a resolver that maps type names to field entries.
 func mockResolver(types map[string][]lsptemplate.FieldEntry) lsptemplate.FieldResolver {
 	return func(typeName string, chainExpr string) []lsptemplate.FieldEntry {

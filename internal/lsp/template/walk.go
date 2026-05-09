@@ -532,11 +532,26 @@ func pipeFieldName(pipe *parse.PipeNode) string {
 }
 
 // HoverTarget describes the template AST node under the cursor.
+//
+// For field nodes, the cursor may land on any segment of a chained
+// reference like `.Agent.Name.Foo`. The struct carries enough context
+// to identify both the segment under the cursor and the chain that
+// led to it, so consumers (hover, go-to-definition, completion) can
+// resolve the segment's type via FieldResolver:
+//
+//   - Chain holds every segment of the field reference in order
+//     (e.g. ["Agent", "Name"] for `.Agent.Name`).
+//   - ChainIdx is the index in Chain of the segment under the cursor.
+//     The segment itself is Name, which equals Chain[ChainIdx].
+//   - For non-field targets (variable/function/$.Foo), Chain is
+//     [Name] and ChainIdx is 0 — the chain has length 1.
 type HoverTarget struct {
-	Kind   string // "field", "variable", "function"
-	Name   string // field/var name (e.g. "Title") or func name (e.g. "upper")
-	Pos    int    // byte offset of the start of this token in the template body
-	EndPos int    // byte offset of the end of this token
+	Kind     string   // "field", "variable", "function"
+	Name     string   // field/var name (e.g. "Title") or func name (e.g. "upper")
+	Pos      int      // byte offset of the start of this token in the template body
+	EndPos   int      // byte offset of the end of this token
+	Chain    []string // full chain of segments for chained field references; len 1 for non-chains
+	ChainIdx int      // index of the segment under the cursor within Chain
 }
 
 // NodeAtCursor walks the template AST to find the leaf node at the given
@@ -602,18 +617,66 @@ func nodeAtCursorNode(node parse.Node, cursor int) *HoverTarget {
 		return nodeAtCursorCommand(n, cursor)
 	case *parse.FieldNode:
 		if len(n.Ident) > 0 {
-			start := int(n.Pos)
-			end := start + 1 + len(n.Ident[0])
-			if cursor >= start && cursor < end {
-				return &HoverTarget{Kind: "field", Name: n.Ident[0], Pos: start, EndPos: end}
+			// Compute the byte offset of the FIRST segment's leading
+			// dot. Quirk in text/template/parse: when a field has 2+
+			// segments (.A.B.C), n.Pos points at the SECOND segment's
+			// dot, not the first — the chain assembly in operand()
+			// uses chain.Position() = peek().pos at the moment the
+			// second segment is consumed. For single-segment fields
+			// (.A), n.Pos is the segment's own dot. So we back up by
+			// (1 + len(Ident[0])) when len(Ident) > 1 to recover the
+			// real start.
+			firstStart := int(n.Pos)
+			if len(n.Ident) > 1 {
+				firstStart -= 1 + len(n.Ident[0])
+			}
+			segOffset := firstStart
+			for i, seg := range n.Ident {
+				start := segOffset
+				end := start + 1 + len(seg) // include leading dot in span
+				if cursor >= start && cursor < end {
+					return &HoverTarget{
+						Kind:     "field",
+						Name:     seg,
+						Pos:      start,
+						EndPos:   end,
+						Chain:    append([]string(nil), n.Ident...),
+						ChainIdx: i,
+					}
+				}
+				segOffset = end
 			}
 		}
 	case *parse.VariableNode:
 		if len(n.Ident) >= 2 && n.Ident[0] == "$" {
-			start := int(n.Pos) - 1
-			end := int(n.Pos) + 1 + len(n.Ident[1])
-			if cursor >= start && cursor < end {
-				return &HoverTarget{Kind: "variable", Name: n.Ident[1], Pos: start, EndPos: end}
+			// $.A.B.C — same logic as FieldNode but the chain starts at
+			// $.A (Ident[1]) and the leading $ at Pos-1 makes the first
+			// segment span one byte longer than a plain field segment.
+			segOffset := int(n.Pos) - 1 // points at '$'
+			for i := 1; i < len(n.Ident); i++ {
+				seg := n.Ident[i]
+				var start, end int
+				if i == 1 {
+					start = segOffset // '$'
+					end = start + 2 + len(seg) // '$' + '.' + name
+				} else {
+					start = segOffset
+					end = start + 1 + len(seg) // '.' + name
+				}
+				if cursor >= start && cursor < end {
+					// Build the chain as the chain of segments
+					// excluding the "$" sentinel.
+					chain := append([]string(nil), n.Ident[1:]...)
+					return &HoverTarget{
+						Kind:     "variable",
+						Name:     seg,
+						Pos:      start,
+						EndPos:   end,
+						Chain:    chain,
+						ChainIdx: i - 1,
+					}
+				}
+				segOffset = end
 			}
 		}
 	case *parse.IdentifierNode:

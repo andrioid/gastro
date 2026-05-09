@@ -450,72 +450,34 @@ func firstFrontmatterContentLine(content string, fmStart, fmEnd int, isComponent
 	return fmStart
 }
 
-// scanComponents walks <projectDir>/components for .gastro files and
-// returns metadata used to project per-component methods into the
-// Router stub. Failures (unreadable files, parse errors) are silent
-// because they're caught with full context by the codegen pipeline;
-// the shadow falls back to a no-method *renderAPI stub for any
-// component it can't read, matching today's silent cold-start UX.
+// scanComponents projects codegen.ScanComponents output into the
+// shadow-internal componentScan shape used by the Router stub. The
+// project-root walk, frontmatter parsing, and Props extraction all
+// happen in codegen — see internal/codegen/scan.go — so the shadow
+// can never disagree with the compiler about which components exist
+// or what fields they have.
+//
+// Shadow-specific addition: neededImports computes the subset of each
+// component's frontmatter imports that the Props field types
+// reference, so the synthesised XProps stub doesn't pull in unused
+// imports (which would produce "imported and not used" errors when
+// gopls type-checks the stub).
 func scanComponents(projectDir string) []componentScan {
-	componentsDir := filepath.Join(projectDir, "components")
-	if _, err := os.Stat(componentsDir); err != nil {
+	schemas, err := codegen.ScanComponents(projectDir)
+	if err != nil || len(schemas) == 0 {
 		return nil
 	}
-
-	var out []componentScan
-	_ = filepath.Walk(componentsDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
-			return nil
-		}
-		if !strings.HasSuffix(path, ".gastro") {
-			return nil
-		}
-		rel, err := filepath.Rel(projectDir, path)
-		if err != nil {
-			return nil
-		}
-		// Normalise to forward slashes so the relative path matches
-		// what users write in `import X "components/foo.gastro"`.
-		rel = filepath.ToSlash(rel)
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		parsed, err := parser.Parse(rel, string(content))
-		if err != nil {
-			return nil
-		}
-		fInfo, err := codegen.AnalyzeFrontmatter(parsed.Frontmatter)
-		if err != nil {
-			return nil
-		}
-
-		funcName := codegen.HandlerFuncName(rel)
-		exported := codegen.ExportedComponentName(funcName)
-
-		var fields []codegen.StructField
-		if fInfo.PropsTypeName != "" {
-			_, hoisted := codegen.HoistTypeDeclarations(parsed.Frontmatter)
-			fields = codegen.ParseStructFields(hoisted)
-		}
-
-		// Determine which of the component's frontmatter imports are
-		// referenced by its Props field types. Without this, the stub
-		// can't compile field types like `Backlog []boardview.CardData`
-		// because the boardview import isn't in scope.
-		needed := neededImportsForFields(fields, parsed.Imports)
-
+	out := make([]componentScan, 0, len(schemas))
+	for _, s := range schemas {
 		out = append(out, componentScan{
-			relPath:       rel,
-			exportedName:  exported,
-			hasProps:      fInfo.PropsTypeName != "",
-			hasChildren:   strings.Contains(parsed.TemplateBody, "{{ .Children }}"),
-			propsFields:   fields,
-			neededImports: needed,
+			relPath:       s.RelPath,
+			exportedName:  s.ExportedName,
+			hasProps:      s.HasProps,
+			hasChildren:   s.HasChildren,
+			propsFields:   s.PropsFields,
+			neededImports: neededImportsForFields(s.PropsFields, s.Imports),
 		})
-		return nil
-	})
+	}
 	return out
 }
 

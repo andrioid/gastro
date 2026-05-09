@@ -1,8 +1,9 @@
 // auditshadow exercises the LSP shadow workspace against every
-// .gastro file in a project and reports any non-import diagnostics
-// that gopls / go-build would surface to a user editing those files.
+// .gastro file in every gastro project under a given path, and reports
+// any non-import diagnostics that gopls / go-build would surface to a
+// user editing those files.
 //
-// Used as a CI gate: the residual diagnostic count for examples/gastro
+// Used as a CI gate: the residual diagnostic count across all examples
 // (and any future fixture trees) should stay at zero. A non-zero count
 // means the shadow is producing Go that doesn't compile against the
 // real runtime — the exact failure mode the audit document
@@ -10,15 +11,20 @@
 //
 // Usage:
 //
-//	auditshadow [<projectDir>]
+//	auditshadow [<rootDir>]
 //
-// Default: examples/gastro relative to the current working directory.
+// Default: the repository root (`.`). The supplied rootDir is walked
+// for any directory containing pages/ or components/; each is treated
+// as its own gastro project. This makes `auditshadow` work both for
+// flat projects (point it at the root, audits that one project) and
+// repo-shaped trees (point it at the repo root, audits every example
+// or workspace under it).
 //
 // Exit codes:
 //
-//	0  — all files clean
+//	0  — all files clean across all projects
 //	1  — at least one file produced a non-import diagnostic
-//	2  — setup error (couldn't open project, etc.)
+//	2  — setup error (couldn't open root, no projects found, etc.)
 package main
 
 import (
@@ -30,53 +36,131 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/lsp/shadow"
 )
 
 func main() {
 	verbose := flag.Bool("v", false, "print every file's status, not just failures")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: auditshadow [-v] [<projectDir>]\n")
+		fmt.Fprintf(os.Stderr, "usage: auditshadow [-v] [<rootDir>]\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
-	projectDir := "examples/gastro"
+	rootDir := "."
 	if flag.NArg() >= 1 {
-		projectDir = flag.Arg(0)
+		rootDir = flag.Arg(0)
 	}
 
-	exit := run(projectDir, *verbose)
-	os.Exit(exit)
+	os.Exit(runAll(rootDir, *verbose))
 }
 
-func run(projectDir string, verbose bool) int {
+// runAll discovers every gastro project under rootDir and runs the
+// per-project audit on each. Aggregate exit codes follow the
+// most-severe-wins rule: a setup error in any project pins the
+// process exit to 2; a real diagnostic in any project pins it to 1.
+func runAll(rootDir string, verbose bool) int {
+	projects, err := codegen.DiscoverProjects(rootDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "auditshadow: discovering projects under %s: %v\n", rootDir, err)
+		return 2
+	}
+	if len(projects) == 0 {
+		fmt.Fprintf(os.Stderr, "auditshadow: no gastro projects (containing pages/ or components/) found under %s\n", rootDir)
+		return 2
+	}
+
+	overall := 0
+	totalProjects := len(projects)
+	totalFiles := 0
+	totalReal := 0
+	totalSetupErr := 0
+	aggregateClasses := make(map[string]int)
+
+	for i, p := range projects {
+		if i > 0 {
+			fmt.Println()
+		}
+		rel, _ := filepath.Rel(rootDir, p)
+		if rel == "" || rel == "." {
+			rel = p
+		}
+		fmt.Printf("--- project: %s ---\n", rel)
+		code, summary := run(p, verbose)
+		totalFiles += summary.files
+		totalReal += summary.realDiags
+		totalSetupErr += summary.setupErrs
+		for cls, n := range summary.classCounts {
+			aggregateClasses[cls] += n
+		}
+		if code > overall {
+			overall = code
+		}
+	}
+
+	if totalProjects > 1 {
+		fmt.Println()
+		fmt.Println("=== auditshadow aggregate summary ===")
+		fmt.Printf("  projects:         %d\n", totalProjects)
+		fmt.Printf("  files processed:  %d\n", totalFiles)
+		fmt.Printf("  setup errors:     %d\n", totalSetupErr)
+		fmt.Printf("  real diagnostics: %d (excluding import resolution)\n", totalReal)
+		if len(aggregateClasses) > 0 {
+			fmt.Println()
+			fmt.Println("  by class:")
+			var classes []string
+			for c := range aggregateClasses {
+				classes = append(classes, c)
+			}
+			sort.Slice(classes, func(i, j int) bool {
+				return aggregateClasses[classes[i]] > aggregateClasses[classes[j]]
+			})
+			for _, c := range classes {
+				fmt.Printf("    %-26s  %d\n", c, aggregateClasses[c])
+			}
+		}
+	}
+	return overall
+}
+
+// projectSummary collects the per-project numbers run() reports back
+// to the aggregator. Kept private to this binary; callers outside
+// auditshadow should not depend on these counts.
+type projectSummary struct {
+	files       int
+	realDiags   int
+	setupErrs   int
+	classCounts map[string]int
+}
+
+func run(projectDir string, verbose bool) (int, projectSummary) {
+	summary := projectSummary{classCounts: make(map[string]int)}
 	absProject, err := filepath.Abs(projectDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "auditshadow: %v\n", err)
-		return 2
+		return 2, summary
 	}
 
 	files, err := walkGastro(absProject)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "auditshadow: walking %s: %v\n", absProject, err)
-		return 2
+		return 2, summary
 	}
 	if len(files) == 0 {
 		fmt.Fprintf(os.Stderr, "auditshadow: no .gastro files under %s\n", absProject)
-		return 2
+		return 2, summary
 	}
 
 	ws, err := shadow.NewWorkspace(absProject)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "auditshadow: creating workspace: %v\n", err)
-		return 2
+		return 2, summary
 	}
 	defer ws.Close()
 
-	classCounts := make(map[string]int)
-	totalReal := 0
 	failedFiles := 0
+	totalReal := 0
 
 	for _, rel := range files {
 		content, err := os.ReadFile(filepath.Join(absProject, rel))
@@ -104,7 +188,7 @@ func run(projectDir string, verbose bool) int {
 			if d.cls == "import" {
 				continue
 			}
-			classCounts[d.cls]++
+			summary.classCounts[d.cls]++
 			fileReal++
 		}
 		totalReal += fileReal
@@ -130,25 +214,28 @@ func run(projectDir string, verbose bool) int {
 	fmt.Printf("  setup errors:     %d\n", failedFiles)
 	fmt.Printf("  real diagnostics: %d (excluding import resolution)\n", totalReal)
 
-	if len(classCounts) > 0 {
+	if len(summary.classCounts) > 0 {
 		fmt.Println()
 		fmt.Println("  by class:")
 		var classes []string
-		for c := range classCounts {
+		for c := range summary.classCounts {
 			classes = append(classes, c)
 		}
 		sort.Slice(classes, func(i, j int) bool {
-			return classCounts[classes[i]] > classCounts[classes[j]]
+			return summary.classCounts[classes[i]] > summary.classCounts[classes[j]]
 		})
 		for _, c := range classes {
-			fmt.Printf("    %-26s  %d\n", c, classCounts[c])
+			fmt.Printf("    %-26s  %d\n", c, summary.classCounts[c])
 		}
 	}
 
+	summary.files = len(files) - failedFiles
+	summary.realDiags = totalReal
+	summary.setupErrs = failedFiles
 	if totalReal > 0 || failedFiles > 0 {
-		return 1
+		return 1, summary
 	}
-	return 0
+	return 0, summary
 }
 
 // goBuild runs `go build` on a single package directory inside the

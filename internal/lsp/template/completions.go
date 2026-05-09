@@ -555,158 +555,160 @@ func extractDictProps(node parse.Node) ([]componentProp, bool) {
 // and bare calls like {{ X }}. Used when AST parsing fails.
 var componentCallFallbackRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9]*)(?:\s+\(dict\b([^)]*)\))?`)
 
-// dictKeyRegex matches string keys inside a dict call: "KeyName"
-var dictKeyRegex = regexp.MustCompile(`"([A-Z][a-zA-Z0-9]*)"`)
+// dictKeyRegex matches string keys inside a dict call: "KeyName".
+// Accepts both PascalCase user-prop names and the legacy underscore-
+// prefixed synthetic key ("__children") so the wrap-form regex
+// fallback in DiagnoseComponentProps can surface a deprecation hint
+// for users still on pre-A5 templates. Keys that don't match either
+// shape (e.g. lowercase) won't be flagged by the regex path —
+// codegen.SyntheticPropKey decides whether a matched key is a
+// recognised synthetic, deprecated, or user prop.
+var dictKeyRegex = regexp.MustCompile(`"((?:[A-Z][a-zA-Z0-9]*|__[a-z][a-zA-Z0-9]*))"`)
 
 // DiagnoseComponentProps checks that props passed to component calls match
-// the component's Props struct. Reports unknown props as errors and missing
-// props as warnings.
+// the component's Props struct. Reports unknown props as errors, deprecated
+// keys ("__children") and missing props as warnings.
 //
-// Primary: walks the AST to find component calls and extract dict keys.
-// Fallback: uses regex when the template fails to parse (common during editing).
+// This is a thin LSP-shaped wrapper over codegen.ValidateDictKeysFromAST,
+// which is the single source of truth for dict-key validation: see
+// internal/codegen/validate.go and internal/codegen/synthetic.go. Both the
+// `gastro generate` command and this LSP entry point produce identical
+// verdicts on which keys are valid — the codegen-side caller just opts
+// out of missing-prop warnings via ValidateDictKeysOptions.EmitMissingProps.
+//
+// When the tree is nil (the template fails to parse with text/template/parse,
+// which is the case for `{{ wrap X }}...{{ end }}` blocks because the Go
+// parser doesn't recognise `wrap` as a built-in block keyword), a slim
+// regex fallback handles the call-site form so users editing wrap blocks
+// still get prop validation. The fallback delegates synthetic-key
+// classification to codegen.SyntheticPropKey, so the unknown-vs-deprecated
+// vs Children decision can never drift between the two paths.
 func DiagnoseComponentProps(templateBody string, tree *parse.Tree, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
-	if len(propsMap) == 0 {
+	if len(propsMap) == 0 || len(uses) == 0 {
 		return nil
 	}
 
-	if tree != nil {
-		return diagnoseComponentPropsAST(templateBody, tree, uses, propsMap)
-	}
-	return diagnoseComponentPropsRegex(templateBody, uses, propsMap)
-}
-
-func diagnoseComponentPropsAST(templateBody string, tree *parse.Tree, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
-	knownComponents := make(map[string]bool, len(uses))
+	// codegen's validator is keyed by component path so two pages
+	// importing the same component under different aliases share a
+	// schema. The LSP's propsMap is keyed by alias for legacy
+	// reasons; rebuild as path-keyed via the use list.
+	propsByPath := make(map[string][]codegen.StructField, len(uses))
 	for _, u := range uses {
-		knownComponents[u.Name] = true
-	}
-
-	calls := extractComponentCalls(tree, templateBody, knownComponents)
-	var diags []Diagnostic
-
-	for _, call := range calls {
-		fields, ok := propsMap[call.name]
-		if !ok {
-			continue
-		}
-
-		fieldNames := make(map[string]bool, len(fields))
-		for _, f := range fields {
-			fieldNames[f.Name] = true
-		}
-
-		providedProps := make(map[string]bool)
-		for _, p := range call.props {
-			providedProps[p.name] = true
-		}
-
-		// Check for unknown props
-		for _, p := range call.props {
-			if !fieldNames[p.name] {
-				startLine, startChar := OffsetToLineChar(templateBody, p.offset)
-				endLine, endChar := OffsetToLineChar(templateBody, p.offset+len(p.name))
-
-				available := make([]string, 0, len(fields))
-				for _, f := range fields {
-					available = append(available, f.Name)
-				}
-				diags = append(diags, Diagnostic{
-					StartLine: startLine,
-					StartChar: startChar,
-					EndLine:   endLine,
-					EndChar:   endChar,
-					Message:   fmt.Sprintf("unknown prop %q on component %s; available: %s", p.name, call.name, strings.Join(available, ", ")),
-					Severity:  1,
-				})
-			}
-		}
-
-		// Check for missing props (warning)
-		tagStartLine, tagStartChar := OffsetToLineChar(templateBody, call.nameOffset)
-		tagEndLine, tagEndChar := OffsetToLineChar(templateBody, call.nameEnd)
-		for _, f := range fields {
-			if !providedProps[f.Name] {
-				diags = append(diags, Diagnostic{
-					StartLine: tagStartLine,
-					StartChar: tagStartChar,
-					EndLine:   tagEndLine,
-					EndChar:   tagEndChar,
-					Message:   fmt.Sprintf("missing prop %q on component %s", f.Name, call.name),
-					Severity:  2,
-				})
-			}
+		if fields, ok := propsMap[u.Name]; ok {
+			propsByPath[u.Path] = fields
 		}
 	}
+	if len(propsByPath) == 0 {
+		return nil
+	}
 
+	if tree == nil {
+		return diagnoseComponentPropsRegexFallback(templateBody, uses, propsMap)
+	}
+
+	raw := codegen.ValidateDictKeysFromAST(
+		templateBody,
+		tree,
+		uses,
+		propsByPath,
+		codegen.ValidateDictKeysOptions{EmitMissingProps: true},
+	)
+	if len(raw) == 0 {
+		return nil
+	}
+
+	diags := make([]Diagnostic, 0, len(raw))
+	for _, d := range raw {
+		diags = append(diags, Diagnostic{
+			// codegen returns 1-indexed (line, col); LSP wants 0-indexed.
+			StartLine: d.StartLine - 1,
+			StartChar: d.StartCol - 1,
+			EndLine:   d.EndLine - 1,
+			EndChar:   d.EndCol - 1,
+			Message:   d.Message,
+			Severity:  int(d.Severity),
+		})
+	}
 	return diags
 }
 
-// diagnoseComponentPropsRegex is the fallback when the AST can't be parsed.
-func diagnoseComponentPropsRegex(templateBody string, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
-	var diags []Diagnostic
-
-	for _, idx := range componentCallFallbackRegex.FindAllStringSubmatchIndex(templateBody, -1) {
-		compName := templateBody[idx[2]:idx[3]]
-		dictArgs := ""
-		if idx[4] >= 0 && idx[5] >= 0 {
-			dictArgs = templateBody[idx[4]:idx[5]]
-		}
-
-		fields, ok := propsMap[compName]
-		if !ok {
-			continue
-		}
-
-		fieldNames := make(map[string]bool, len(fields))
-		for _, f := range fields {
-			fieldNames[f.Name] = true
-		}
-
-		providedProps := make(map[string]bool)
-		for _, m := range dictKeyRegex.FindAllStringSubmatch(dictArgs, -1) {
-			providedProps[m[1]] = true
-		}
-
-		// Check for unknown props
-		for _, m := range dictKeyRegex.FindAllStringSubmatchIndex(dictArgs, -1) {
-			propName := dictArgs[m[2]:m[3]]
-			if !fieldNames[propName] {
-				propAbsOffset := idx[4] + m[2]
-				startLine, startChar := OffsetToLineChar(templateBody, propAbsOffset)
-				endLine, endChar := OffsetToLineChar(templateBody, propAbsOffset+len(propName))
-
-				available := make([]string, 0, len(fields))
-				for _, f := range fields {
-					available = append(available, f.Name)
-				}
-				diags = append(diags, Diagnostic{
-					StartLine: startLine,
-					StartChar: startChar,
-					EndLine:   endLine,
-					EndChar:   endChar,
-					Message:   fmt.Sprintf("unknown prop %q on component %s; available: %s", propName, compName, strings.Join(available, ", ")),
-					Severity:  1,
-				})
-			}
-		}
-
-		// Check for missing props (warning)
-		tagStartLine, tagStartChar := OffsetToLineChar(templateBody, idx[2])
-		tagEndLine, tagEndChar := OffsetToLineChar(templateBody, idx[3])
-		for _, f := range fields {
-			if !providedProps[f.Name] {
-				diags = append(diags, Diagnostic{
-					StartLine: tagStartLine,
-					StartChar: tagStartChar,
-					EndLine:   tagEndLine,
-					EndChar:   tagEndChar,
-					Message:   fmt.Sprintf("missing prop %q on component %s", f.Name, compName),
-					Severity:  2,
-				})
-			}
+// diagnoseComponentPropsRegexFallback handles dict-key validation when
+// text/template/parse rejects the body. The only practical case today
+// is `{{ wrap X (dict ...) }}...{{ end }}` form (Go's parser rejects it
+// because `wrap` isn't a built-in block keyword). The regex matches the
+// call site — not the body content or the closing `{{ end }}` — so it
+// can validate keys without needing balanced wrap/end matching.
+//
+// Synthetic-key classification (Children, __children) is delegated to
+// codegen.SyntheticPropKey so the wrap-form path and the bare-call path
+// agree on which keys are exempt from the unknown-prop check. The
+// regex path emits errors for unknown keys and warnings for the
+// deprecated `__children` sentinel; missing-prop warnings are not
+// emitted in this path (they require precise schema-vs-provided-keys
+// math that's harder to do reliably with regex matches — the AST path
+// covers them in every editing state where it succeeds, which is
+// every state except wrap-form).
+func diagnoseComponentPropsRegexFallback(templateBody string, uses []parser.UseDeclaration, propsMap map[string][]codegen.StructField) []Diagnostic {
+	knownComponents := make(map[string][]codegen.StructField, len(uses))
+	for _, u := range uses {
+		if f, ok := propsMap[u.Name]; ok {
+			knownComponents[u.Name] = f
 		}
 	}
 
+	var diags []Diagnostic
+	for _, m := range componentCallFallbackRegex.FindAllStringSubmatchIndex(templateBody, -1) {
+		compName := templateBody[m[2]:m[3]]
+		fields, ok := knownComponents[compName]
+		if !ok {
+			continue
+		}
+		dictArgs := ""
+		dictArgsStart := -1
+		if m[4] >= 0 && m[5] >= 0 {
+			dictArgs = templateBody[m[4]:m[5]]
+			dictArgsStart = m[4]
+		}
+		validNames := make(map[string]bool, len(fields))
+		for _, f := range fields {
+			validNames[f.Name] = true
+		}
+
+		for _, km := range dictKeyRegex.FindAllStringSubmatchIndex(dictArgs, -1) {
+			name := dictArgs[km[2]:km[3]]
+			absOff := dictArgsStart + km[2]
+
+			switch kind, _ := codegen.SyntheticPropKey(name); kind {
+			case codegen.SyntheticChildren:
+				continue
+			case codegen.SyntheticDeprecatedChildren:
+				startLine, startChar := OffsetToLineChar(templateBody, absOff)
+				endLine, endChar := OffsetToLineChar(templateBody, absOff+len(name))
+				diags = append(diags, Diagnostic{
+					StartLine: startLine, StartChar: startChar,
+					EndLine: endLine, EndChar: endChar,
+					Message:  fmt.Sprintf(`dict key %q is no longer recognised on component %s; use %q instead`, name, compName, "Children"),
+					Severity: 2,
+				})
+				continue
+			}
+			if validNames[name] {
+				continue
+			}
+			startLine, startChar := OffsetToLineChar(templateBody, absOff)
+			endLine, endChar := OffsetToLineChar(templateBody, absOff+len(name))
+			available := make([]string, 0, len(fields))
+			for _, f := range fields {
+				available = append(available, f.Name)
+			}
+			diags = append(diags, Diagnostic{
+				StartLine: startLine, StartChar: startChar,
+				EndLine: endLine, EndChar: endChar,
+				Message:  fmt.Sprintf("unknown prop %q on component %s; available: %s", name, compName, strings.Join(available, ", ")),
+				Severity: 1,
+			})
+		}
+	}
 	return diags
 }
 

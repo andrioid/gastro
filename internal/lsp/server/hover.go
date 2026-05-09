@@ -82,41 +82,22 @@ func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *
 
 	switch target.Kind {
 	case "field":
-		if scope.Depth == 0 {
-			// Top-level: look up type from frontmatter exports
+		typeStr, description = s.hoverFieldType(uri, target, scope)
+
+	case "variable":
+		// $.FieldName — always refers to root context. Chain segments
+		// past the head go through the same chain-resolution path as
+		// FieldNode chains since both originate from frontmatter
+		// variables.
+		if target.ChainIdx == 0 {
 			types := s.queryVariableTypes(uri)
 			if t, ok := types[target.Name]; ok {
 				typeStr = t
 			}
-			description = "frontmatter variable"
-		} else if scope.RangeVar != "" {
-			// Inside range/with: look up field type from element type
-			fields := s.getCachedFields(uri, scope.RangeVar)
-			for _, f := range fields {
-				if f.Label == target.Name {
-					typeStr = f.Detail
-					break
-				}
-			}
-			types := s.queryVariableTypes(uri)
-			if containerType, ok := types[scope.RangeVar]; ok {
-				elemType := elementTypeFromContainer(containerType)
-				if elemType == "" {
-					elemType = containerType
-				}
-				description = fmt.Sprintf("field on `%s`", elemType)
-			} else {
-				description = "range element field"
-			}
+			description = "frontmatter variable (root context)"
+		} else {
+			typeStr, description = s.hoverChainSegment(uri, target.Chain, target.ChainIdx, "" /* root */)
 		}
-
-	case "variable":
-		// $.FieldName — always refers to root context
-		types := s.queryVariableTypes(uri)
-		if t, ok := types[target.Name]; ok {
-			typeStr = t
-		}
-		description = "frontmatter variable (root context)"
 
 	case "function":
 		sigs := lsptemplate.FuncSignatures()
@@ -153,6 +134,103 @@ func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *
 			"end":   map[string]any{"line": endLine + bodyLineOffset, "character": endChar},
 		},
 	}
+}
+
+// hoverFieldType returns (typeString, description) for a field-kind
+// HoverTarget. Splits into three cases based on chain depth and
+// surrounding scope:
+//
+//   - Top-level head segment (.Foo): look up the frontmatter export's type.
+//   - Range/with head segment (.Foo inside {{ range .Items }}): the
+//     element type's field.
+//   - Chained sub-segment (.Foo.Bar / .Foo.Bar.Baz): walk the chain
+//     through gopls via a probe expression. Both top-level and
+//     range/with origins are supported.
+//
+// Phase 4.3: chained sub-segments used to fall through to no hover at
+// all because NodeAtCursor only matched the head ident. Now that the
+// HoverTarget carries the full chain plus an index, the resolver can
+// walk to any depth.
+func (s *server) hoverFieldType(uri string, target *lsptemplate.HoverTarget, scope lsptemplate.ScopeInfo) (typeStr, description string) {
+	if target.ChainIdx == 0 {
+		if scope.Depth == 0 {
+			// Top-level: look up type from frontmatter exports
+			types := s.queryVariableTypes(uri)
+			if t, ok := types[target.Name]; ok {
+				typeStr = t
+			}
+			return typeStr, "frontmatter variable"
+		}
+		if scope.RangeVar != "" {
+			// Inside range/with: look up field type from element type
+			fields := s.getCachedFields(uri, scope.RangeVar)
+			for _, f := range fields {
+				if f.Label == target.Name {
+					typeStr = f.Detail
+					break
+				}
+			}
+			types := s.queryVariableTypes(uri)
+			if containerType, ok := types[scope.RangeVar]; ok {
+				elemType := elementTypeFromContainer(containerType)
+				if elemType == "" {
+					elemType = containerType
+				}
+				return typeStr, fmt.Sprintf("field on `%s`", elemType)
+			}
+			return typeStr, "range element field"
+		}
+		return "", ""
+	}
+
+	// ChainIdx > 0: chained sub-field. Compute the prefix chain
+	// expression so gopls can resolve the parent's type.
+	var prefixExpr string
+	if scope.Depth == 0 {
+		prefixExpr = strings.Join(target.Chain[:target.ChainIdx], ".")
+	} else if scope.RangeVar != "" {
+		// Mirror the synthesised expression used by walk.go's
+		// resolveRangeScope: a range over Foo binds dot to Foo[0], a
+		// with on Foo binds dot to Foo. Fields on dot then chain
+		// onto that. We use the [0] form unconditionally here —
+		// gopls reports identical field sets regardless of whether the
+		// container is sliced or with'd because both reduce to the
+		// element type.
+		parts := append([]string{scope.RangeVar + "[0]"}, target.Chain[:target.ChainIdx]...)
+		prefixExpr = strings.Join(parts, ".")
+	}
+	return s.hoverChainSegment(uri, target.Chain, target.ChainIdx, prefixExpr)
+}
+
+// hoverChainSegment resolves the type of chain[idx] given a Go
+// expression that evaluates to chain[idx-1]'s value (the prefixExpr).
+// When prefixExpr is empty, the chain's head is treated as a top-level
+// frontmatter variable and the lookup goes through queryVariableTypes;
+// this is the entry point used by `$.Foo.Bar` chains.
+func (s *server) hoverChainSegment(uri string, chain []string, idx int, prefixExpr string) (typeStr, description string) {
+	if idx == 0 {
+		types := s.queryVariableTypes(uri)
+		if t, ok := types[chain[0]]; ok {
+			return t, "frontmatter variable"
+		}
+		return "", ""
+	}
+	if prefixExpr == "" {
+		// Re-derive from chain head when caller didn't supply one
+		// (the $.A.B.C path).
+		prefixExpr = strings.Join(chain[:idx], ".")
+	}
+	// Cache key: the prefix expression itself. Two different chains
+	// landing on the same prefix share fields, which is correct —
+	// gopls returns the same completion set for the same Go expression.
+	fields := s.resolveFieldsViaChain(uri, "chain:"+prefixExpr, prefixExpr)
+	name := chain[idx]
+	for _, f := range fields {
+		if f.Name == name {
+			return f.Type, fmt.Sprintf("field on chain `%s`", prefixExpr)
+		}
+	}
+	return "", fmt.Sprintf("field on chain `%s`", prefixExpr)
 }
 
 // componentHover checks if the cursor is on a component name in a {{ }} block

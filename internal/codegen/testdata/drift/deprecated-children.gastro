@@ -1,0 +1,8 @@
+---
+import (
+	Layout "components/deprecated-children.layout.gastro"
+)
+Title := "x"
+Body := "<p>hi</p>"
+---
+{{ Layout (dict "Title" .Title "__children" .Body) }}

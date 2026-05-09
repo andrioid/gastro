@@ -37,11 +37,19 @@ func TestDiscoverComponentsIn_Recursive(t *testing.T) {
 
 	components := discoverComponentsIn(tmpDir)
 
+	// Names mirror codegen.HandlerFuncName / ExportedComponentName,
+	// which folds path segments into the PascalCase result. Phase 1.3
+	// fixed a long-standing drift: the old discoverComponentsIn used
+	// only the basename's hyphen-separated parts, so a component at
+	// components/ui/button.gastro got auto-import-suggested as
+	// "Button" but compiled to `Render.UiButton` — typing the
+	// suggestion produced a build error. Going through codegen makes
+	// the suggestion match the generated symbol.
 	want := map[string]string{
-		"Card":     "components/card.gastro",
-		"Button":   "components/ui/button.gastro",
-		"Input":    "components/ui/forms/input.gastro",
-		"PostCard": "components/ui/post-card.gastro",
+		"Card":         "components/card.gastro",
+		"UiButton":     "components/ui/button.gastro",
+		"UiFormsInput": "components/ui/forms/input.gastro",
+		"UiPostCard":   "components/ui/post-card.gastro",
 	}
 
 	if len(components) != len(want) {
@@ -78,8 +86,10 @@ func TestDiscoverComponentsIn_SkipsHiddenDirs(t *testing.T) {
 	if len(components) != 1 {
 		t.Fatalf("expected 1 component, got %d: %+v", len(components), components)
 	}
-	if components[0].Name != "Card" {
-		t.Errorf("expected Card, got %q", components[0].Name)
+	// Component lives at components/visible/card.gastro —
+	// codegen-aligned name is VisibleCard (path segments folded in).
+	if components[0].Name != "VisibleCard" {
+		t.Errorf("expected VisibleCard, got %q", components[0].Name)
 	}
 }
 

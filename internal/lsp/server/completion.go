@@ -172,11 +172,21 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 		}
 	}
 
-	if cursorScope.Depth > 0 && cursorScope.RangeVar != "" {
+	// Phase 4.5: chained-field completions. When the cursor is sitting
+	// after a chain like `.Foo.|` or `.Foo.Bar.|`, the user wants the
+	// fields of the prior segment's type — not another top-level
+	// frontmatter variable. Detect that shape from the character
+	// stream rather than the AST because the trailing dot makes the
+	// template syntactically incomplete during this exact edit.
+	chainPrefix := detectChainPrefix(content, pos.Line, dotChar)
+	switch {
+	case len(chainPrefix) > 0:
+		items = append(items, s.chainedFieldCompletions(uri, chainPrefix, cursorScope, pos, dotChar)...)
+	case cursorScope.Depth > 0 && cursorScope.RangeVar != "":
 		// Inside a range/with block — offer field completions for the element type
 		fieldItems := s.scopedFieldCompletions(uri, cursorScope.RangeVar, pos, dotChar)
 		items = append(items, fieldItems...)
-	} else {
+	default:
 		// Top-level — offer frontmatter variable completions
 		for _, c := range lsptemplate.VariableCompletions(info) {
 			item := map[string]any{
@@ -341,6 +351,68 @@ func (s *server) cachedComponentProps(inst *projectInstance, compPath string) []
 	}
 	inst.componentPropsCache[compPath] = fields
 	return fields
+}
+
+// chainedFieldCompletions probes gopls for the fields of the type at
+// the end of a chain prefix and returns them as completion items.
+// Triggered when the cursor sits after a dot that follows another
+// dot-chain (e.g. `.Agent.|` or `.Foo.Bar.|`).
+//
+// Inside a range/with scope the chain is rooted at the synthesised
+// element expression (RangeVar[0]), matching what walk.go does in
+// resolveRangeScope. At top-level the chain is rooted at the head
+// frontmatter variable.
+//
+// Falls back to no completions (caller silently appends nothing) if
+// gopls is unavailable, the chain doesn't resolve, or the type has no
+// exported fields. The user still gets component / function
+// suggestions from the surrounding code path so the completion list
+// is never blank in practice.
+func (s *server) chainedFieldCompletions(uri string, chainPrefix []string, scope lsptemplate.ScopeInfo, pos proxy.Position, dotChar int) []map[string]any {
+	// Build the Go expression that evaluates to the type whose fields
+	// we want to suggest. Mirrors hover/definition's prefix builder.
+	var prefixExpr string
+	if scope.Depth > 0 && scope.RangeVar != "" {
+		parts := append([]string{scope.RangeVar + "[0]"}, chainPrefix...)
+		prefixExpr = strings.Join(parts, ".")
+	} else {
+		prefixExpr = strings.Join(chainPrefix, ".")
+	}
+
+	inst := s.instanceForURI(uri)
+	if inst == nil || inst.gopls == nil {
+		return nil
+	}
+	// resolveFieldsViaChain handles the probe injection / restoration.
+	// Use the chain expression as the cache key so two completions on
+	// the same chain reuse work.
+	entries := s.resolveFieldsViaChain(uri, "chain:"+prefixExpr, prefixExpr)
+	if len(entries) == 0 {
+		return nil
+	}
+
+	items := make([]map[string]any, 0, len(entries))
+	for _, fi := range entries {
+		item := map[string]any{
+			"label":      "." + fi.Name,
+			"kind":       completionKindField,
+			"detail":     fi.Type,
+			"filterText": "." + fi.Name,
+		}
+		if dotChar >= 0 {
+			item["textEdit"] = map[string]any{
+				"range": map[string]any{
+					"start": map[string]any{"line": pos.Line, "character": dotChar},
+					"end":   map[string]any{"line": pos.Line, "character": pos.Character},
+				},
+				"newText": "." + fi.Name,
+			}
+		} else {
+			item["insertText"] = "." + fi.Name
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 // scopedFieldCompletions queries gopls for the fields of a variable's element

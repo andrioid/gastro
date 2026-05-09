@@ -1,0 +1,7 @@
+---
+type Props struct {
+	Title string
+}
+Title := gastro.Props().Title
+---
+<html><body>{{ .Children }}</body></html>

@@ -1,0 +1,8 @@
+---
+import (
+	Layout "components/children-via-dict.layout.gastro"
+)
+Title := "x"
+Body := "<p>hi</p>"
+---
+{{ Layout (dict "Title" .Title "Children" .Body) }}

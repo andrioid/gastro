@@ -1,0 +1,7 @@
+---
+import (
+	Layout "components/unknown-prop.layout.gastro"
+)
+Title := "x"
+---
+{{ Layout (dict "Title" .Title "Bogus" "value") }}

@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/url"
 	"os"
@@ -47,6 +46,81 @@ func findDotStart(content string, line, character int) int {
 		}
 	}
 	return -1
+}
+
+// detectChainPrefix scans backward from a dot at position dotChar and
+// returns the chain of segments (in source order) that precede it.
+// A chain is a sequence of `<ident>.<ident>.<ident>...` immediately
+// before the dot. The dot under cursor is *not* included in the
+// returned chain — it's the dot the user is completing at.
+//
+// Returns nil when the cursor isn't in a chain-completion position
+// (e.g. typing `.` immediately after `{{ ` or after whitespace) so the
+// caller falls back to the existing top-level completion path.
+//
+// Examples (cursor between | markers):
+//
+//	{{ .Agent.|       → ["Agent"]
+//	{{ .Foo.Bar.|     → ["Foo", "Bar"]
+//	{{ .|             → nil   (no chain prefix; user just typed a dot)
+//	{{ X .Foo.|       → ["Foo"] (only the immediate chain counts)
+func detectChainPrefix(content string, line, dotChar int) []string {
+	if dotChar <= 0 {
+		return nil
+	}
+	lines := strings.Split(content, "\n")
+	if line < 0 || line >= len(lines) {
+		return nil
+	}
+	lineText := lines[line]
+	if dotChar > len(lineText) {
+		return nil
+	}
+
+	// Walk backwards collecting alternating idents and dots. The dot at
+	// dotChar is the user's completion trigger; collect the ident
+	// immediately before it, then if another '.' precedes that ident,
+	// extend the chain into the next segment, and so on. Stop as soon
+	// as a non-ident, non-dot character interrupts the chain (e.g.
+	// whitespace, '{', '(' , '|') and return whatever was accumulated.
+	var segments []string
+	cursor := dotChar - 1
+	for {
+		identEnd := cursor + 1
+		for cursor >= 0 {
+			ch := lineText[cursor]
+			if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' {
+				cursor--
+				continue
+			}
+			break
+		}
+		identStart := cursor + 1
+		if identStart >= identEnd {
+			// Nothing to add to the chain at this level. Return what
+			// we already have — a chain that started extending but
+			// couldn't reach further is still valid (the extension
+			// attempt cost nothing).
+			break
+		}
+		seg := lineText[identStart:identEnd]
+		// Prepend so the returned slice is in source order.
+		segments = append([]string{seg}, segments...)
+		// Try to extend: a '.' immediately before the segment we
+		// just consumed means another chained ident might be there.
+		if cursor < 0 || lineText[cursor] != '.' {
+			break
+		}
+		cursor--
+	}
+
+	if len(segments) == 0 {
+		return nil
+	}
+	// All accumulated segments form the chain prefix — the dot at
+	// dotChar is the trigger and segments[len-1] is the immediate
+	// parent whose fields we want to complete on.
+	return segments
 }
 
 // isInsideAction checks whether the cursor (byte offset into the template body)
@@ -259,59 +333,30 @@ func (inst *projectInstance) getComponents() []componentInfo {
 	return inst.components
 }
 
-// discoverComponentsIn recursively scans the components/ directory under a
-// project root for .gastro files. This enables auto-import completions when
-// the user types a component name for a component that isn't yet imported.
+// discoverComponentsIn projects codegen.ScanComponents output into the
+// LSP server's lightweight componentInfo shape used for auto-import
+// completion. Going through the canonical scanner means:
+//
+//   - Auto-import suggestions and the shadow stub agree on the exported
+//     name, even for components in nested directories
+//     (components/post/card.gastro → "PostCard", not "Card"). The
+//     previous local PascalCase conversion only walked the basename's
+//     hyphen-separated segments, missing the nested-directory case.
+//   - Hidden directories (.gastro, .git) and other irregular trees are
+//     skipped consistently with how compiler and shadow walk components.
 func discoverComponentsIn(projectRoot string) []componentInfo {
-	componentsDir := filepath.Join(projectRoot, "components")
-	var components []componentInfo
-
-	filepath.WalkDir(componentsDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && path != componentsDir {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Skip symlinks to avoid infinite loops
-		if d.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-
-		if !strings.HasSuffix(d.Name(), ".gastro") {
-			return nil
-		}
-
-		relPath, err := filepath.Rel(projectRoot, path)
-		if err != nil {
-			return nil
-		}
-
-		// Convert kebab-case filename to PascalCase component name
-		name := strings.TrimSuffix(d.Name(), ".gastro")
-		parts := strings.Split(name, "-")
-		var pascal strings.Builder
-		for _, part := range parts {
-			if part == "" {
-				continue
-			}
-			pascal.WriteString(strings.ToUpper(part[:1]) + part[1:])
-		}
-
-		components = append(components, componentInfo{
-			Name: pascal.String(),
-			Path: relPath,
-		})
-
+	schemas, err := codegen.ScanComponents(projectRoot)
+	if err != nil || len(schemas) == 0 {
 		return nil
-	})
-
-	return components
+	}
+	out := make([]componentInfo, 0, len(schemas))
+	for _, s := range schemas {
+		out = append(out, componentInfo{
+			Name: s.ExportedName,
+			Path: s.RelPath,
+		})
+	}
+	return out
 }
 
 // elementTypeFromContainer is a convenience alias for the template package function.
