@@ -20,6 +20,22 @@ type UseInfo struct {
 	FuncName string // e.g. "componentLayout"
 }
 
+// GenerateOptions configures emission. The zero value is suitable for the
+// LSP shadow workspace: no name mangling. Production codegen sets
+// MangleHoisted=true.
+type GenerateOptions struct {
+	// MangleHoisted controls whether top-level var/const/type/func
+	// declarations are renamed with a per-page prefix
+	// (__page_<id>_Name / __component_<id>_Name).
+	//
+	// Set to true for production codegen where many pages share one
+	// Go package and need collision-proof names. Set to false for
+	// the LSP shadow workspace, where each .gastro file is already
+	// in its own subpackage and mangling would only degrade
+	// hover/completion/diagnostic UX without buying any safety.
+	MangleHoisted bool
+}
+
 // GenerateHandler produces Go source code for a page handler or component
 // render function from a parsed .gastro file and its frontmatter analysis.
 // isComponent indicates whether this file should generate a component render
@@ -31,20 +47,99 @@ type UseInfo struct {
 // unknown gastro runtime symbol) happens in AnalyzeFrontmatter so both
 // the codegen pipeline and the LSP receive the same diagnostics by
 // reading info.Warnings.
-func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent bool) (string, error) {
+func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent bool, opts GenerateOptions) (string, error) {
 	funcName := HandlerFuncName(file.Filename)
-	frontmatter, _ := rewriteFrontmatter(file.Frontmatter, info, isComponent)
 
-	// Extract hoisted type declarations for components.
-	// Rename the type to avoid collisions between components in the same package.
-	var hoistedTypes string
+	// Compute the per-file mangling prefix. Empty when mangling is
+	// disabled — every hoisted decl's MangledName equals its Name.
+	prefix := ""
+	if opts.MangleHoisted {
+		kind := "page"
+		if isComponent {
+			kind = "component"
+		}
+		prefix = "__" + kind + "_" + DerivePageID(file.Filename) + "_"
+	}
+
+	// Build the per-page hoisted-name map and apply it to every
+	// HoistedDecl. The analyzer populates info.HoistedDecls with
+	// unmangled names; we re-resolve MangledName here so the same
+	// info object can be re-used across mangle modes (production and
+	// shadow paths).
+	//
+	// Self-sufficiency: if info.HoistedBody is empty (e.g. tests that
+	// construct info manually rather than via AnalyzeFrontmatter), run
+	// HoistDecls on the raw frontmatter so the codegen output remains
+	// consistent regardless of which entry point the caller used.
+	hoistedDecls := make([]HoistedDecl, len(info.HoistedDecls))
+	copy(hoistedDecls, info.HoistedDecls)
+	bodySource := info.HoistedBody
+	if bodySource == "" && len(hoistedDecls) == 0 {
+		var localBody string
+		var localDecls []HoistedDecl
+		var herr error
+		localBody, localDecls, _, herr = HoistDecls(file.Frontmatter, HoistOptions{})
+		if herr != nil {
+			return "", herr
+		}
+		bodySource = localBody
+		hoistedDecls = localDecls
+	}
+	if bodySource == "" {
+		bodySource = file.Frontmatter
+	}
+
+	names := make(map[string]string, len(hoistedDecls))
+	for i := range hoistedDecls {
+		new := applyMangle(hoistedDecls[i].Name, prefix, hoistedDecls[i].Kind)
+		hoistedDecls[i].MangledName = new
+		names[hoistedDecls[i].Name] = new
+	}
+	frontmatter, _ := rewriteFrontmatter(bodySource, info, isComponent)
+	// The body residue may still contain a top-level `type Props
+	// struct{...}` for components when info.HoistedBody was empty
+	// (legacy/test pattern). The hoister already moved it into
+	// hoistedDecls, but the legacy HoistTypeDeclarations call inside
+	// rewriteFrontmatter removes it again from text. Either path
+	// produces a body without the type decl, so this is safe.
+	_ = frontmatter
+
+	// Apply hoisted-ref rewrites to the body and to each hoisted decl's
+	// SourceText so cross-decl references and body-side references
+	// resolve to the mangled names.
+	frontmatter = RewriteHoistedRefs(frontmatter, names)
+	for i := range hoistedDecls {
+		hoistedDecls[i].SourceText = RewriteHoistedRefsInDecl(hoistedDecls[i].SourceText, names)
+	}
+
+	// Component-only: resolve PropsTypeName to either the mangled
+	// __component_<id>_Props or the unmangled "Props". Pages have no
+	// PropsTypeName.
 	propsTypeName := info.PropsTypeName
 	if isComponent && propsTypeName != "" {
-		_, hoistedTypes = HoistTypeDeclarations(file.Frontmatter)
-		hoistedTypes = strings.TrimSpace(hoistedTypes)
-		uniqueName := funcName + strings.ToUpper(propsTypeName[:1]) + propsTypeName[1:]
-		hoistedTypes = strings.Replace(hoistedTypes, "type "+propsTypeName+" ", "type "+uniqueName+" ", 1)
-		propsTypeName = uniqueName
+		if mn, ok := names[propsTypeName]; ok {
+			propsTypeName = mn
+		}
+	}
+
+	// Build the rendered text block of all hoisted decls (in source
+	// order). Each decl is emitted with its MangledName substituted
+	// for the original Name on the LHS.
+	hoistedBlock := renderHoistedBlock(hoistedDecls)
+
+	// Compute the per-exported-var emit name (used as the value in
+	// __data). For hoisted exported vars/consts, use the mangled
+	// package-scope name; for := body locals, use the local name.
+	var exportedVarEmit []exportedVarEmission
+	for _, v := range info.ExportedVars {
+		emit := v.Name
+		if mn, ok := names[v.Name]; ok {
+			emit = mn
+		}
+		exportedVarEmit = append(exportedVarEmit, exportedVarEmission{
+			Name:     v.Name,
+			EmitName: emit,
+		})
 	}
 
 	// Build use info for pages that import components
@@ -57,18 +152,18 @@ func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent
 	}
 
 	data := generateData{
-		PackageName:   "gastro",
-		FuncName:      funcName,
-		ExportedName:  ExportedComponentName(funcName),
-		Imports:       dedupeAutoImports(file.Imports),
-		Frontmatter:   frontmatter,
-		ExportedVars:  info.ExportedVars,
-		TemplateBody:  file.TemplateBody,
-		IsPage:        info.IsPage,
-		PropsTypeName: propsTypeName,
-		IsComponent:   isComponent,
-		HoistedTypes:  hoistedTypes,
-		Uses:          uses,
+		PackageName:    "gastro",
+		FuncName:       funcName,
+		ExportedName:   ExportedComponentName(funcName),
+		Imports:        dedupeAutoImports(file.Imports),
+		Frontmatter:    frontmatter,
+		ExportedVars:   exportedVarEmit,
+		TemplateBody:   file.TemplateBody,
+		IsPage:         info.IsPage,
+		PropsTypeName:  propsTypeName,
+		IsComponent:    isComponent,
+		HoistedDecls:   hoistedBlock,
+		Uses:           uses,
 	}
 
 	tmpl := handlerTmpl
@@ -84,18 +179,69 @@ func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent
 	return buf.String(), nil
 }
 
+// exportedVarEmission carries both the user-visible name (used as the
+// __data map key, which the template references via {{ .Title }}) and
+// the resolved emit name (the Go ident referenced as the map value,
+// either the local := name or the mangled package-scope name).
+type exportedVarEmission struct {
+	Name     string
+	EmitName string
+}
+
+// renderHoistedBlock concatenates each HoistedDecl.SourceText into the
+// text block emitted at package scope between the imports and the
+// handler/component func. The LHS name in each SourceText is rewritten
+// to MangledName so the emitted decl carries the correct (possibly
+// mangled) identifier.
+func renderHoistedBlock(decls []HoistedDecl) string {
+	if len(decls) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, d := range decls {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(rewriteDeclLHS(d))
+	}
+	return b.String()
+}
+
+// rewriteDeclLHS replaces the user-written ident on the LHS of a hoisted
+// decl's SourceText with the MangledName. SourceText is produced by
+// renderValueSpec / renderTypeSpec / parseFuncBlock so the LHS shape is
+// known: `var X`, `const X`, `type X`, `func X(`. We rewrite the first
+// occurrence of "<keyword> Name" — simple, robust, deterministic.
+func rewriteDeclLHS(d HoistedDecl) string {
+	if d.Name == d.MangledName {
+		return d.SourceText
+	}
+	switch d.Kind {
+	case HoistVar, HoistConst, HoistType:
+		keyword := hoistKindLabel(d.Kind)
+		old := keyword + " " + d.Name
+		new := keyword + " " + d.MangledName
+		return strings.Replace(d.SourceText, old, new, 1)
+	case HoistFunc:
+		old := "func " + d.Name
+		new := "func " + d.MangledName
+		return strings.Replace(d.SourceText, old, new, 1)
+	}
+	return d.SourceText
+}
+
 type generateData struct {
 	PackageName   string
 	FuncName      string
 	ExportedName  string // e.g. "PostCard" — exported name for Render API
 	Imports       []string
 	Frontmatter   string
-	ExportedVars  []VarInfo
+	ExportedVars  []exportedVarEmission
 	TemplateBody  string
 	IsPage        bool
 	IsComponent   bool
-	PropsTypeName string    // e.g. "Props" — from type Props struct in the frontmatter
-	HoistedTypes  string    // e.g. "type Props struct { Title string }"
+	PropsTypeName string // e.g. "Props" — from type Props struct in the frontmatter
+	HoistedDecls  string // rendered text block of all hoisted package-scope decls
 	Uses          []UseInfo // component imports used by this page
 }
 
@@ -132,7 +278,9 @@ import (
 var _ = template.Must
 var _ http.ResponseWriter
 var _ = log.Println
-
+{{ if .HoistedDecls }}
+{{ .HoistedDecls }}
+{{ end }}
 func (__router *Router) {{ .FuncName }}(w http.ResponseWriter, r *http.Request) {
 	w = gastroRuntime.NewPageWriter(w)
 	defer gastroRuntime.Recover(w, r)
@@ -145,7 +293,7 @@ func (__router *Router) {{ .FuncName }}(w http.ResponseWriter, r *http.Request) 
 
 	__data := map[string]any{
 	{{- range .ExportedVars }}
-		"{{ .Name }}": {{ .Name }},
+		"{{ .Name }}": {{ .EmitName }},
 	{{- end }}
 	}
 
@@ -180,9 +328,9 @@ var _ bytes.Buffer
 var _ = template.Must
 var _ = log.Println
 
-{{- if .HoistedTypes }}
+{{- if .HoistedDecls }}
 
-{{ .HoistedTypes }}
+{{ .HoistedDecls }}
 {{- end }}
 
 // {{ .FuncName }} is the unexported component method used by templates.
@@ -213,7 +361,7 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 
 	__data := map[string]any{
 	{{- range .ExportedVars }}
-		"{{ .Name }}": {{ .Name }},
+		"{{ .Name }}": {{ .EmitName }},
 	{{- end }}
 		"Children": __children,
 	}

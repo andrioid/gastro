@@ -24,6 +24,42 @@ Author := gastro.Props().Author
 
 `gastro.Props()` is a compile-time marker that tells the code generator this file is a component. The `Props` struct must be defined in the same frontmatter.
 
+## Frontmatter scope: package-level vs per-request
+
+The same scope rule that applies to pages applies to components:
+
+- Top-level `var`, `const`, `type`, and `func` declarations run **once
+  at process startup**.
+- `:=` and statements run **on every render**.
+
+`type Props struct{}` is itself a top-level type declaration, so it's
+always at package scope. You can declare additional helpers next to
+it:
+
+```gastro
+---
+import "strings"
+
+type Props struct {
+    Title string
+}
+
+// Hoisted to package scope — runs once at server startup.
+func displayTitle(t string) string {
+    return strings.ToUpper(t)
+}
+
+// Per-render — runs each time the component is rendered.
+p := gastro.Props()
+Title := displayTitle(p.Title)
+---
+<h2>{{ .Title }}</h2>
+```
+
+Referencing per-request state (`gastro.Props()`, `gastro.Children()`,
+or request-scoped values) inside a hoisted decl is a build error;
+use `:=` instead.
+
 ## Computed Values
 
 When you need derived values from multiple props, assign the whole struct first:

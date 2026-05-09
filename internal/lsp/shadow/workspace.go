@@ -47,7 +47,6 @@ type componentScan struct {
 	hasProps     bool
 	hasChildren  bool
 	propsFields  []codegen.StructField
-	propsType    string // hoisted type name (e.g. "Props"); already unique-renamed
 	// neededImports maps the package qualifier used in Props field
 	// types (e.g. "boardview" in `Backlog []boardview.CardData`) to
 	// the full Go import path (e.g.
@@ -153,7 +152,7 @@ func (ws *Workspace) UpdateFile(gastroFile, content string) (*VirtualFile, error
 		isComponent = true
 	}
 
-	src, err := codegen.GenerateHandler(parsed, info, isComponent)
+	src, err := codegen.GenerateHandler(parsed, info, isComponent, codegen.GenerateOptions{MangleHoisted: false})
 	if err != nil {
 		return nil, fmt.Errorf("generating shadow source for %s: %w", gastroFile, err)
 	}
@@ -501,15 +500,6 @@ func scanComponents(projectDir string) []componentScan {
 			fields = codegen.ParseStructFields(hoisted)
 		}
 
-		// Codegen renames the user's hoisted Props type to
-		// "<funcName><Title>" to avoid collisions across components.
-		// We mirror that rename here so the stub's XProps alias
-		// targets the right symbol.
-		propsType := ""
-		if fInfo.PropsTypeName != "" {
-			propsType = funcName + strings.ToUpper(fInfo.PropsTypeName[:1]) + fInfo.PropsTypeName[1:]
-		}
-
 		// Determine which of the component's frontmatter imports are
 		// referenced by its Props field types. Without this, the stub
 		// can't compile field types like `Backlog []boardview.CardData`
@@ -522,7 +512,6 @@ func scanComponents(projectDir string) []componentScan {
 			hasProps:      fInfo.PropsTypeName != "",
 			hasChildren:   strings.Contains(parsed.TemplateBody, "{{ .Children }}"),
 			propsFields:   fields,
-			propsType:     propsType,
 			neededImports: needed,
 		})
 		return nil

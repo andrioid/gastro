@@ -235,6 +235,33 @@ package, and reports any non-import diagnostics. A green run means
 gopls would be quiet on those files. Use this before/after touching
 anything in `internal/lsp/shadow/` or `internal/codegen/generate.go`.
 
+#### Hoist-aware LSP smoke check
+
+When you change anything that touches frontmatter hoisting
+(`internal/codegen/hoist.go`, `internal/codegen/rewrite_refs.go`,
+`internal/codegen/freevars.go`, or the `MangleHoisted` plumbing in
+`internal/codegen/generate.go`), the LSP shadow needs an extra
+spot-check:
+
+1. `mise run audit` — `cmd/auditshadow` parity gate, must stay green.
+2. Open `examples/blog/pages/blog/index.gastro` in an editor with the
+   gastro LSP attached.
+3. Add a hoistable decl at the top of the frontmatter, e.g.:
+   ```go
+   var slugRE = regexp.MustCompile(`^[a-z]+$`)
+   ```
+4. Hover over `slugRE` and confirm the popup shows the
+   user-written name (`var slugRE *regexp.Regexp`), **not** the
+   mangled `__page_blog_index_slugRE`. Mangled names leaking into
+   hover text means the shadow is incorrectly running with
+   `MangleHoisted=true` — the opt-out invariant has regressed.
+5. Trigger completion mid-frontmatter and confirm the same: no
+   `__page_` / `__component_` prefix in completion labels.
+
+These checks are not in CI because they require an editor session.
+The automated regression guard for the same invariant lives in
+`internal/lsp/shadow/shadow_hoist_test.go`.
+
 #### LSP binary refresh when hacking on gastro
 
 The LSP is a long-running process. When you change gastro source the

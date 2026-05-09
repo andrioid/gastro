@@ -23,7 +23,7 @@ Title := "Hello"`,
 		IsPage:       true,
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -66,7 +66,7 @@ CSSClass := "card"`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,7 +81,7 @@ CSSClass := "card"`,
 	assertContains(t, output, `"Children": __children`)
 
 	// Should unpack props via MapToStruct with unique type name
-	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
+	assertContains(t, output, `MapToStruct[__component_card_Props](propsMap)`)
 
 	// Should alias the props variable
 	assertContains(t, output, `props := __props`) // gastro.Props() is rewritten to __props by codegen
@@ -94,7 +94,7 @@ CSSClass := "card"`,
 	assertContains(t, output, `return template.HTML`)
 
 	// Should hoist type declarations with unique name to avoid collisions
-	assertContains(t, output, "type componentCardProps struct")
+	assertContains(t, output, "type __component_card_Props struct")
 
 	// A5: the exported XProps type now lives in render.go (see compiler_test
 	// TestCompile_GeneratesRenderFile), not in the per-component file.
@@ -128,7 +128,7 @@ Tag := props.Tag`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +148,7 @@ Tag := props.Tag`,
 	// Should still handle props and children (A5 renamed the dict key from
 	// "__children" to "Children"; the component-internal local variable name
 	// __children is unchanged).
-	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
+	assertContains(t, output, `MapToStruct[__component_card_Props](propsMap)`)
 	assertContains(t, output, `propsMap["Children"]`)
 	assertContains(t, output, `"Children": __children`)
 }
@@ -170,7 +170,7 @@ CSSClass := "card"`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +181,7 @@ CSSClass := "card"`,
 
 	// Should still have component method
 	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
-	assertContains(t, output, `MapToStruct[componentCardProps](propsMap)`)
+	assertContains(t, output, `MapToStruct[__component_card_Props](propsMap)`)
 }
 
 func TestGenerate_NewPropsWholeStruct(t *testing.T) {
@@ -205,7 +205,7 @@ CX := fmt.Sprintf("%d", p.X+135)`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -236,7 +236,7 @@ Summary := fmt.Sprintf("%s (%d)", gastro.Props().Label, gastro.Props().Count)`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestGenerate_MultipleExportedVars(t *testing.T) {
 		IsPage: true,
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestGenerate_NoExportedVars(t *testing.T) {
 		IsPage:      true,
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestGenerate_PageHandlerDispatchesExecuteError(t *testing.T) {
 		IsPage:       true,
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -338,7 +338,7 @@ CSSClass := "card"`,
 		PropsTypeName: "Props",
 	}
 
-	output, err := codegen.GenerateHandler(file, info, info.IsComponent)
+	output, err := codegen.GenerateHandler(file, info, info.IsComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -544,7 +544,7 @@ func TestFindFrontmatterStart_Page(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AnalyzeFrontmatter: %v", err)
 	}
-	out, err := codegen.GenerateHandler(file, info, false)
+	out, err := codegen.GenerateHandler(file, info, false, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("GenerateHandler: %v", err)
 	}
@@ -573,7 +573,7 @@ func TestFindFrontmatterStart_ComponentWithProps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AnalyzeFrontmatter: %v", err)
 	}
-	out, err := codegen.GenerateHandler(file, info, true)
+	out, err := codegen.GenerateHandler(file, info, true, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("GenerateHandler: %v", err)
 	}
@@ -599,7 +599,7 @@ func TestFindFrontmatterStart_ComponentNoProps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AnalyzeFrontmatter: %v", err)
 	}
-	out, err := codegen.GenerateHandler(file, info, true)
+	out, err := codegen.GenerateHandler(file, info, true, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		t.Fatalf("GenerateHandler: %v", err)
 	}

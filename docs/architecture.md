@@ -70,10 +70,46 @@ Wraps the frontmatter in a valid Go file and parses it with `go/ast`. Extracts:
 - Marker-rewrite warnings (deprecation of `gastro.Context()`, unknown
   `gastro.X` symbols) and missing-return findings from
   `internal/analysis/respwrite.go`
+- **Hoisted top-level declarations** (`var` / `const` / `type` /
+  `func` at frontmatter top level), populated into
+  `info.HoistedDecls` for codegen to emit at package scope.
 
 The frontmatter is wrapped in `package __gastro / func __handler() { ... }`
 so `go/parser` can handle it. Type declarations (`type Props struct{}`) are
 hoisted to package level since they can't live inside a function body.
+
+#### Frontmatter scope rules
+
+The analyzer enforces the gastro mental model: declarations that look
+like Go's package-scope idioms (`var X = ...`, `const X = ...`,
+`type T = ...`, `func F(...)`) are treated as **package-scope,
+init-once**; `:=` and statements stay **per-request**. The hoister in
+`hoist.go` extracts the eligible decls; the free-variable analyzer in
+`freevars.go` rejects any whose initializer or body references
+request-scoped state (`r`, `w`, `gastro.Props()`, `gastro.Context()`,
+`gastro.Children()`, `gastro.From[T]`).
+
+Under `MangleHoisted=true` (production codegen), each hoisted decl's
+user-written name is rewritten with a per-page prefix
+(`__page_<id>_<Name>` or `__component_<id>_<Name>`) so two pages or
+components in the same `package gastro` can share identifier names
+without colliding. The mangling is invisible to users —
+`internal/codegen/rewrite_refs.go` rewrites in-frontmatter references
+to match — and the template body continues to use unmangled keys via
+the `__data` map.
+
+Under `MangleHoisted=false` (the LSP shadow workspace), names pass
+through unchanged. Each shadow file lives in its own Go subpackage
+(`internal/lsp/shadow/workspace.go:VirtualFilePath`), so cross-file
+collisions cannot occur there — mangling would only degrade hover,
+completion, and diagnostic UX without buying any safety. See
+`internal/lsp/shadow/shadow_hoist_test.go` for the coverage that pins
+this invariant.
+
+When debugging a `.gen.go` file, the prefix scheme tells you the
+source: `__page_blog_index_Title` came from `pages/blog/index.gastro`,
+`__component_card_Props` came from `components/card.gastro`. The
+page-id sanitiser is in `internal/codegen/pageid.go`.
 
 #### `generate.go`
 

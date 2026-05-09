@@ -383,10 +383,15 @@ Title := gastro.Props().Title
 	}
 
 	// __props is declared by codegen as a typed local var pointing at
-	// the user's hoisted Props struct (renamed by codegen to a unique
-	// name to avoid cross-component collisions).
-	if !strings.Contains(vf.GoSource, "componentCardProps struct") {
-		t.Errorf("expected hoisted struct `componentCardProps` in shadow source")
+	// the user's hoisted Props struct. Under MangleHoisted=false (the
+	// shadow's mode) the type keeps its user-written name `Props`,
+	// since each shadow file lives in its own subpackage and does not
+	// need cross-component collision protection.
+	if !strings.Contains(vf.GoSource, "type Props struct") {
+		t.Errorf("expected unmangled `type Props struct` in shadow source, got:\n%s", vf.GoSource)
+	}
+	if strings.Contains(vf.GoSource, "__component_") {
+		t.Errorf("shadow source should not contain __component_ prefix under MangleHoisted=false, got:\n%s", vf.GoSource)
 	}
 }
 

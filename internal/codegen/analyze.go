@@ -32,21 +32,50 @@ type FrontmatterInfo struct {
 	IsComponent   bool      // true if gastro.Props() is called
 	PropsTypeName string    // e.g. "Props" — from type Props struct in the frontmatter
 	Warnings      []Warning // Non-fatal issues detected during analysis
+
+	// HoistedDecls captures every top-level var/const/type/func
+	// declaration extracted out of the frontmatter and promoted to
+	// package scope. Names are unmangled here — codegen applies the
+	// mangling prefix at emission time based on its GenerateOptions.
+	HoistedDecls []HoistedDecl
+
+	// HoistedBody is the frontmatter source with hoisted decls
+	// removed (replaced with blank lines so line numbers stay
+	// stable). This is what the per-request handler body should
+	// contain.
+	HoistedBody string
 }
 
 const wrapperSuffix = "\n}"
 
 // AnalyzeFrontmatter parses the frontmatter Go code and extracts variable
 // declarations, gastro.Context() calls, and gastro.Props() calls.
+//
+// As of the package-level scope feature, top-level var/const/type/func
+// declarations are also extracted into info.HoistedDecls so codegen can
+// emit them at package scope. The remaining per-request body is parsed
+// inside the existing function-body wrapper so :=, control flow, and
+// other statements continue to work as before.
 func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 	if strings.TrimSpace(frontmatter) == "" {
 		return &FrontmatterInfo{}, nil
 	}
 
-	// Wrap frontmatter in a valid Go file so go/parser can handle it.
-	// Type declarations (like `type Props struct{...}`) need to be at
-	// package level, so we hoist them out of the function body.
-	bodyLines, typeDecls := HoistTypeDeclarations(frontmatter)
+	// First, hoist top-level var/const/type/func decls out of the
+	// frontmatter. Per-request references are caught here with a
+	// migration hint pointing at `:=`. Names are stored unmangled —
+	// codegen applies any prefix at emission time.
+	hoistedBody, hoistedDecls, _, hoistErr := HoistDecls(frontmatter, HoistOptions{})
+	if hoistErr != nil {
+		return nil, hoistErr
+	}
+
+	// Wrap the residual body in a valid Go file so go/parser can
+	// handle it. The hoister already removed top-level type decls, so
+	// HoistTypeDeclarations becomes a no-op here for var/const/type.
+	// We still call it to support raw-string literal cases the AST
+	// path may not have removed.
+	bodyLines, typeDecls := HoistTypeDeclarations(hoistedBody)
 	// Type declarations go after "package" but before the function wrapper.
 	// We need to count how many lines precede the frontmatter body code
 	// so we can map AST positions back to frontmatter line numbers.
@@ -73,6 +102,36 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 		line int // 1-indexed within frontmatter
 	}
 	var barePropsExportedVars []barePropsVar
+
+	info.HoistedDecls = hoistedDecls
+	info.HoistedBody = hoistedBody
+
+	// Each hoisted var/const becomes an entry in info.ExportedVars
+	// or info.PrivateVars (mirroring the classification the AST
+	// walk used to do for non-hoisted decls). Exported names also
+	// flow into the __data map at emission time.
+	for _, d := range hoistedDecls {
+		if d.Kind != HoistVar && d.Kind != HoistConst {
+			continue
+		}
+		vi := VarInfo{Name: d.Name, Line: d.Line}
+		if d.IsExported {
+			info.ExportedVars = append(info.ExportedVars, vi)
+		} else {
+			info.PrivateVars = append(info.PrivateVars, vi)
+		}
+	}
+
+	// Mirror hoisted Props validation. The hoister already removed
+	// type decls from the body, so the AST walk below won't see
+	// them; we count and shape-check Props here instead.
+	for _, d := range hoistedDecls {
+		if d.Kind != HoistType || d.Name != "Props" {
+			continue
+		}
+		propsTypeCount++
+		propsIsStruct = hoistedDeclIsStruct(d)
+	}
 
 	ast.Inspect(file, func(n ast.Node) bool {
 		switch node := n.(type) {
@@ -170,6 +229,19 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 	info.Warnings = append(info.Warnings, respwrite...)
 
 	return info, nil
+}
+
+// hoistedDeclIsStruct reports whether a hoisted type decl declares a
+// struct shape (vs an alias or non-struct concrete type). Matches the
+// pre-hoisting AST walk's `_, ok := ts.Type.(*ast.StructType)` check
+// using the rendered SourceText since the AST is no longer reachable
+// at this point in the pipeline.
+func hoistedDeclIsStruct(d HoistedDecl) bool {
+	// SourceText is rendered as `type Props struct {...}` or
+	// `type Props = X` etc. A `struct {` substring is a sufficient
+	// signal because go/printer never breaks `struct{` across lines
+	// and we only emit type decls via that path.
+	return strings.Contains(d.SourceText, "struct {") || strings.Contains(d.SourceText, "struct{")
 }
 
 // validateFrontmatter checks for consistency between gastro markers and type

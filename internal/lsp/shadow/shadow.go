@@ -55,7 +55,7 @@ func GenerateVirtualFile(filename, gastroContent string) (*VirtualFile, error) {
 		isComponent = true
 	}
 
-	src, err := codegen.GenerateHandler(parsed, info, isComponent)
+	src, err := codegen.GenerateHandler(parsed, info, isComponent, codegen.GenerateOptions{MangleHoisted: false})
 	if err != nil {
 		return nil, fmt.Errorf("generating shadow source for %s: %w", filename, err)
 	}

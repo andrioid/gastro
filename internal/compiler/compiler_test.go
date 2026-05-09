@@ -207,7 +207,7 @@ func TestCompile_RenderXPropsShapes(t *testing.T) {
 	s := string(render)
 
 	// 1. Card — type alias, props parameter, no Children field.
-	assertStringContains(t, s, "type CardProps = componentCardProps")
+	assertStringContains(t, s, "type CardProps = __component_card_Props")
 	assertStringContains(t, s, "func (r *renderAPI) Card(props CardProps)")
 
 	// 2. Layout — real struct, both fields, props parameter.
@@ -634,7 +634,7 @@ func TestCompile_ComponentWithInlineFieldComments(t *testing.T) {
 	s := string(goSrc)
 
 	for _, want := range []string{
-		"type componentCardProps struct",
+		"type __component_card_Props struct",
 		"ID    string",
 		"Title string",
 		"Note  string",
@@ -656,7 +656,7 @@ func TestCompile_ComponentWithInlineFieldComments(t *testing.T) {
 	if funcStart < 0 {
 		t.Fatalf("componentCard func not found in:\n%s", s)
 	}
-	if contains(s[funcStart:], "type componentCardProps struct") {
+	if contains(s[funcStart:], "type __component_card_Props struct") {
 		t.Error("struct must be hoisted above the function body, not duplicated inside")
 	}
 

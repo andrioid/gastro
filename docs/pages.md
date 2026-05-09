@@ -89,6 +89,72 @@ Variables follow Go's export convention:
 - **Uppercase** variables (`Title`, `Posts`) are exported to the template.
 - **Lowercase** variables (`err`, `slug`) are private to the frontmatter.
 
+## Frontmatter scope: package-level vs per-request
+
+Go distinguishes two scopes inside a frontmatter block, and gastro
+respects both:
+
+- **Package scope (init-once):** top-level `var`, `const`, `type`, and
+  `func` declarations. They run **once at process startup**, the same
+  way they would in any Go file. Use these for expensive setup (a
+  compiled regex, an env-var read, a helper function shared across
+  every render).
+- **Request scope (per-render):** `:=` short variable declarations and
+  any other statements. They run **on every request**.
+
+```gastro
+---
+import (
+    "os"
+    "regexp"
+)
+
+// Package scope — these run once at server startup.
+var slugRE = regexp.MustCompile(`^[a-z0-9-]+$`)
+const MaxItems = 50
+var siteName = os.Getenv("SITE_NAME")
+
+func isValidSlug(s string) bool {
+    return slugRE.MatchString(s)
+}
+
+// Request scope — these run on every render.
+slug := r.URL.Query().Get("q")
+Valid := isValidSlug(slug)
+Title := siteName + ": " + slug
+---
+<h1 data-valid="{{ .Valid }}">{{ .Title }}</h1>
+```
+
+The rule is identical to Go's: declarations that *look* like "once at
+startup" (`var`, `const`, `func`, `type`) **are** once at startup;
+everything else runs each request.
+
+### Per-request references in package-scope decls
+
+A hoisted decl that captures `r`, `w`, `gastro.Props()`,
+`gastro.Context()`, `gastro.Children()`, or `gastro.From[T]` is a
+build error — those values only exist inside the per-request handler.
+The error includes a migration hint pointing at `:=`:
+
+```
+pages/index.gastro:12: var "Title" cannot be hoisted to package scope
+because it references per-request state (r.URL.Path).
+
+Hoisted decls run once at process init; per-request state is only
+available inside the handler. Use `:=` so it runs each request:
+
+    Title := r.URL.Path
+```
+
+### Foot-gun: package init can slow startup
+
+`var X = expensive()` at frontmatter top level slows **boot**, not
+request handling. If your binary takes long to start, profile the
+package init (e.g. with `GODEBUG=inittrace=1`); a heavy regex compile
+or synchronous network call masquerading as a `var` will show up
+there.
+
 ```gastro
 ---
 import (

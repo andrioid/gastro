@@ -94,6 +94,20 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		}
 	}
 
+	// Pre-pass: detect page-id collisions across pages and components.
+	// DerivePageID is intentionally lossy (collapses non-ident chars to
+	// underscores) so two visually-distinct paths can sanitise to the
+	// same id. With mangled hoisted decls, that would yield duplicate
+	// package-level symbols. Catch it here before codegen runs.
+	if collisions := findPageIDCollisions(pageFiles, componentFiles); len(collisions) > 0 {
+		for _, w := range collisions {
+			allWarnings = append(allWarnings, w)
+			if opts.Strict {
+				return nil, fmt.Errorf("compiling %s: %s", w.File, w.Message)
+			}
+		}
+	}
+
 	for _, relPath := range allFiles {
 		absPath := filepath.Join(projectDir, relPath)
 		result, err := compileFile(absPath, relPath, absProjectDir, outputDir, propsByPath)
@@ -199,6 +213,44 @@ func discoverFiles(dir, prefix string) ([]string, error) {
 	})
 
 	return files, err
+}
+
+// findPageIDCollisions detects two .gastro files (same kind: both
+// pages or both components) whose paths sanitise to the same id via
+// DerivePageID. With MangleHoisted=true, hoisted decls from such files
+// would produce duplicate package-level symbols. Reports each later
+// occurrence as a warning whose message references the first colliding
+// path; the first occurrence is left alone.
+func findPageIDCollisions(pageFiles, componentFiles []string) []FileWarning {
+	var warnings []FileWarning
+	for _, group := range []struct {
+		kind  string
+		files []string
+	}{
+		{"page", pageFiles},
+		{"component", componentFiles},
+	} {
+		if len(group.files) < 2 {
+			continue
+		}
+		seen := make(map[string]string, len(group.files)) // id -> first relPath
+		for _, relPath := range group.files {
+			id := codegen.DerivePageID(relPath)
+			if first, exists := seen[id]; exists {
+				warnings = append(warnings, FileWarning{
+					File: relPath,
+					Line: 1,
+					Message: fmt.Sprintf(
+						"%s path sanitises to id %q which collides with %q; rename one of the files so their paths produce distinct ids",
+						group.kind, id, first,
+					),
+				})
+				continue
+			}
+			seen[id] = relPath
+		}
+	}
+	return warnings
 }
 
 // findComponentNameCollisions scans the list of component file paths and
@@ -354,7 +406,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 
 	// Generate handler Go code
 	file.TemplateBody = transformedBody
-	handlerCode, err := codegen.GenerateHandler(file, info, isComponent)
+	handlerCode, err := codegen.GenerateHandler(file, info, isComponent, codegen.GenerateOptions{MangleHoisted: true})
 	if err != nil {
 		return compileResult{}, err
 	}
@@ -422,10 +474,13 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 
 	_, hoistedTypes := codegen.HoistTypeDeclarations(file.Frontmatter)
 
-	// Derive the unique props type name (same logic as GenerateHandler)
+	// Derive the unique props type name. Mirrors the mangling scheme
+	// applied by GenerateHandler under MangleHoisted=true so the
+	// per-router render.go references the same symbol the
+	// per-component .gen.go declares at package scope.
 	propsTypeName := info.PropsTypeName
 	if propsTypeName != "" {
-		propsTypeName = funcName + strings.ToUpper(propsTypeName[:1]) + propsTypeName[1:]
+		propsTypeName = "__component_" + codegen.DerivePageID(file.Filename) + "_" + propsTypeName
 	}
 
 	compMeta := &componentMeta{
