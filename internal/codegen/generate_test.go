@@ -45,6 +45,11 @@ Title := "Hello"`,
 
 	// Should call template execution
 	assertContains(t, output, `Execute`)
+
+	// Should emit `_ = Title` so the LSP shadow's queryVariableTypes
+	// can resolve the type via gopls hover. Required for template-body
+	// hover/completion to show types.
+	assertContains(t, output, "_ = Title")
 }
 
 func TestGenerate_ComponentRenderFunc(t *testing.T) {
@@ -245,6 +250,64 @@ Summary := fmt.Sprintf("%s (%d)", gastro.Props().Label, gastro.Props().Count)`,
 	assertContains(t, output, `Label := __props.Label`)
 	assertContains(t, output, `Summary := fmt.Sprintf("%s (%d)", __props.Label, __props.Count)`)
 	assertNotContains(t, output, `gastro.Props`)
+}
+
+func TestGenerate_ExportedVarSuppressionLines_Order(t *testing.T) {
+	// Two exported vars must produce `_ = X` lines in source order so
+	// the codegen output is byte-stable across runs (`gastro check`
+	// invariant).
+	file := &parser.File{
+		Filename: "pages/index.gastro",
+		Frontmatter: `Title := "Hello"
+Posts := []string{}`,
+		TemplateBody: "<h1>{{ .Title }}</h1>",
+	}
+	info := &codegen.FrontmatterInfo{
+		ExportedVars: []codegen.VarInfo{
+			{Name: "Title", Line: 1},
+			{Name: "Posts", Line: 2},
+		},
+		IsPage: true,
+	}
+	out, err := codegen.GenerateHandler(file, info, false, codegen.GenerateOptions{MangleHoisted: true})
+	if err != nil {
+		t.Fatalf("GenerateHandler: %v", err)
+	}
+	titleIdx := strings.Index(out, "_ = Title")
+	postsIdx := strings.Index(out, "_ = Posts")
+	if titleIdx < 0 || postsIdx < 0 {
+		t.Fatalf("expected both `_ = Title` and `_ = Posts`, got:\n%s", out)
+	}
+	if titleIdx >= postsIdx {
+		t.Errorf("expected `_ = Title` before `_ = Posts` (source order), got titleIdx=%d postsIdx=%d", titleIdx, postsIdx)
+	}
+}
+
+func TestGenerate_NoExportedVars_NoSuppressionLines(t *testing.T) {
+	// A page with no exported vars should not emit any user-facing
+	// `_ = X` lines (only the existing internal suppressions).
+	file := &parser.File{
+		Filename:     "pages/empty.gastro",
+		Frontmatter:  "",
+		TemplateBody: "<p>static</p>",
+	}
+	info := &codegen.FrontmatterInfo{IsPage: true}
+	out, err := codegen.GenerateHandler(file, info, false, codegen.GenerateOptions{MangleHoisted: true})
+	if err != nil {
+		t.Fatalf("GenerateHandler: %v", err)
+	}
+	// The only `_ = ` lines that may appear are the internal
+	// suppressions: `var _ = template.Must`, `var _ http.ResponseWriter`,
+	// `var _ = log.Println`. None of those are bare `\t_ = <ident>`
+	// inside the handler body.
+	handlerStart := strings.Index(out, "func (__router *Router) pageEmpty")
+	if handlerStart < 0 {
+		t.Fatalf("could not locate handler in:\n%s", out)
+	}
+	body := out[handlerStart:]
+	if strings.Contains(body, "\t_ = ") {
+		t.Errorf("unexpected `\\t_ = ...` line in handler body when ExportedVars is empty:\n%s", body)
+	}
 }
 
 func TestGenerate_MultipleExportedVars(t *testing.T) {

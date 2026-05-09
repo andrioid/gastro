@@ -262,6 +262,32 @@ These checks are not in CI because they require an editor session.
 The automated regression guard for the same invariant lives in
 `internal/lsp/shadow/shadow_hoist_test.go`.
 
+#### Frontmatter-var type-resolution smoke check
+
+When you change anything that touches `_ = X` suppression-line
+emission, the codegen handler/component templates, or
+`queryVariableTypes`/`queryFieldsFromGopls` in
+`internal/lsp/server/gopls.go`, run this manual smoke check:
+
+1. `mise run audit` — must stay green.
+2. Open `examples/blog/pages/blog/index.gastro` in an editor with the
+   gastro LSP attached.
+3. Hover on `{{ .Posts }}`. The popup must show the type
+   `[]db.Post` (or similar) in a code block, not just the
+   description "frontmatter variable". Missing type means
+   `queryVariableTypes` returned empty — likely the `_ = Posts`
+   suppression line stopped being emitted.
+4. Inside `{{ range .Posts }}`, type `{{ .` and trigger completion.
+   You should see `Title`, `Slug`, `Author` etc. — the fields of
+   `db.Post`. No completions means the probe-injection in
+   `queryFieldsFromGopls` couldn't anchor on a `_ = Posts` line.
+
+The automated regression guards live at
+`cmd/gastro/lsp_integration_test.go::TestLSP_TemplateHover` (asserts
+the type string is present, not just the description) and
+`TestLSP_TemplateRangeFieldCompletion` (asserts range-scoped field
+completion runs end-to-end).
+
 #### LSP binary refresh when hacking on gastro
 
 The LSP is a long-running process. When you change gastro source the

@@ -38,6 +38,13 @@ Title := "Hello"`
 	if !strings.Contains(out, `"SlugRE": __page_index_SlugRE`) {
 		t.Errorf("expected __data[\"SlugRE\"] = __page_index_SlugRE, got:\n%s", out)
 	}
+	// And `_ = __page_index_SlugRE` is emitted in the handler body so
+	// the LSP shadow's queryVariableTypes scan finds the ident under
+	// MangleHoisted=true. (Under MangleHoisted=false the same template
+	// produces `_ = SlugRE`, exercised by the shadow tests.)
+	if !strings.Contains(out, "_ = __page_index_SlugRE") {
+		t.Errorf("expected `_ = __page_index_SlugRE` suppression line, got:\n%s", out)
+	}
 	// Title := stays in the handler body.
 	if !strings.Contains(out, `Title := "Hello"`) {
 		t.Errorf("expected Title := to remain in body, got:\n%s", out)

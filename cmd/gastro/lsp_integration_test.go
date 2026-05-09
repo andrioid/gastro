@@ -485,6 +485,14 @@ func TestLSP_TemplateHover(t *testing.T) {
 	if !strings.Contains(value, "frontmatter variable") {
 		t.Errorf("expected hover to mention 'frontmatter variable', got: %s", value)
 	}
+
+	// And the type itself must be present — hover popups without type
+	// info are the regression mode `_ = Title` suppression lines
+	// repair. Without the suppression line, queryVariableTypes returns
+	// empty and hover falls back to the bare description.
+	if !strings.Contains(value, "string") {
+		t.Errorf("expected hover to include the type `string`, got: %s", value)
+	}
 }
 
 func TestLSP_TemplateHover_Function(t *testing.T) {
@@ -852,6 +860,108 @@ func TestLSP_UnhandledRequestGetsResponse(t *testing.T) {
 
 	if resp["id"] == nil {
 		t.Error("expected response with an id")
+	}
+}
+
+// TestLSP_TemplateRangeFieldCompletion exercises the end-to-end chain
+// queryVariableTypes → queryFieldsFromGopls → parseFieldCompletions.
+// Inside `{{ range .Posts }}`, completion on `.T` should suggest the
+// `Title` field of the element type. Without `_ = Posts` suppression
+// lines in the shadow source, queryFieldsFromGopls bails before any
+// probe injection happens, so this test is the regression guard for
+// the suppression-line fix.
+func TestLSP_TemplateRangeFieldCompletion(t *testing.T) {
+	projectDir := setupTestProject(t)
+
+	// Define a `post` type the page's Posts slice references. The
+	// page declares `Posts := []post{ ... }` so the LSP shadow has
+	// enough info to derive the element type via gopls.
+	dbDir := filepath.Join(projectDir, "db")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dbSrc := `package db
+
+type Post struct {
+	Title  string
+	Author string
+}
+
+func List() []Post { return nil }
+`
+	if err := os.WriteFile(filepath.Join(dbDir, "db.go"), []byte(dbSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	client := startLSP(t, projectDir)
+	client.send("initialize", map[string]any{
+		"rootUri":      "file://" + projectDir,
+		"capabilities": map[string]any{},
+	})
+	client.recv(t, 10*time.Second)
+	client.notify("initialized", map[string]any{})
+
+	// line 5: <p>{{ range .Posts }}{{ .T }}{{ end }}</p>
+	//                                       ^-- char 32 is just after ".T"
+	gastroContent := "---\n" +
+		"import \"testproject/db\"\n" +
+		"\n" +
+		"Posts := db.List()\n" +
+		"---\n" +
+		"<p>{{ range .Posts }}{{ .T }}{{ end }}</p>\n"
+	fileURI := "file://" + filepath.Join(projectDir, "pages", "index.gastro")
+
+	client.notify("textDocument/didOpen", map[string]any{
+		"textDocument": map[string]any{
+			"uri":        fileURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       gastroContent,
+		},
+	})
+
+	// Cursor on `.T` after the range scope opens. Position computed
+	// from the literal: "<p>{{ range .Posts }}{{ .T " — the 'T' is
+	// followed by ' ', and we want completion AFTER the T.
+	line := "<p>{{ range .Posts }}{{ .T "
+	ch := strings.Index(line, ".T") + 2 // position past T
+	client.send("textDocument/completion", map[string]any{
+		"textDocument": map[string]any{"uri": fileURI},
+		"position":     map[string]any{"line": 5, "character": ch},
+	})
+
+	resp := client.recv(t, 30*time.Second)
+	result := resp["result"]
+	if result == nil {
+		t.Fatal("expected completion result, got nil")
+	}
+	items, ok := result.([]any)
+	if !ok {
+		t.Fatalf("expected array of completions, got: %T", result)
+	}
+
+	// At minimum, `.Title` should appear among the candidates. Don't
+	// assert exact list contents — gopls may return more (built-in
+	// helpers, etc.). The point is the field-resolution chain ran.
+	var labels []string
+	for _, item := range items {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if lbl, ok := m["label"].(string); ok {
+			labels = append(labels, lbl)
+		}
+	}
+	found := false
+	for _, lbl := range labels {
+		if lbl == ".Title" || lbl == "Title" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected `.Title` (or `Title`) among range-scoped field completions, got labels: %v", labels)
 	}
 }
 

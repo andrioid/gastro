@@ -287,6 +287,13 @@ func (__router *Router) {{ .FuncName }}(w http.ResponseWriter, r *http.Request) 
 
 	{{ .Frontmatter }}
 
+	// Suppress unused-var warnings for exported frontmatter vars and
+	// provide hover-type anchors for the LSP shadow's queryVariableTypes
+	// scan. The lines compile to no-op blank-assignment reads.
+	{{- range .ExportedVars }}
+	_ = {{ .EmitName }}
+	{{- end }}
+
 	if gastroRuntime.BodyWritten(w) {
 		return
 	}
@@ -358,6 +365,13 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	{{- end }}
 
 	{{ .Frontmatter }}
+
+	// Suppress unused-var warnings for exported frontmatter vars and
+	// provide hover-type anchors for the LSP shadow's queryVariableTypes
+	// scan. The lines compile to no-op blank-assignment reads.
+	{{- range .ExportedVars }}
+	_ = {{ .EmitName }}
+	{{- end }}
 
 	__data := map[string]any{
 	{{- range .ExportedVars }}

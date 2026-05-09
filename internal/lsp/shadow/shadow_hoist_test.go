@@ -224,6 +224,54 @@ var Path = r.URL.Path
 	}
 }
 
+// TestShadow_ExportedVarsHaveSuppressionLines confirms that the shadow
+// virtual file emits `_ = X` lines for every exported frontmatter var,
+// in source order. queryVariableTypes scans these lines to resolve
+// types via gopls hover; without them, template-body hover and
+// completion silently fall back to "no type info".
+func TestShadow_ExportedVarsHaveSuppressionLines(t *testing.T) {
+	projectDir := createTestProject(t)
+	gastroSrc := `---
+import "fmt"
+
+Title := "Hello"
+Posts := []string{"a", "b"}
+fmt.Println("side effect")
+---
+<h1>{{ .Title }}</h1>
+{{ range .Posts }}<p>{{ . }}</p>{{ end }}
+`
+	pagePath := filepath.Join(projectDir, "pages", "index.gastro")
+	if err := os.WriteFile(pagePath, []byte(gastroSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := shadow.NewWorkspace(projectDir)
+	if err != nil {
+		t.Fatalf("NewWorkspace: %v", err)
+	}
+	defer ws.Close()
+
+	vf, err := ws.UpdateFile("pages/index.gastro", gastroSrc)
+	if err != nil {
+		t.Fatalf("UpdateFile: %v", err)
+	}
+
+	for _, name := range []string{"Title", "Posts"} {
+		needle := "_ = " + name
+		if !strings.Contains(vf.GoSource, needle) {
+			t.Errorf("shadow source missing %q (queryVariableTypes anchor):\n%s", needle, vf.GoSource)
+		}
+	}
+
+	// Order: Title before Posts (source order).
+	titleIdx := strings.Index(vf.GoSource, "_ = Title")
+	postsIdx := strings.Index(vf.GoSource, "_ = Posts")
+	if titleIdx < 0 || postsIdx < 0 || titleIdx >= postsIdx {
+		t.Errorf("expected `_ = Title` before `_ = Posts` (source order); titleIdx=%d postsIdx=%d", titleIdx, postsIdx)
+	}
+}
+
 // TestShadow_ComponentPropsType_Unmangled verifies that a component's
 // `type Props struct{}` stays unmangled in shadow output.
 func TestShadow_ComponentPropsType_Unmangled(t *testing.T) {
