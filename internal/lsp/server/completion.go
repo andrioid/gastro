@@ -18,6 +18,8 @@ const (
 	completionKindField    = 5
 	completionKindVariable = 6
 	completionKindClass    = 7 // used for components
+	completionKindFile     = 17
+	completionKindFolder   = 19
 )
 
 // LSP InsertTextFormat values
@@ -51,8 +53,13 @@ func (s *server) handleCompletion(msg *jsonRPCMessage) *jsonRPCMessage {
 
 	cursorLine := params.Position.Line + 1 // 0-indexed -> 1-indexed
 
-	// Frontmatter region: forward to gopls
+	// Frontmatter region: intercept //gastro:embed path completions
+	// before forwarding to gopls (gopls treats those as ordinary
+	// comments and offers nothing useful).
 	if cursorLine < parsed.TemplateBodyLine {
+		if items := s.embedDirectiveCompletion(params.TextDocument.URI, content, params.Position); items != nil {
+			return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: items}
+		}
 		result := s.forwardToGopls(params.TextDocument.URI, "textDocument/completion", params.Position)
 		if result == nil {
 			return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: []any{}}

@@ -68,6 +68,244 @@ type EmbedDirective struct {
 	Line     int    // source line of the directive
 }
 
+// EmbedDiagnosticKind classifies a problem detected on an embed
+// directive. Used by the LSP to render appropriate severity / quick-fix
+// affordances.
+type EmbedDiagnosticKind int
+
+const (
+	EmbedDiagInvalid       EmbedDiagnosticKind = iota // generic / catch-all
+	EmbedDiagMissingFile                              // path doesn't resolve
+	EmbedDiagOutsideModule                            // syntactic `..` escape
+	EmbedDiagBadVarType                               // var type isn't string / []byte
+	EmbedDiagBadGrammar                               // initializer / group / multi-name / stacked
+	EmbedDiagAbsolutePath                             // absolute path supplied
+	EmbedDiagInvalidUTF8                              // string var with non-UTF-8 file
+)
+
+// EmbedDiagnostic is a non-fatal report of one problem on a directive.
+// Line/column are 1-indexed within the supplied frontmatter source so
+// the LSP can rebase them onto the .gastro file's coordinates.
+type EmbedDiagnostic struct {
+	Kind         EmbedDiagnosticKind
+	Message      string
+	DirectiveLine int    // line of the //gastro:embed comment (1-indexed)
+	DeclLine     int    // line of the associated var decl (1-indexed); 0 if none
+	Path         string // user-supplied path (may be empty if grammar-level error)
+	VarName      string // associated var name (may be empty)
+	VarType      string // associated var type as written (may be empty)
+}
+
+// ValidateEmbedDirectives is the read-only counterpart to
+// ProcessEmbedDirectives. It surfaces the same set of issues without
+// mutating the frontmatter or reading file contents into memory —
+// suitable for LSP diagnostics where validation needs to be cheap and
+// frequent. Returns:
+//   - directives: every successfully-parsed directive (so the LSP can
+//     hover / cross-reference).
+//   - diags: zero or more issues, each annotated with the source line.
+//   - frontmatterPos: a function that maps a 1-indexed line within the
+//     supplied frontmatter to the same 1-indexed line in that source
+//     (no-op today, exposed for future re-shaping).
+//
+// Unlike ProcessEmbedDirectives, ValidateEmbedDirectives never returns
+// an error — every problem is reported as a diagnostic. The function
+// short-circuits on a frontmatter parse failure (returns nil/nil) since
+// the analyzer will surface the syntax error separately.
+func ValidateEmbedDirectives(frontmatter string, ctx EmbedContext) (directives []EmbedDirective, diags []EmbedDiagnostic) {
+	if !strings.Contains(frontmatter, "//gastro:embed") {
+		return nil, nil
+	}
+
+	prefix := "package __gastro\nfunc __h() {\n"
+	src := prefix + frontmatter + "\n}"
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "frontmatter.go", src, parser.ParseComments)
+	if err != nil {
+		return nil, nil
+	}
+	commentMap := ast.NewCommentMap(fset, file, file.Comments)
+
+	// Subtract 2: the synthetic prefix
+	// (`package __gastro\nfunc __h() {\n`) adds two lines that don't
+	// exist in the user's frontmatter.
+	toFrontmatterLine := func(wrappedLine int) int { return wrappedLine - 2 }
+
+	// Collect orphaned //gastro:embed comments (directive without a
+	// trailing var decl). We surface those as BadGrammar diagnostics.
+	directiveByCommentPos := map[token.Pos]bool{}
+
+	var declStmts []*ast.DeclStmt
+	ast.Inspect(file, func(n ast.Node) bool {
+		if ds, ok := n.(*ast.DeclStmt); ok {
+			declStmts = append(declStmts, ds)
+		}
+		return true
+	})
+
+	for _, ds := range declStmts {
+		gd, ok := ds.Decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.VAR {
+			continue
+		}
+
+		var directiveLines []string
+		var directiveLineNos []int
+		var directivePos []token.Pos
+		var leadingDoc *ast.CommentGroup
+		for _, cg := range commentMap[ds] {
+			if cg.End() > ds.Pos() {
+				continue
+			}
+			for _, c := range cg.List {
+				if path, ok := parseEmbedDirective(c.Text); ok {
+					directiveLines = append(directiveLines, path)
+					directiveLineNos = append(directiveLineNos, toFrontmatterLine(fset.Position(c.Pos()).Line))
+					directivePos = append(directivePos, c.Pos())
+					directiveByCommentPos[c.Pos()] = true
+				}
+			}
+			if leadingDoc == nil || cg.Pos() < leadingDoc.Pos() {
+				leadingDoc = cg
+			}
+		}
+		if len(directiveLines) == 0 {
+			continue
+		}
+
+		declLine := toFrontmatterLine(fset.Position(gd.Pos()).Line)
+
+		if len(directiveLines) > 1 {
+			diags = append(diags, EmbedDiagnostic{
+				Kind:          EmbedDiagBadGrammar,
+				Message:       fmt.Sprintf("//gastro:embed: multiple directives stacked on one var (lines %v); use one per var", directiveLineNos),
+				DirectiveLine: directiveLineNos[0],
+				DeclLine:      declLine,
+			})
+			continue
+		}
+
+		path := directiveLines[0]
+		directiveLine := directiveLineNos[0]
+
+		if len(gd.Specs) != 1 {
+			diags = append(diags, EmbedDiagnostic{
+				Kind:          EmbedDiagBadGrammar,
+				Message:       "//gastro:embed: parenthesized var groups are not allowed; declare one `var X T` per directive",
+				DirectiveLine: directiveLine,
+				DeclLine:      declLine,
+				Path:          path,
+			})
+			continue
+		}
+		spec := gd.Specs[0].(*ast.ValueSpec)
+		if len(spec.Names) != 1 {
+			diags = append(diags, EmbedDiagnostic{
+				Kind:          EmbedDiagBadGrammar,
+				Message:       "//gastro:embed: multi-name var spec (`var A, B T`) is not allowed; declare one var per directive",
+				DirectiveLine: directiveLine,
+				DeclLine:      declLine,
+				Path:          path,
+			})
+			continue
+		}
+		if spec.Values != nil {
+			diags = append(diags, EmbedDiagnostic{
+				Kind:          EmbedDiagBadGrammar,
+				Message:       "//gastro:embed: explicit initializer not allowed; remove the `=` expression and let the directive supply the value",
+				DirectiveLine: directiveLine,
+				DeclLine:      declLine,
+				Path:          path,
+			})
+			continue
+		}
+		varType, typeOK := classifyEmbedVarType(spec.Type)
+		varName := spec.Names[0].Name
+		typeText := formatTypeExpr(spec.Type)
+		if !typeOK {
+			diags = append(diags, EmbedDiagnostic{
+				Kind:          EmbedDiagBadVarType,
+				Message:       fmt.Sprintf("//gastro:embed requires var of type `string` or `[]byte`; got `%s`", typeText),
+				DirectiveLine: directiveLine,
+				DeclLine:      declLine,
+				Path:          path,
+				VarName:       varName,
+				VarType:       typeText,
+			})
+			continue
+		}
+
+		if filepath.IsAbs(path) {
+			diags = append(diags, EmbedDiagnostic{
+				Kind:          EmbedDiagAbsolutePath,
+				Message:       fmt.Sprintf("//gastro:embed: absolute paths are not allowed (got %q); use a path relative to the .gastro source", path),
+				DirectiveLine: directiveLine,
+				DeclLine:      declLine,
+				Path:          path,
+				VarName:       varName,
+				VarType:       varType,
+			})
+			continue
+		}
+
+		resolved, err := resolveEmbedPath(path, ctx)
+		if err != nil {
+			kind := EmbedDiagInvalid
+			msg := err.Error()
+			switch {
+			case strings.Contains(msg, "escapes the module root"):
+				kind = EmbedDiagOutsideModule
+			case strings.Contains(msg, "reading"):
+				kind = EmbedDiagMissingFile
+			}
+			diags = append(diags, EmbedDiagnostic{
+				Kind:          kind,
+				Message:       fmt.Sprintf("//gastro:embed %q: %s", path, msg),
+				DirectiveLine: directiveLine,
+				DeclLine:      declLine,
+				Path:          path,
+				VarName:       varName,
+				VarType:       varType,
+			})
+			continue
+		}
+
+		// File found and resolved — record the directive. We don't read
+		// the file in the validation path; only the codegen pass needs
+		// the bytes, and reading on every keystroke would be wasteful.
+		directives = append(directives, EmbedDirective{
+			VarName:  varName,
+			VarType:  varType,
+			Path:     path,
+			Resolved: resolved,
+			Line:     directiveLine,
+		})
+	}
+
+	// Orphan check: any //gastro:embed comment in the frontmatter that
+	// wasn't claimed by a DeclStmt above. Common causes: directive on
+	// its own line with no var following, or a blank line between the
+	// directive and the var (CommentMap won't associate them then).
+	for _, cg := range file.Comments {
+		for _, c := range cg.List {
+			if _, isEmbed := parseEmbedDirective(c.Text); !isEmbed {
+				continue
+			}
+			if directiveByCommentPos[c.Pos()] {
+				continue
+			}
+			diags = append(diags, EmbedDiagnostic{
+				Kind:          EmbedDiagBadGrammar,
+				Message:       "//gastro:embed: directive must sit immediately above a `var X string` or `var X []byte` declaration (no blank line)",
+				DirectiveLine: toFrontmatterLine(fset.Position(c.Pos()).Line),
+			})
+		}
+	}
+
+	return directives, diags
+}
+
 // ProcessEmbedDirectives parses //gastro:embed comments out of the
 // frontmatter source, validates each, reads the referenced files, and
 // returns rewritten frontmatter + a deduplicated list of resolved
@@ -151,7 +389,8 @@ func ProcessEmbedDirectives(frontmatter string, ctx EmbedContext) (string, []str
 			for _, c := range cg.List {
 				if path, ok := parseEmbedDirective(c.Text); ok {
 					directiveLines = append(directiveLines, path)
-					directiveLineNos = append(directiveLineNos, fset.Position(c.Pos()).Line-1)
+					// -2 maps past the synthetic prefix.
+					directiveLineNos = append(directiveLineNos, fset.Position(c.Pos()).Line-2)
 				}
 			}
 			if leadingDoc == nil || cg.Pos() < leadingDoc.Pos() {
@@ -169,7 +408,7 @@ func ProcessEmbedDirectives(frontmatter string, ctx EmbedContext) (string, []str
 		}
 
 		path := directiveLines[0]
-		declLine := fset.Position(gd.Pos()).Line - 1 // -1 to map past the synthetic prefix
+		declLine := fset.Position(gd.Pos()).Line - 2 // -2 maps past the synthetic prefix
 
 		// Grammar: single ValueSpec, single Name, no Values, supported type.
 		if len(gd.Specs) != 1 {

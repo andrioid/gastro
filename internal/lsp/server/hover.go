@@ -31,6 +31,12 @@ func (s *server) handleHover(msg *jsonRPCMessage) *jsonRPCMessage {
 
 	cursorLine := params.Position.Line + 1
 	if cursorLine < parsed.TemplateBodyLine {
+		// //gastro:embed lines: gopls sees them as ordinary comments and
+		// returns nil hover. Intercept first so users get a useful
+		// resolved-path hover when the cursor sits on the directive.
+		if hov := s.embedDirectiveHover(params.TextDocument.URI, content, parsed, params.Position); hov != nil {
+			return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: hov}
+		}
 		result := s.forwardToGopls(params.TextDocument.URI, "textDocument/hover", params.Position)
 		if result != nil {
 			// Remap range from virtual .go coordinates to .gastro coordinates

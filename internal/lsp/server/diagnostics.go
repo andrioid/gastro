@@ -120,6 +120,39 @@ func (s *server) runTemplateDiagnostics(uri, content string) {
 		})
 	}
 
+	// //gastro:embed diagnostics. Resolve the source file's path from the
+	// URI so paths in the directive can be evaluated relative to it; the
+	// module root is the closest go.mod above the source.
+	if sourceFile := uriToPath(uri); sourceFile != "" {
+		moduleRoot := codegen.FindModuleRootForFile(sourceFile)
+		if moduleRoot != "" {
+			_, embedDiags := codegen.ValidateEmbedDirectives(parsed.Frontmatter, codegen.EmbedContext{
+				SourceFile: sourceFile,
+				ModuleRoot: moduleRoot,
+			})
+			contentLines := strings.Split(content, "\n")
+			for _, ed := range embedDiags {
+				line := fmLineOffset + ed.DirectiveLine - 1
+				if line < 0 {
+					continue
+				}
+				lineLen := 0
+				if line < len(contentLines) {
+					lineLen = len(contentLines[line])
+				}
+				lspDiags = append(lspDiags, map[string]any{
+					"range": map[string]any{
+						"start": map[string]any{"line": line, "character": 0},
+						"end":   map[string]any{"line": line, "character": lineLen},
+					},
+					"severity": diagnosticSeverityError,
+					"message":  ed.Message,
+					"source":   "gastro",
+				})
+			}
+		}
+	}
+
 	for _, d := range templateDiags {
 		severity := d.Severity
 		if severity == 0 {

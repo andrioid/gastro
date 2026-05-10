@@ -508,3 +508,98 @@ var Content string
 		t.Errorf("directive line should be stripped:\n%s", out)
 	}
 }
+
+// --- ValidateEmbedDirectives (LSP-side, read-only) ---
+
+func TestValidate_NoDirectives(t *testing.T) {
+	root, src := makeModuleScaffold(t)
+	dirs, diags := codegen.ValidateEmbedDirectives("var X = 1\n", codegen.EmbedContext{SourceFile: src, ModuleRoot: root})
+	if len(dirs) != 0 || len(diags) != 0 {
+		t.Errorf("expected no directives or diagnostics, got dirs=%v diags=%v", dirs, diags)
+	}
+}
+
+func TestValidate_HappyPath(t *testing.T) {
+	root, src := makeModuleScaffold(t)
+	writeFile(t, filepath.Join(root, "pages", "intro.md"), []byte("# hi"))
+	in := "\n//gastro:embed intro.md\nvar Content string\n"
+	dirs, diags := codegen.ValidateEmbedDirectives(in, codegen.EmbedContext{SourceFile: src, ModuleRoot: root})
+	if len(diags) != 0 {
+		t.Errorf("expected no diagnostics, got %v", diags)
+	}
+	if len(dirs) != 1 {
+		t.Fatalf("expected 1 directive, got %v", dirs)
+	}
+	if dirs[0].VarName != "Content" || dirs[0].VarType != "string" || dirs[0].Path != "intro.md" {
+		t.Errorf("directive content unexpected: %+v", dirs[0])
+	}
+}
+
+func TestValidate_MissingFile_DiagKind(t *testing.T) {
+	root, src := makeModuleScaffold(t)
+	in := "\n//gastro:embed nope.md\nvar X string\n"
+	_, diags := codegen.ValidateEmbedDirectives(in, codegen.EmbedContext{SourceFile: src, ModuleRoot: root})
+	if len(diags) != 1 || diags[0].Kind != codegen.EmbedDiagMissingFile {
+		t.Fatalf("expected single MissingFile diag, got %v", diags)
+	}
+}
+
+func TestValidate_OutsideModule_DiagKind(t *testing.T) {
+	root, src := makeModuleScaffold(t)
+	in := "\n//gastro:embed ../../../../etc/passwd\nvar X string\n"
+	_, diags := codegen.ValidateEmbedDirectives(in, codegen.EmbedContext{SourceFile: src, ModuleRoot: root})
+	if len(diags) != 1 || diags[0].Kind != codegen.EmbedDiagOutsideModule {
+		t.Fatalf("expected single OutsideModule diag, got %v", diags)
+	}
+}
+
+func TestValidate_BadVarType_DiagKind(t *testing.T) {
+	root, src := makeModuleScaffold(t)
+	writeFile(t, filepath.Join(root, "pages", "x.md"), []byte("hi"))
+	in := "\n//gastro:embed x.md\nvar X int\n"
+	_, diags := codegen.ValidateEmbedDirectives(in, codegen.EmbedContext{SourceFile: src, ModuleRoot: root})
+	if len(diags) != 1 || diags[0].Kind != codegen.EmbedDiagBadVarType {
+		t.Fatalf("expected single BadVarType diag, got %v", diags)
+	}
+	if diags[0].VarType != "int" {
+		t.Errorf("expected VarType=int, got %q", diags[0].VarType)
+	}
+}
+
+func TestValidate_StackedDirectives_DiagKind(t *testing.T) {
+	root, src := makeModuleScaffold(t)
+	in := "\n//gastro:embed a.md\n//gastro:embed b.md\nvar X string\n"
+	_, diags := codegen.ValidateEmbedDirectives(in, codegen.EmbedContext{SourceFile: src, ModuleRoot: root})
+	if len(diags) != 1 || diags[0].Kind != codegen.EmbedDiagBadGrammar {
+		t.Fatalf("expected single BadGrammar (stacked) diag, got %v", diags)
+	}
+}
+
+func TestValidate_OrphanDirective_DiagKind(t *testing.T) {
+	root, src := makeModuleScaffold(t)
+	writeFile(t, filepath.Join(root, "pages", "x.md"), []byte("hi"))
+	// Directive with no var declaration following it at all —
+	// nothing for go/parser's CommentMap to bind to.
+	in := "\n//gastro:embed x.md\n\nFoo := 42\n_ = Foo\n"
+	_, diags := codegen.ValidateEmbedDirectives(in, codegen.EmbedContext{SourceFile: src, ModuleRoot: root})
+	if len(diags) != 1 || diags[0].Kind != codegen.EmbedDiagBadGrammar {
+		t.Fatalf("expected single BadGrammar (orphan) diag, got %v", diags)
+	}
+}
+
+func TestValidate_LineNumbersAreFrontmatterRelative(t *testing.T) {
+	root, src := makeModuleScaffold(t)
+	in := "\n\n\n//gastro:embed nope.md\nvar X string\n"
+	_, diags := codegen.ValidateEmbedDirectives(in, codegen.EmbedContext{SourceFile: src, ModuleRoot: root})
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diag, got %v", diags)
+	}
+	// Directive is on line 4 of the frontmatter (after three leading
+	// blank lines). DeclLine is 5.
+	if diags[0].DirectiveLine != 4 {
+		t.Errorf("expected DirectiveLine=4, got %d", diags[0].DirectiveLine)
+	}
+	if diags[0].DeclLine != 5 {
+		t.Errorf("expected DeclLine=5, got %d", diags[0].DeclLine)
+	}
+}
