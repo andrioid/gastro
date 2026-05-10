@@ -200,12 +200,13 @@ Provides:
 - `DetectChangedSection(old, new)` -- determine if frontmatter or template changed
 - `ClassifyChange(file, section)` -- decide if change needs restart or reload
 - `Debounce(duration, fn)` -- rate-limit rapid file changes
-- `ExternalDeps` -- shared, concurrency-safe set of markdown files referenced
-  by `{{ markdown "..." }}` directives; the compiler populates it from
-  `CompileResult.MarkdownDeps` after each successful compile and the dev
-  watcher polls those paths. This supports out-of-tree markdown files (e.g.
-  a shared `docs/` directory above the project root) and avoids watching
-  unreferenced `.md` files. Paths are canonicalized via `EvalSymlinks` so a
+- `ExternalDeps` -- shared, concurrency-safe set of external files referenced
+  by `//gastro:embed` directives in `.gastro` frontmatter; the compiler
+  populates it from `CompileResult.EmbedDeps` after each successful
+  compile and the dev watcher polls those paths. This supports symlinked
+  out-of-tree content (e.g. a shared `docs/` directory above the project
+  root reachable via a symlink inside the module) and avoids watching
+  unreferenced files. Paths are canonicalized via `EvalSymlinks` so a
   symlink and its target dedupe to one watched file.
 
 ### `pkg/gastro/`
@@ -360,12 +361,15 @@ parser.File {
      |         Warnings: []  // Track B marker / missing-return findings
      |     }
      |
-     +---> codegen.ProcessMarkdownDirectives()
+     +---> codegen.ProcessEmbedDirectives()
      |         |
      |         v
-     |     (inline HTML for each {{ markdown "..." }}, rendered with
-     |      goldmark + chroma at compile time; collects .md dep paths
-     |      so the dev watcher can trigger regen on change)
+     |     (rewrites each //gastro:embed PATH directive in frontmatter
+     |      into `var X = "<file contents>"`; collects resolved
+     |      absolute paths so the dev watcher can trigger regen on
+     |      external-file change. User code renders bytes — the
+     |      framework no longer ships goldmark/chroma. See
+     |      docs/markdown.md.)
      |
      +---> codegen.TransformTemplate()
      |         |

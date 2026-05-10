@@ -132,8 +132,10 @@ edits:
 ```
 
 `.gastro/templates/*.html` are not copies of your `.gastro` source files
-— they're build artifacts (frontmatter stripped, `{{ markdown }}`
-expanded, `{{ wrap }}` rewritten to compiled component calls). The
+— they're build artifacts (frontmatter stripped, `{{ wrap }}`
+rewritten to compiled component calls). External content referenced
+by `//gastro:embed` is baked into the generated `.gastro/*.go`
+handler files at codegen time, not into the templates. The
 Go handler files in `.gastro/*.go` are still committed and remain the
 reviewable surface; `gastro check` continues to catch drift between
 source `.gastro` files and generated Go even with `templates/`

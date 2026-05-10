@@ -185,6 +185,11 @@ a layout skeleton.
 | Pre-render in frontmatter | Many components, deeply nested props, full type safety in Go |
 | `gastro.Render` from Go code | SSE handlers, tests, background workers |
 
+For components that should accept pre-rendered markdown as a prop
+(e.g. a hero block where the body copy lives in a `.md` file), see
+[Markdown](markdown.md) — it covers the `//gastro:embed` directive
+plus the `template.HTML` prop pattern.
+
 ## Type Coercion
 
 Gastro automatically coerces prop values to match struct field types:

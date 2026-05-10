@@ -261,8 +261,8 @@ setup. It's a small, focused, gastro-aware version of the slice of
 `air` that gastro projects actually need.
 
 It is **not** a general-purpose Go file watcher. The watch surface is
-hardcoded: `.gastro` files, `*.md` files referenced via `{{ markdown
-... }}` directives, `static/**`, and `*.go` files anywhere under the
+hardcoded: `.gastro` files, `*.md` (and other files) referenced via
+`//gastro:embed` directives, `static/**`, and `*.go` files anywhere under the
 project root (minus `.gastro/`, `vendor/`, `node_modules/`, `.git/`,
 `tmp/`, plus any `--exclude` paths). It doesn't watch arbitrary file
 extensions. This is intentional: covering the cases gastro projects

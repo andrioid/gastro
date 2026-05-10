@@ -269,6 +269,7 @@ dynamic pages, template helpers, and static assets.
 - [Getting Started — Library Mode](docs/getting-started-library.md) -- Add gastro to an existing Go project
 - [Pages](docs/pages.md) -- Page authoring guide and API reference
 - [Components](docs/components.md) -- Component authoring guide and API reference
+- [Markdown](docs/markdown.md) -- Embedding markdown via `//gastro:embed` and rendering with goldmark
 - [Dev Mode](docs/dev-mode.md) -- `gastro dev`, `gastro watch`, env vars, composed setups
 - [Error Handling](docs/error-handling.md) -- Failure modes and `WithErrorHandler`
 - [Design](docs/design.md) -- Complete design document with all decisions

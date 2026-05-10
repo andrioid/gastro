@@ -155,6 +155,14 @@ package init (e.g. with `GODEBUG=inittrace=1`); a heavy regex compile
 or synchronous network call masquerading as a `var` will show up
 there.
 
+### Embedding static content
+
+For markdown, JSON config, or any other text/binary content shipped
+with the repo, use the `//gastro:embed PATH` directive in frontmatter
+to bake bytes into a `string` or `[]byte` var at codegen time. See
+[Markdown](markdown.md) for the directive contract and the canonical
+render-once-at-init pattern.
+
 ```gastro
 ---
 import (

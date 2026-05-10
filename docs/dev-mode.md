@@ -81,7 +81,7 @@ of use cases gastro projects actually have.
 It is **not** a general-purpose Go file watcher. The watch surface is
 hardcoded to:
 
-- `.gastro`, `.md` (referenced via `{{ markdown ... }}`), and `static/**`,
+- `.gastro`, `.md` (and other files referenced via `//gastro:embed`), and `static/**`,
   rooted at the gastro project root (`--project` / `GASTRO_PROJECT` / cwd).
 - `*.go` files under the **enclosing Go module root** — by default
   `gastro watch` walks up from the project root looking for a `go.mod` and
