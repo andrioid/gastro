@@ -9,39 +9,48 @@ type Props struct {
 p := gastro.Props()
 Title := p.Title
 Active := p.Active
+
+// Active-link class chunk used across every nav <li>. Conditional in
+// each entry below via `{{ if eq .Active "..." }}`. Pulled out as a
+// constant so the template doesn't repeat the literal string 11 times.
+ActiveLink := "bg-accent-light text-accent font-semibold"
 ---
 {{ wrap Layout (dict "Title" .Title) }}
-    <div class="docs-container">
-        <aside class="docs-sidebar">
-            <details class="docs-sidebar-menu" open>
-                <summary class="docs-sidebar-toggle">Navigation</summary>
-                <nav class="docs-sidebar-nav" aria-label="Documentation">
-                    <h3>Documentation</h3>
-                    <ul>
-                        <li><a href="/docs/getting-started" {{ if eq .Active "getting-started" }}class="active" aria-current="page"{{ end }}>Getting Started (new project)</a></li>
-                        <li><a href="/docs/getting-started-library" {{ if eq .Active "getting-started-library" }}class="active" aria-current="page"{{ end }}>Getting Started (existing project)</a></li>
-                        <li><a href="/docs/pages" {{ if eq .Active "pages" }}class="active" aria-current="page"{{ end }}>Pages &amp; Routing</a></li>
-                        <li><a href="/docs/components" {{ if eq .Active "components" }}class="active" aria-current="page"{{ end }}>Components</a></li>
-                        <li><a href="/docs/sse" {{ if eq .Active "sse" }}class="active" aria-current="page"{{ end }}>SSE &amp; Datastar</a></li>
-                        <li><a href="/docs/helpers" {{ if eq .Active "helpers" }}class="active" aria-current="page"{{ end }}>Template Helpers</a></li>
-                        <li><a href="/docs/deployment" {{ if eq .Active "deployment" }}class="active" aria-current="page"{{ end }}>Deployment</a></li>
-                        <li><a href="/docs/comparison" {{ if eq .Active "comparison" }}class="active" aria-current="page"{{ end }}>Comparison</a></li>
+    <div class="max-w-site mx-auto px-6 py-6 grid grid-cols-1 gap-5 min-h-[calc(100vh-156px)] md:grid-cols-[210px_1fr] md:px-8 md:py-8 md:gap-12">
+        <aside class="md:sticky md:top-[72px] md:self-start md:pt-3 max-md:border-b max-md:border-border max-md:pb-0">
+            <details class="block" open>
+                <summary data-disclosure class="hidden max-md:block py-[0.6rem] text-[0.88rem] font-semibold text-text cursor-pointer list-none [&::-webkit-details-marker]:hidden before:content-['\25B6'] before:inline-block before:mr-2 before:text-[0.65rem] before:transition-transform">Navigation</summary>
+                <nav class="max-md:pb-4" aria-label="Documentation">
+                    {{- /* Sidebar nav. The h3 + ul pair repeats per section.
+                          Active-link class chunk lives in `.ActiveLink`. */ -}}
+                    <h3 class="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.08em] text-text-subtle mb-[0.6rem] mt-0">Documentation</h3>
+                    <ul class="list-none p-0 m-0 [&_li]:mb-[0.15rem] [&_a]:block [&_a]:px-[0.7rem] [&_a]:py-[0.3rem] [&_a]:rounded-[5px] [&_a]:text-text-muted [&_a]:text-[0.88rem] [&_a]:font-medium [&_a]:transition-all [&_a:hover]:text-text [&_a:hover]:bg-surface">
+                        <li><a href="/docs/getting-started" {{ if eq .Active "getting-started" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Getting Started (new project)</a></li>
+                        <li><a href="/docs/getting-started-library" {{ if eq .Active "getting-started-library" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Getting Started (existing project)</a></li>
+                        <li><a href="/docs/pages" {{ if eq .Active "pages" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Pages &amp; Routing</a></li>
+                        <li><a href="/docs/components" {{ if eq .Active "components" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Components</a></li>
+                        <li><a href="/docs/sse" {{ if eq .Active "sse" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>SSE &amp; Datastar</a></li>
+                        <li><a href="/docs/helpers" {{ if eq .Active "helpers" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Template Helpers</a></li>
+                        <li><a href="/docs/deployment" {{ if eq .Active "deployment" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Deployment</a></li>
+                        <li><a href="/docs/comparison" {{ if eq .Active "comparison" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Comparison</a></li>
                     </ul>
-                    <h3>Examples</h3>
-                    <ul>
-                        <li><a href="/examples/guestbook-plain" {{ if eq .Active "guestbook-plain" }}class="active" aria-current="page"{{ end }}>Guestbook (Plain)</a></li>
-                        <li><a href="/examples/guestbook-datastar" {{ if eq .Active "guestbook-datastar" }}class="active" aria-current="page"{{ end }}>Guestbook (Datastar)</a></li>
-                        <li><a href="/examples/guestbook-htmx" {{ if eq .Active "guestbook-htmx" }}class="active" aria-current="page"{{ end }}>Guestbook (HTMX)</a></li>
+                    <h3 class="font-mono text-[0.7rem] font-semibold uppercase tracking-[0.08em] text-text-subtle mb-[0.6rem] mt-6">Examples</h3>
+                    <ul class="list-none p-0 m-0 [&_li]:mb-[0.15rem] [&_a]:block [&_a]:px-[0.7rem] [&_a]:py-[0.3rem] [&_a]:rounded-[5px] [&_a]:text-text-muted [&_a]:text-[0.88rem] [&_a]:font-medium [&_a]:transition-all [&_a:hover]:text-text [&_a:hover]:bg-surface">
+                        <li><a href="/examples/guestbook-plain" {{ if eq .Active "guestbook-plain" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Guestbook (Plain)</a></li>
+                        <li><a href="/examples/guestbook-datastar" {{ if eq .Active "guestbook-datastar" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Guestbook (Datastar)</a></li>
+                        <li><a href="/examples/guestbook-htmx" {{ if eq .Active "guestbook-htmx" }}class="{{ .ActiveLink }}" aria-current="page"{{ end }}>Guestbook (HTMX)</a></li>
                     </ul>
                 </nav>
             </details>
             <script>
+                // Auto-close the sidebar accordion on small viewports so
+                // the docs content is the first thing the user sees.
                 if (window.matchMedia("(max-width: 900px)").matches) {
-                    document.querySelector(".docs-sidebar-menu").removeAttribute("open");
+                    document.querySelector("aside details").removeAttribute("open");
                 }
             </script>
         </aside>
-        <main id="main-content" class="docs-content">
+        <main id="main-content" class="prose-md pt-3 pb-16">
             {{ .Children }}
         </main>
     </div>

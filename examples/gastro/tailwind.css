@@ -1,0 +1,549 @@
+/* Tailwind v4 source for the gastro-website example.
+   Compiled into static/styles.css via the //go:generate directive in
+   generate.go. Tokens migrated 1:1 from the previous hand-rolled
+   styles.css :root block — the warm cream / muted brown / accent orange
+   palette is preserved verbatim.
+
+   Markdown-rendered content (md.MustRender output) is wrapped in
+   <div class="prose-md"> by the docs-layout component, and the prose
+   styles below provide the typography for those subtrees.
+
+   Mermaid theme JS in components/layout.gastro hard-codes the same hex
+   literals declared in @theme below — keep both in sync if the palette
+   ever changes. (This duplication exists because the mermaid client
+   library can't read CSS custom properties at init time.)
+*/
+
+@import "tailwindcss";
+
+/* Where to scan for utility class names. The .gastro template files are
+   the source of truth; helpers.go is included in case Go-side code ever
+   injects classes into rendered HTML. */
+@source "./components/**/*.gastro";
+@source "./pages/**/*.gastro";
+@source "./*.go";
+
+@theme {
+  /* Palette ---------------------------------------------------------- */
+  --color-bg:           #fffbf7;
+  --color-text:         #2c2418;
+  --color-text-muted:   #7a6e5d;
+  --color-text-subtle:  #a89f90;
+  --color-accent:       #e8722a;
+  --color-accent-hover: #d15f1a;
+  --color-accent-light: #fef3eb;
+  --color-accent-warm:  #f5a623;
+  --color-border:       #e8e0d4;
+  --color-border-light: #f2ece4;
+  --color-surface:      #f7f2ec;
+  --color-code-bg:      #2a2520;
+  --color-code-text:    #e0d6c8;
+  --color-header-bg:    #2c2418;
+  --color-header-text:  #f7f2ec;
+  --color-hero-bg:      #2c2418;
+
+  /* Typography ------------------------------------------------------- */
+  --font-display: "Source Serif 4", Georgia, serif;
+  --font-sans:    "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Radius ----------------------------------------------------------- */
+  --radius:    6px;
+  --radius-lg: 10px;
+
+  /* Container width — site is 1120px wide. Exposed as `max-w-site`. -- */
+  --container-site: 1120px;
+
+  /* Breakpoints --------------------------------------------------------
+     The original styles.css used hand-rolled media queries at 900px and
+     600px. We override Tailwind's default `sm:` and `md:` breakpoints to
+     those exact values so templates can stay mobile-first and use plain
+     `sm:` / `md:` modifiers without falling back to arbitrary
+     `[@media(max-width:900px)]:` strings everywhere. */
+  --breakpoint-sm: 600px;
+  --breakpoint-md: 900px;
+
+  /* Custom keyframes -------------------------------------------------- */
+  --animate-fade-up: fade-up 0.5s ease-out both;
+  --animate-spin: spin 0.6s linear infinite;
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0);    }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+}
+
+/* -------------------------------------------------------------------
+   Base layer — global element defaults that aren't tied to a single
+   utility composition. Keep this minimal; everything that *can* live as
+   a utility on a template element should.
+   ------------------------------------------------------------------- */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    line-height: 1.7;
+    color: var(--color-text);
+    background: var(--color-bg);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  a {
+    color: var(--color-accent);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  a:hover { color: var(--color-accent-hover); }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+
+  /* Inline code inside copy gets a chip treatment. The wider .prose-md
+     scope handles the same selectors for markdown-rendered content. */
+  p code, li code, td code, h1 code, h2 code, h3 code {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    padding: 0.1em 0.35em;
+    border-radius: 4px;
+    font-size: 0.84em;
+    color: var(--color-accent-hover);
+  }
+
+  /* Reduced-motion users opt out of all animation. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.01ms !important;
+    }
+    html { scroll-behavior: auto; }
+  }
+}
+
+/* -------------------------------------------------------------------
+   Component layer — multi-element patterns that don't decompose cleanly
+   into utilities. Kept deliberately small.
+   ------------------------------------------------------------------- */
+@layer components {
+  /* Skip link is hidden offscreen until focused (keyboard / SR users). */
+  .skip-link {
+    position: absolute;
+    top: -100%;
+    left: 1rem;
+    padding: 0.5rem 1rem;
+    background: var(--color-accent);
+    color: white;
+    border-radius: var(--radius);
+    font-weight: 600;
+    font-size: 0.9rem;
+    z-index: 200;
+    transition: top 0.15s ease;
+  }
+  .skip-link:focus { top: 0.5rem; color: white; }
+
+  /* sr-only — screen-reader-only text. (Tailwind ships `sr-only` as a
+     utility but keeping this here means template authors can use the
+     same class regardless of source.) */
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Spinner — used inside both Datastar and HTMX loading indicators. */
+  .spinner {
+    width: 16px; height: 16px;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-accent);
+    border-radius: 50%;
+    animation: var(--animate-spin);
+  }
+
+  /* HTMX visibility contract — htmx.js toggles the `htmx-request` class
+     on the source element while a request is in flight, and any
+     descendant marked `htmx-indicator` becomes visible. We invert the
+     default `display:none` from Tailwind reset by re-asserting both
+     sides of the contract. */
+  .htmx-indicator { display: none; }
+  .htmx-request .htmx-indicator,
+  .htmx-request.htmx-indicator { display: block; }
+
+  /* Docs prev/next nav. Pattern: a flex row of one or two anchors,
+     each containing a small label + larger title, with the second
+     anchor right-aligned via the `.next` modifier. Used in every docs
+     page and guestbook example — 11 call sites, so it earns its keep
+     as a component class instead of an 11-fold utility chain repeat. */
+  .docs-nav {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 3.5rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--color-border);
+    gap: 1rem;
+  }
+  .docs-nav > a {
+    display: block;
+    padding: 0.85rem 1.1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    transition: border-color 0.2s ease;
+    min-width: 170px;
+    text-decoration: none;
+  }
+  .docs-nav > a:hover { border-color: var(--color-accent); }
+  .docs-nav .next { text-align: right; margin-left: auto; }
+  .docs-nav-label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--color-text-subtle);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.2rem;
+  }
+  .docs-nav-title {
+    font-weight: 600;
+    color: var(--color-text);
+    font-size: 0.95rem;
+  }
+  @media (max-width: 600px) {
+    .docs-nav { flex-direction: column; }
+    .docs-nav .next { text-align: left; }
+  }
+
+  /* Buttons -------------------------------------------------------
+     `.btn` is the structural reset (padding, radius, transitions); the
+     two variants pin foreground/background/border. Used heavily across
+     the hero, docs nav, and guestbook examples — expressing this as
+     utilities every time would be ~12 classes per call site. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.65rem 1.4rem;
+    border-radius: var(--radius);
+    font-size: 0.92rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border: 1.5px solid transparent;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    text-align: center;
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    color: white;
+    border-color: var(--color-accent);
+  }
+  .btn-primary:hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+    color: white;
+    transform: translateY(-1px);
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--color-text-subtle);
+    border-color: rgba(255, 255, 255, 0.15);
+  }
+  .btn-secondary:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+    color: var(--color-header-text);
+  }
+  .btn-sm {
+    padding: 0.35rem 0.85rem;
+    font-size: 0.82rem;
+  }
+
+  /* Feature cards on the home page. Six instances with staggered
+     entrance animations — the `[animation-delay:Xs]` utility on each
+     instance feeds the shared `fade-up` keyframe defined in @theme. */
+  .feature-card {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: clamp(1.5rem, 2.5vw, 2rem);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    animation: fade-up 0.4s ease-out both;
+  }
+  .feature-card:hover {
+    border-color: var(--color-accent);
+    box-shadow: 0 2px 12px rgba(232, 114, 42, 0.06);
+  }
+
+  /* Code blocks (docs) ----------------------------------------------
+     Wraps PrismJS-highlighted <pre> blocks in docs pages. The inner
+     selectors override Prism's theme background so it inherits our
+     dark code background instead of the CDN theme's slate gray. */
+  .code-block {
+    margin: 1.25rem 0;
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid rgba(42, 37, 32, 0.08);
+  }
+  .code-block pre,
+  .code-block pre[class*="language-"] {
+    margin: 0;
+    padding: 1.2rem;
+    overflow-x: auto;
+    background: var(--color-code-bg);
+  }
+  .code-block pre code {
+    font-size: 0.84rem;
+    line-height: 1.65;
+    color: var(--color-code-text);
+  }
+  .code-block code[class*="language-"] {
+    background: transparent;
+  }
+
+  /* Hero code window <pre> overrides — the IntroHero markdown render
+     injects PrismJS-classed elements we don't control. Selecting them
+     under .hero-code-window keeps the rules local. */
+  .hero-code-window pre,
+  .hero-code-window pre[class*="language-"] {
+    margin: 0;
+    padding: 1.25rem;
+    overflow-x: auto;
+    background: var(--color-code-bg);
+  }
+  .hero-code-window pre code {
+    font-size: 0.84rem;
+    line-height: 1.65;
+  }
+  .hero-code-window code[class*="language-"] {
+    background: transparent;
+  }
+
+  /* Guestbook alerts -------------------------------------------------
+     Standalone color schemes that don't compose well from utilities
+     (the success palette uses Material green, error uses our accent
+     warm cream + Material red). */
+  .alert-success {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border: 1px solid #c8e6c9;
+  }
+  .alert-error {
+    background: #fef3eb;
+    color: #c62828;
+    border: 1px solid #ffe0cc;
+  }
+
+  /* Docs sidebar disclosure arrow. The arrow itself is rendered via
+     `before:content-['\25B6']` utilities on the <summary> in
+     docs-layout.gastro; this rule handles the rotate-on-open transition
+     because parent-state selectors (`details[open] > summary::before`)
+     don't express cleanly as utility variants. */
+  details[open] > summary[data-disclosure]::before {
+    transform: rotate(90deg);
+  }
+
+  /* Mermaid — hide raw source until mermaid.js has swapped in the SVG. */
+  .prose-md pre.mermaid {
+    margin: 1.5rem 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    text-align: center;
+    overflow-x: auto;
+  }
+  .prose-md pre.mermaid:not([data-processed="true"]) {
+    visibility: hidden;
+    min-height: 6rem;
+  }
+  .prose-md pre.mermaid svg {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* -------------------------------------------------------------------
+   Markdown prose styles — applied via <div class="prose-md"> wrapper
+   around md.MustRender output. Kept minimal and hand-rolled (no
+   @tailwindcss/typography plugin, per AGENTS.md 3rd-party policy).
+   ------------------------------------------------------------------- */
+@layer components {
+  .prose-md {
+    max-width: 720px;
+  }
+
+  .prose-md h1 {
+    font-family: var(--font-display);
+    font-size: clamp(1.75rem, 3vw, 2.1rem);
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+  /* Lede paragraph immediately after the page title gets a softer treatment. */
+  .prose-md h1 + p {
+    font-size: 1.05rem;
+    color: var(--color-text-muted);
+    margin-bottom: 2rem;
+    line-height: 1.7;
+  }
+
+  .prose-md h2 {
+    font-family: var(--font-display);
+    font-size: clamp(1.2rem, 2vw, 1.35rem);
+    font-weight: 700;
+    margin-top: 2.75rem;
+    margin-bottom: 0.75rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-border-light);
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+  }
+  .prose-md h2:first-of-type {
+    margin-top: 1.75rem;
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .prose-md h3 {
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin-top: 1.75rem;
+    margin-bottom: 0.6rem;
+    line-height: 1.3;
+  }
+
+  .prose-md p {
+    margin-bottom: 1rem;
+    color: var(--color-text);
+  }
+
+  .prose-md ul,
+  .prose-md ol {
+    margin-bottom: 1.25rem;
+    padding-left: 1.5rem;
+  }
+
+  .prose-md li {
+    margin-bottom: 0.35rem;
+    color: var(--color-text);
+  }
+
+  .prose-md strong { font-weight: 600; }
+
+  .prose-md blockquote {
+    border-left: 3px solid var(--color-accent);
+    margin: 1.5rem 0;
+    padding: 0.7rem 1.2rem;
+    background: var(--color-accent-light);
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+  .prose-md blockquote p { margin: 0; color: var(--color-text); }
+
+  /* Tables --------------------------------------------------------- */
+  .prose-md table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.25rem 0;
+    font-size: 0.9rem;
+  }
+  .prose-md th {
+    text-align: left;
+    padding: 0.6rem 0.85rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    font-weight: 600;
+    font-size: 0.84rem;
+  }
+  .prose-md td {
+    padding: 0.55rem 0.85rem;
+    border: 1px solid var(--color-border);
+    vertical-align: top;
+  }
+
+  /* Chroma syntax highlighting (markdown code blocks).
+     Site-specific muted palette tuned for the dark code background.
+     Independent of the `gastro new` scaffold's github theme. */
+  .prose-md pre.chroma {
+    margin: 1.25rem 0;
+    padding: 1.2rem;
+    border-radius: var(--radius);
+    border: 1px solid rgba(42, 37, 32, 0.08);
+    overflow-x: auto;
+    background: var(--color-code-bg);
+    color: var(--color-code-text);
+    font-size: 0.84rem;
+    line-height: 1.65;
+  }
+  .prose-md pre.chroma code {
+    background: transparent;
+    color: inherit;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  /* Token colors — keyword */
+  .chroma .k, .chroma .kd, .chroma .kn, .chroma .kp, .chroma .kr, .chroma .kt { color: #c98dff; }
+  /* string */
+  .chroma .s, .chroma .sa, .chroma .sb, .chroma .sc, .chroma .s1, .chroma .s2 { color: #a5d96b; }
+  /* comment */
+  .chroma .c, .chroma .c1, .chroma .cm, .chroma .cs { color: #8a8170; font-style: italic; }
+  /* preproc — used for gastro frontmatter --- and {{ ... }} */
+  .chroma .cp { color: #8a8170; font-style: italic; }
+  /* names / variables */
+  .chroma .n, .chroma .nx, .chroma .nv { color: var(--color-code-text); }
+  /* function / component names */
+  .chroma .nf, .chroma .nc { color: #7ec4ff; }
+  /* builtin */
+  .chroma .nb { color: #7ec4ff; }
+  /* HTML tag name */
+  .chroma .nt { color: #ff9e75; }
+  /* HTML / component attribute name */
+  .chroma .na { color: #e8a860; }
+  /* numbers */
+  .chroma .m, .chroma .mi, .chroma .mf { color: #e8a860; }
+  /* operators / punctuation */
+  .chroma .o, .chroma .p { color: #d6c9b4; }
+  .chroma .err { color: #ff8b6e; }
+}
+
+/* -------------------------------------------------------------------
+   Utilities layer — small helpers that are easier to express as a
+   single class name than as a long utility chain repeated everywhere.
+   ------------------------------------------------------------------- */
+@layer utilities {
+  /* Code window framing in the hero — matches `.code-window` shadow. */
+  .shadow-code-window {
+    box-shadow: 0 20px 40px -12px rgba(44, 36, 24, 0.45),
+                0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  /* Accent focus ring used on guestbook inputs. */
+  .ring-accent-soft {
+    box-shadow: 0 0 0 3px rgba(232, 114, 42, 0.1);
+  }
+  .ring-accent-soft-light {
+    box-shadow: 0 0 0 3px rgba(232, 114, 42, 0.08);
+  }
+}

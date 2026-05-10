@@ -14,30 +14,35 @@ Active := "guestbook-plain"
 Entries := demo.ListEntries()
 Error := q.Get("error")
 Success := q.Get("success")
+
+// Outer container chrome shared by all three guestbook examples.
+// Hoisted so changes touch one place; the Tailwind @source scanner
+// picks the literal up via @source "./*.go" (which includes pages/).
+GuestbookContainer := "flex flex-col gap-5 bg-surface border border-border rounded-lg p-4 sm:p-[clamp(1.25rem,2.5vw,2rem)]"
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Guestbook (Plain)</h1>
     <p>A guestbook using traditional HTML forms and the Post/Redirect/Get pattern. No JavaScript, no libraries &mdash; just a <code>&lt;form&gt;</code> with <code>method="POST"</code>.</p>
 
-    <div class="demo-section">
-        <div class="guestbook-container">
-            <div id="guestbook-list" class="guestbook-list" role="list" aria-label="Guestbook entries">
+    <div class="py-8">
+        <div class="{{ .GuestbookContainer }}">
+            <div id="guestbook-list" class="flex flex-col gap-3" role="list" aria-label="Guestbook entries">
                 {{ range .Entries }}
                 {{ GuestbookEntry (dict "ID" .ID "Name" .Name "Message" .Message "Time" (.CreatedAt.Format "Jan 2, 3:04 PM")) }}
                 {{ end }}
                 {{ if not .Entries }}
-                <p class="guestbook-empty">No entries yet. Be the first to sign the guestbook!</p>
+                <p class="text-center text-text-subtle text-[0.9rem] py-6">No entries yet. Be the first to sign the guestbook!</p>
                 {{ end }}
             </div>
 
-            <form class="guestbook-form" method="POST" action="/guestbook">
+            <form class="flex flex-col gap-3" method="POST" action="/guestbook">
                 {{ GuestbookForm (dict "Error" .Error "Success" .Success) }}
-                <button type="submit" class="btn btn-primary guestbook-submit">Sign Guestbook</button>
+                <button type="submit" class="btn btn-primary self-start">Sign Guestbook</button>
             </form>
         </div>
     </div>
 
-    <div class="demo-explanation">
+    <div class="mt-8">
         <h2>How It Works</h2>
         <p>This is the simplest way to handle user input in Gastro. The <code>.gastro</code> page renders the form (GET), and a plain Go handler in <code>main.go</code> processes the submission (POST).</p>
 

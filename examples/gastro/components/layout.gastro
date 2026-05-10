@@ -29,12 +29,12 @@ Title := p.Title
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to content</a>
-    <header class="site-header">
-        <div class="nav-container">
-            <a href="/" class="nav-logo" aria-label="Gastro home">
-                <img src="/static/logo.svg" alt="Gastro" height="26" width="120">
+    <header class="sticky top-0 z-[100] bg-header-bg">
+        <div class="max-w-site mx-auto px-8 h-14 flex items-center justify-between">
+            <a href="/" class="flex items-center text-header-text" aria-label="Gastro home">
+                <img src="/static/logo.svg" alt="Gastro" height="26" width="120" class="h-[26px]">
             </a>
-            <nav class="nav-links" aria-label="Main">
+            <nav class="flex items-center gap-7 text-sm font-medium tracking-[0.01em] [&_a]:text-text-subtle [&_a:hover]:text-header-text [&_a]:transition-colors" aria-label="Main">
                 <a href="/docs/getting-started">Docs</a>
                 <a href="https://github.com/andrioid/gastro" target="_blank" rel="noopener">GitHub<span class="sr-only"> (opens in new tab)</span></a>
             </nav>
@@ -47,7 +47,7 @@ Title := p.Title
         // mermaid (the library is ~600KB gzipped).
         //
         // The themeVariables block below maps the site's design tokens
-        // (see static/styles.css :root) onto mermaid's `base` theme so
+        // (see tailwind.css @theme) onto mermaid's `base` theme so
         // diagrams pick up the same warm cream / muted brown / accent
         // orange palette as the rest of the site instead of mermaid's
         // default pastel-purple. Keep these in sync with --color-*
@@ -98,10 +98,10 @@ Title := p.Title
                 .catch((err) => console.error('mermaid load failed', err));
         }
     </script>
-    <footer class="site-footer">
-        <div class="footer-container">
-            <p>Built with Gastro &mdash; a file-based component framework for Go.</p>
-            <p><a href="https://github.com/andrioid/gastro">Source on GitHub</a></p>
+    <footer class="border-t border-border bg-surface px-8 py-8 [&_a]:text-text-muted [&_a]:font-medium [&_a:hover]:text-accent">
+        <div class="max-w-site mx-auto text-center">
+            <p class="text-text-muted text-[0.85rem] mb-[0.2rem]">Built with Gastro &mdash; a file-based component framework for Go.</p>
+            <p class="text-text-muted text-[0.85rem] mb-[0.2rem]"><a href="https://github.com/andrioid/gastro">Source on GitHub</a></p>
         </div>
     </footer>
 </body>

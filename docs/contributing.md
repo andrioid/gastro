@@ -52,6 +52,36 @@ as a `tool` in their `go.mod`. You don't need a global `gastro` on your
 `PATH` to develop in them; `go tool gastro <cmd>` is the canonical
 invocation for example work.
 
+### Working on `examples/gastro/` (the website)
+
+The website's CSS is compiled by Tailwind v4 from `tailwind.css` into
+`static/styles.css`. The compiled stylesheet is committed so the
+Dockerfile and `gastro generate` can consume it without a Node toolchain.
+
+Rebuild both the CSS and the `.gastro/` codegen tree in one step:
+
+```sh
+cd examples/gastro
+go generate ./...
+```
+
+The `//go:generate` directives in `examples/gastro/generate.go` invoke
+`tailwindcss` followed by `gastro generate`. CI runs the same command
+and fails if the result differs from what's committed.
+
+For a hot-reload dev loop that rebuilds CSS, regenerates the gastro
+tree, and restarts the binary on every change:
+
+```sh
+mise run dev:example-website
+```
+
+The `tailwindcss` binary is provided by the `mise` install
+(`github:tailwindlabs/tailwindcss` in `mise.toml`). If you don't use
+mise, install Tailwind v4 yourself — the standalone binary, or
+`npm i -g @tailwindcss/cli@4` both work as long as `tailwindcss` is on
+your `PATH`.
+
 ### Linting
 
 ```sh

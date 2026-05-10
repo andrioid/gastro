@@ -10,17 +10,20 @@ import (
 Title := "Guestbook (Datastar)"
 Active := "guestbook-datastar"
 Entries := demo.ListEntries()
+
+GuestbookContainer := "flex flex-col gap-5 bg-surface border border-border rounded-lg p-4 sm:p-[clamp(1.25rem,2.5vw,2rem)]"
+SearchInputClass := "w-full px-[0.85rem] py-[0.6rem] pr-10 border border-border rounded font-sans text-[0.9rem] text-text bg-bg transition-colors focus:outline-none focus:border-accent focus:ring-accent-soft placeholder:text-text-subtle"
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Guestbook (Datastar)</h1>
     <p>A working guestbook powered by <a href="https://data-star.dev/" target="_blank" rel="noopener">Datastar<span class="sr-only"> (opens in new tab)</span></a> and server-sent events. Search, add entries, and edit inline &mdash; all without page reloads.</p>
 
-    <div class="demo-section">
-        <div class="guestbook-container">
-            <div class="guestbook-search-wrapper">
+    <div class="py-8">
+        <div class="{{ .GuestbookContainer }}">
+            <div class="relative">
                 <input
                     type="search"
-                    class="guestbook-input guestbook-search"
+                    class="{{ .SearchInputClass }}"
                     placeholder="Search entries..."
                     aria-label="Search guestbook entries"
                     autocomplete="off"
@@ -28,23 +31,26 @@ Entries := demo.ListEntries()
                     data-on:input__debounce.300ms="{{ `@get('/api/ds/search')` | safeJS }}"
                     data-indicator:_searching
                 >
-                <div class="loading-indicator" data-show="$_searching" aria-hidden="true">
+                {{- /* Datastar-driven loading indicator. The wrapper is
+                       always in the DOM; data-show flips its visibility
+                       based on the `_searching` reactive signal. */ -}}
+                <div class="absolute top-1/2 right-3 -translate-y-1/2" data-show="$_searching" aria-hidden="true">
                     <div class="spinner"></div>
                 </div>
             </div>
 
-            <div id="guestbook-list" class="guestbook-list" role="list" aria-live="polite" aria-label="Guestbook entries">
+            <div id="guestbook-list" class="flex flex-col gap-3" role="list" aria-live="polite" aria-label="Guestbook entries">
                 {{ range .Entries }}
                 {{ GuestbookEntry (dict "ID" .ID "Name" .Name "Message" .Message "Time" (.CreatedAt.Format "Jan 2, 3:04 PM") "Mode" "ds") }}
                 {{ end }}
             </div>
 
-            <form class="guestbook-form"
+            <form class="flex flex-col gap-3"
                 data-on:submit="{{ `@post('/api/ds/add', {contentType: 'form'})` | safeJS }}"
                 data-indicator:_submitting
             >
                 {{ GuestbookForm (dict "Error" "" "Success" "") }}
-                <button type="submit" class="btn btn-primary guestbook-submit" data-attr:disabled="$_submitting">
+                <button type="submit" class="btn btn-primary self-start" data-attr:disabled="$_submitting">
                     <span data-show="!$_submitting">Sign Guestbook</span>
                     <span data-show="$_submitting">Sending...</span>
                 </button>
@@ -52,7 +58,7 @@ Entries := demo.ListEntries()
         </div>
     </div>
 
-    <div class="demo-explanation">
+    <div class="mt-8">
         <h2>How It Works</h2>
         <p>This demo showcases four common hypermedia patterns using Datastar and Gastro's SSE support.</p>
 

@@ -3,6 +3,10 @@ go = "1.26.1"
 node = "lts"
 "go:golang.org/x/tools/gopls" = "latest"
 "npm:@playwright/cli" = "latest"
+# Standalone Tailwind v4 CLI binary used to compile examples/gastro/tailwind.css
+# into examples/gastro/static/styles.css. Pinned exactly so go generate output
+# stays reproducible across machines and CI. See examples/gastro/generate.go.
+"github:tailwindlabs/tailwindcss" = "v4.3.0"
 
 [task_config]
 includes = ["scripts"]

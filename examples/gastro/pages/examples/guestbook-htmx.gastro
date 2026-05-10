@@ -10,6 +10,9 @@ import (
 Title := "Guestbook (HTMX)"
 Active := "guestbook-htmx"
 Entries := demo.ListEntries()
+
+GuestbookContainer := "flex flex-col gap-5 bg-surface border border-border rounded-lg p-4 sm:p-[clamp(1.25rem,2.5vw,2rem)]"
+SearchInputClass := "w-full px-[0.85rem] py-[0.6rem] pr-10 border border-border rounded font-sans text-[0.9rem] text-text bg-bg transition-colors focus:outline-none focus:border-accent focus:ring-accent-soft placeholder:text-text-subtle"
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
     <h1>Guestbook (HTMX)</h1>
@@ -17,12 +20,12 @@ Entries := demo.ListEntries()
 
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js" integrity="sha384-/TgkGk7p307TH7EXJDuUlgG3Ce1UVolAOFopFekQkkXihi5u/6OCvVKyz1W+idaz" crossorigin="anonymous"></script>
 
-    <div class="demo-section">
-        <div class="guestbook-container">
-            <div class="guestbook-search-wrapper">
+    <div class="py-8">
+        <div class="{{ .GuestbookContainer }}">
+            <div class="relative">
                 <input
                     type="search"
-                    class="guestbook-input guestbook-search"
+                    class="{{ .SearchInputClass }}"
                     name="q"
                     placeholder="Search entries..."
                     aria-label="Search guestbook entries"
@@ -32,27 +35,31 @@ Entries := demo.ListEntries()
                     hx-target="#htmx-guestbook-list"
                     hx-indicator="#htmx-search-indicator"
                 >
-                <div id="htmx-search-indicator" class="loading-indicator htmx-indicator" aria-hidden="true">
+                {{- /* `htmx-indicator` is the literal class htmx.js looks
+                       for; pair with absolute-positioned utilities for
+                       the spinner placement. The visibility flip lives in
+                       tailwind.css @layer components. */ -}}
+                <div id="htmx-search-indicator" class="htmx-indicator absolute top-1/2 right-3 -translate-y-1/2" aria-hidden="true">
                     <div class="spinner"></div>
                 </div>
             </div>
 
-            <div id="htmx-guestbook-list" class="guestbook-list" role="list" aria-live="polite" aria-label="Guestbook entries">
+            <div id="htmx-guestbook-list" class="flex flex-col gap-3" role="list" aria-live="polite" aria-label="Guestbook entries">
                 {{ range .Entries }}
                 {{ GuestbookEntry (dict "ID" .ID "Name" .Name "Message" .Message "Time" (.CreatedAt.Format "Jan 2, 3:04 PM") "Mode" "htmx") }}
                 {{ end }}
             </div>
 
-            <form class="guestbook-form"
+            <form class="flex flex-col gap-3"
                 hx-post="/api/htmx/add"
                 hx-target="#htmx-guestbook-list"
                 hx-swap="outerHTML"
                 hx-indicator="#htmx-submit-indicator"
             >
                 {{ GuestbookForm (dict "Error" "" "Success" "") }}
-                <div class="guestbook-submit-wrapper">
-                    <button type="submit" class="btn btn-primary guestbook-submit">Sign Guestbook</button>
-                    <div id="htmx-submit-indicator" class="loading-indicator htmx-indicator" aria-hidden="true">
+                <div class="flex items-center gap-3">
+                    <button type="submit" class="btn btn-primary self-start">Sign Guestbook</button>
+                    <div id="htmx-submit-indicator" class="htmx-indicator relative" aria-hidden="true">
                         <div class="spinner"></div>
                     </div>
                 </div>
@@ -60,7 +67,7 @@ Entries := demo.ListEntries()
         </div>
     </div>
 
-    <div class="demo-explanation">
+    <div class="mt-8">
         <h2>How It Works</h2>
         <p>HTMX extends HTML with attributes that issue AJAX requests and swap HTML fragments into the page. Unlike Datastar (which uses SSE), HTMX handlers return plain HTML responses.</p>
 

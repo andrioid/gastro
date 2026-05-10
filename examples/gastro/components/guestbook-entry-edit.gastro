@@ -17,21 +17,28 @@ DsSaveURL := fmt.Sprintf("@post(`/api/ds/save/%s`)", p.ID)
 HtmxSaveURL := fmt.Sprintf("/api/htmx/save/%s", p.ID)
 HtmxTarget := fmt.Sprintf("#entry-%s", p.ID)
 EditMessageID := fmt.Sprintf("edit-message-%s", p.ID)
+
+// Mirror of the input chrome from guestbook-form.gastro. Inlined here
+// (rather than DRYing across components) so this component is
+// self-contained when rendered by SSE handlers.
+InputClass := "w-full px-[0.85rem] py-[0.6rem] border border-border rounded font-sans text-[0.9rem] text-text bg-bg transition-colors focus:outline-none focus:border-accent focus:ring-accent-soft placeholder:text-text-subtle"
 ---
-<div id="entry-{{ .ID }}" class="guestbook-entry guestbook-entry--editing">
-    <div class="guestbook-entry-header">
-        <strong class="guestbook-entry-name">{{ .Name }}</strong>
+{{- /* Edit-mode variant of the entry row. The accent border + soft
+       outer glow signal that this row is the actively-edited one. */ -}}
+<div id="entry-{{ .ID }}" class="relative bg-bg border border-accent rounded p-[0.85rem_1rem] ring-accent-soft-light">
+    <div class="flex justify-between items-baseline mb-[0.35rem] gap-2">
+        <strong class="text-[0.9rem] font-semibold text-text">{{ .Name }}</strong>
     </div>
     {{ if eq .Mode "ds" }}
-    <textarea data-bind:message class="guestbook-input guestbook-textarea" aria-label="Edit message">{{ .Message }}</textarea>
-    <div class="guestbook-edit-actions">
+    <textarea data-bind:message class="{{ .InputClass }} min-h-[80px] resize-y leading-[1.5]" aria-label="Edit message">{{ .Message }}</textarea>
+    <div class="flex gap-2 mt-[0.6rem]">
         <button type="button" class="btn btn-primary btn-sm" data-on:click="{{ .DsSaveURL | safeJS }}" aria-label="Save changes">Save</button>
     </div>
     {{ end }}
     {{ if eq .Mode "htmx" }}
     <form>
-        <textarea id="{{ .EditMessageID }}" name="message" class="guestbook-input guestbook-textarea" aria-label="Edit message">{{ .Message }}</textarea>
-        <div class="guestbook-edit-actions">
+        <textarea id="{{ .EditMessageID }}" name="message" class="{{ .InputClass }} min-h-[80px] resize-y leading-[1.5]" aria-label="Edit message">{{ .Message }}</textarea>
+        <div class="flex gap-2 mt-[0.6rem]">
             <button type="button" class="btn btn-primary btn-sm" hx-post="{{ .HtmxSaveURL }}" hx-target="{{ .HtmxTarget }}" hx-swap="outerHTML" hx-include="#{{ .EditMessageID }}" aria-label="Save changes">Save</button>
         </div>
     </form>

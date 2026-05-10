@@ -7,16 +7,22 @@ type Props struct {
 p := gastro.Props()
 Error := p.Error
 Success := p.Success
+
+// Shared input chrome reused by name + textarea fields and by the
+// search input on the example pages. Hoisted to a frontmatter var so
+// the long utility chain only lives in one place; the codegen exposes
+// it to the template as `{{ .InputClass }}` automatically.
+InputClass := "w-full px-[0.85rem] py-[0.6rem] border border-border rounded font-sans text-[0.9rem] text-text bg-bg transition-colors focus:outline-none focus:border-accent focus:ring-accent-soft placeholder:text-text-subtle"
 ---
 <div id="guestbook-form-wrapper">
     {{ if .Success }}
-    <div class="guestbook-alert guestbook-alert--success" role="status">{{ .Success }}</div>
+    <div class="alert-success px-[0.85rem] py-[0.6rem] rounded text-[0.88rem] font-medium" role="status">{{ .Success }}</div>
     {{ end }}
     {{ if .Error }}
-    <div class="guestbook-alert guestbook-alert--error" role="alert">{{ .Error }}</div>
+    <div class="alert-error px-[0.85rem] py-[0.6rem] rounded text-[0.88rem] font-medium" role="alert">{{ .Error }}</div>
     {{ end }}
-    <div class="guestbook-form-fields">
-        <input id="guestbook-name" type="text" name="name" placeholder="Your name" class="guestbook-input" required aria-label="Your name" autocomplete="off">
-        <textarea id="guestbook-message" name="message" placeholder="Leave a message..." class="guestbook-input guestbook-textarea" required aria-label="Your message"></textarea>
+    <div class="flex flex-col gap-[0.6rem]">
+        <input id="guestbook-name" type="text" name="name" placeholder="Your name" class="{{ .InputClass }}" required aria-label="Your name" autocomplete="off">
+        <textarea id="guestbook-message" name="message" placeholder="Leave a message..." class="{{ .InputClass }} min-h-[80px] resize-y leading-[1.5]" required aria-label="Your message"></textarea>
     </div>
 </div>

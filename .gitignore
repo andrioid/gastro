@@ -20,6 +20,10 @@ examples/gastro/app
 
 # Node.js
 node_modules/
+# Tailwind contributor-local — only relevant if a contributor opts to
+# install tailwindcss via npm instead of the mise-managed standalone
+# binary. The committed examples/gastro/static/styles.css is what ships.
+examples/gastro/node_modules/
 
 # OpenCode (auto-managed)
 .opencode/node_modules/

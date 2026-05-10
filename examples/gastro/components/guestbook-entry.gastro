@@ -19,16 +19,19 @@ DsEditURL := fmt.Sprintf("@get(`/api/ds/edit/%s`)", p.ID)
 HtmxEditURL := fmt.Sprintf("/api/htmx/edit/%s", p.ID)
 HtmxTarget := fmt.Sprintf("#entry-%s", p.ID)
 ---
-<div id="entry-{{ .ID }}" class="guestbook-entry">
-    <div class="guestbook-entry-header">
-        <strong class="guestbook-entry-name">{{ .Name }}</strong>
-        <time class="guestbook-entry-time">{{ .Time }}</time>
+{{- /* Entry row. Hover reveals the edit button via the `group/entry`
+       parent. The edit button is rendered conditionally based on Mode
+       so plain-form pages don't ship a no-op button at all. */ -}}
+<div id="entry-{{ .ID }}" class="group/entry relative bg-bg border border-border rounded p-[0.85rem_1rem] transition-colors hover:border-accent">
+    <div class="flex justify-between items-baseline mb-[0.35rem] gap-2">
+        <strong class="text-[0.9rem] font-semibold text-text">{{ .Name }}</strong>
+        <time class="font-mono text-[0.72rem] text-text-subtle whitespace-nowrap">{{ .Time }}</time>
     </div>
-    <p class="guestbook-entry-message">{{ .Message }}</p>
+    <p class="text-[0.9rem] text-text-muted leading-[1.5] m-0">{{ .Message }}</p>
     {{ if eq .Mode "ds" }}
-    <button class="guestbook-edit-btn" data-on:click="{{ .DsEditURL | safeJS }}" aria-label="Edit entry">Edit</button>
+    <button class="absolute top-[0.6rem] right-[0.6rem] bg-transparent border border-border rounded-[4px] px-2 py-[0.2rem] font-mono text-[0.7rem] text-text-subtle cursor-pointer transition-all opacity-0 group-hover/entry:opacity-100 hover:text-accent hover:border-accent" data-on:click="{{ .DsEditURL | safeJS }}" aria-label="Edit entry">Edit</button>
     {{ end }}
     {{ if eq .Mode "htmx" }}
-    <button class="guestbook-edit-btn" hx-get="{{ .HtmxEditURL }}" hx-target="{{ .HtmxTarget }}" hx-swap="outerHTML" aria-label="Edit entry">Edit</button>
+    <button class="absolute top-[0.6rem] right-[0.6rem] bg-transparent border border-border rounded-[4px] px-2 py-[0.2rem] font-mono text-[0.7rem] text-text-subtle cursor-pointer transition-all opacity-0 group-hover/entry:opacity-100 hover:text-accent hover:border-accent" hx-get="{{ .HtmxEditURL }}" hx-target="{{ .HtmxTarget }}" hx-swap="outerHTML" aria-label="Edit entry">Edit</button>
     {{ end }}
 </div>

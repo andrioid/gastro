@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#MISE description="Run examples/gastro with Tailwind CSS rebuild on change"
+
+# Hot-reload loop for the gastro-website example.
+#
+#   tailwindcss        rebuilds static/styles.css when tailwind.css or
+#                      any scanned .gastro file changes
+#   go build           rebuilds the binary against the regenerated
+#                      .gastro/ package after gastro watch's own codegen
+#   gastro watch       owns the .gastro -> .gastro/ codegen step itself,
+#                      which is why we don't list `gastro generate` as a
+#                      separate --build (it would double-run).
+#
+# We invoke tailwindcss without --minify here so dev rebuilds stay fast
+# and the un-minified output is easier to read in the browser inspector.
+# The committed static/styles.css is the *minified* output produced by
+# `go generate ./...` (see generate.go).
+
+set -euo pipefail
+cd "$(dirname "$0")/../../examples/gastro"
+
+exec gastro watch \
+  --build 'tailwindcss -i tailwind.css -o static/styles.css' \
+  --build 'go build -o tmp/app .' \
+  --run   'tmp/app'
