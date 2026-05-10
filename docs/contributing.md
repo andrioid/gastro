@@ -210,6 +210,11 @@ For a deeper tour, start at [System Architecture](architecture.md).
 
 Key files:
 - `internal/lsp/server/` -- LSP server, message routing, gopls integration
+- `internal/lsp/server/code_action.go` -- `textDocument/codeAction` handler.
+  Currently only produces quick-fixes for embed-directive `BadVarType`
+  diagnostics; gopls's actions for the frontmatter region are merged
+  in. There is no generic `CodeActionProvider` dispatcher — add one if
+  you introduce a second quick-fix category.
 - `internal/lsp/shadow/workspace.go` -- Virtual `.go` file generation
 - `internal/lsp/proxy/proxy.go` -- gopls subprocess management
 - `internal/lsp/sourcemap/sourcemap.go` -- Position mapping

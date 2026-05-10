@@ -22,6 +22,14 @@ type Position struct {
 	Character int `json:"character"`
 }
 
+// Range is an LSP range (inclusive start, exclusive end). Mirrors the
+// Position pair the protocol uses everywhere a span needs to be
+// expressed (textEdits, diagnostics, code-action contexts).
+type Range struct {
+	Start Position `json:"start"`
+	End   Position `json:"end"`
+}
+
 // MapPositionToVirtual maps a position from .gastro coordinates to virtual .go
 // coordinates. LSP positions are 0-indexed; source map works with 1-indexed.
 func MapPositionToVirtual(pos Position, sm *sourcemap.SourceMap) Position {
@@ -99,6 +107,83 @@ func RemapCompletionPositions(raw json.RawMessage, sm *sourcemap.SourceMap) json
 		return raw
 	}
 	return remapped
+}
+
+// MapRangeToVirtual maps a Range from .gastro coordinates to virtual
+// .go coordinates. Symmetric counterpart to MapPositionToVirtual.
+func MapRangeToVirtual(r Range, sm *sourcemap.SourceMap) Range {
+	return Range{
+		Start: MapPositionToVirtual(r.Start, sm),
+		End:   MapPositionToVirtual(r.End, sm),
+	}
+}
+
+// MapRangeToGastro maps a Range from virtual .go coordinates back to
+// .gastro coordinates.
+func MapRangeToGastro(r Range, sm *sourcemap.SourceMap) Range {
+	return Range{
+		Start: MapPositionToGastro(r.Start, sm),
+		End:   MapPositionToGastro(r.End, sm),
+	}
+}
+
+// RemapCodeActionRanges rewrites TextEdit ranges in a gopls code-action
+// response from virtual .go coordinates back to .gastro coordinates.
+// Walks the response array; for each action, walks both `edit.changes`
+// (a map of URI → TextEdit list) and `edit.documentChanges` (the
+// alternative format gopls uses when the client advertises
+// workspaceEdit.documentChanges support). Actions without an `edit`
+// field (commands-only) pass through unchanged.
+//
+// Returns the response array as []map[string]any so the caller can
+// merge it directly with their own actions; returns nil for null /
+// empty / malformed input.
+func RemapCodeActionRanges(raw json.RawMessage, sm *sourcemap.SourceMap) []map[string]any {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var arr []any
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(arr))
+	for _, item := range arr {
+		action, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		edit, _ := action["edit"].(map[string]any)
+		if edit != nil {
+			if changes, ok := edit["changes"].(map[string]any); ok {
+				for _, edits := range changes {
+					edList, _ := edits.([]any)
+					for _, e := range edList {
+						if em, ok := e.(map[string]any); ok {
+							remapRange(em, sm)
+						}
+					}
+				}
+			}
+			if docChanges, ok := edit["documentChanges"].([]any); ok {
+				for _, dc := range docChanges {
+					dcMap, ok := dc.(map[string]any)
+					if !ok {
+						continue
+					}
+					// TextDocumentEdit has `edits: TextEdit[]`.
+					if edits, ok := dcMap["edits"].([]any); ok {
+						for _, e := range edits {
+							if em, ok := e.(map[string]any); ok {
+								remapRange(em, sm)
+							}
+						}
+					}
+				}
+			}
+		}
+		out = append(out, action)
+	}
+	return out
 }
 
 // RemapHoverRange rewrites the range in a gopls hover response from virtual

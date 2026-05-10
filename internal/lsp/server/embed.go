@@ -12,6 +12,85 @@ import (
 	"github.com/andrioid/gastro/internal/parser"
 )
 
+// varTypeSpanInLine locates the type expression in a `var X T`
+// declaration and returns its (start, end) byte offsets within the
+// line. Returns ok=false for malformed input.
+//
+// The grammar this needs to handle is intentionally narrow: every
+// other shape (parenthesized group, multi-name spec, explicit
+// initializer) is already rejected upstream by
+// codegen.ValidateEmbedDirectives with a different diagnostic kind,
+// so the BadVarType code-action path only ever sees `var <name> <type>`
+// with an optional trailing line comment.
+//
+// Supported shapes (cursor span shown with ^):
+//
+//	var X string                 → span over `string`
+//	var X []byte                 → span over `[]byte`
+//	var X template.HTML          → span over `template.HTML`
+//	var X int  // tail comment   → span over `int`
+func varTypeSpanInLine(line string) (start, end int, ok bool) {
+	// Skip leading whitespace.
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	// Require `var` keyword followed by whitespace.
+	if !strings.HasPrefix(line[i:], "var") {
+		return 0, 0, false
+	}
+	i += len("var")
+	if i >= len(line) || (line[i] != ' ' && line[i] != '\t') {
+		return 0, 0, false
+	}
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	// Skip the var name (an identifier).
+	nameStart := i
+	for i < len(line) && isIdentByte(line[i]) {
+		i++
+	}
+	if i == nameStart {
+		return 0, 0, false
+	}
+	// Require whitespace after the name.
+	if i >= len(line) || (line[i] != ' ' && line[i] != '\t') {
+		return 0, 0, false
+	}
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	// Type expression starts here. End on `=`, `//`, or end-of-line.
+	typeStart := i
+	typeEnd := len(line)
+	for j := i; j < len(line); j++ {
+		if line[j] == '=' {
+			typeEnd = j
+			break
+		}
+		if j+1 < len(line) && line[j] == '/' && line[j+1] == '/' {
+			typeEnd = j
+			break
+		}
+	}
+	// Trim trailing whitespace inside [typeStart, typeEnd).
+	for typeEnd > typeStart && (line[typeEnd-1] == ' ' || line[typeEnd-1] == '\t') {
+		typeEnd--
+	}
+	if typeEnd <= typeStart {
+		return 0, 0, false
+	}
+	return typeStart, typeEnd, true
+}
+
+// isIdentByte reports whether b is allowed in a Go identifier (ASCII
+// subset — sufficient because var names in user code are conventionally
+// ASCII; the check is only used to delimit the name, not validate it).
+func isIdentByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_'
+}
+
 // embedDirectiveAtLine inspects a single line of source for the
 // `//gastro:embed PATH` shape and returns the path argument with its
 // (start, end) byte offsets within the line. Returns ok=false when

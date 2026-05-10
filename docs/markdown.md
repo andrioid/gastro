@@ -152,6 +152,11 @@ in CI to catch regressions before they reach prod. For dynamic
 content where a render failure should produce a 500 rather than
 panic, use the non-Must `Render` and handle the error.
 
+**LSP quick-fix for the var-type error.** Editors with LSP support
+will surface a lightbulb on the `var of type \`string\` or \`[]byte\``
+squiggle. Choosing it rewrites the type in place — useful when you
+meant `string` but typed `template.HTML` or vice versa.
+
 ## Dynamic markdown — slugs, databases, etc.
 
 For content the user picks at request time (e.g. a blog with hundreds

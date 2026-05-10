@@ -511,3 +511,132 @@ func TestRemapDefinitionResult_NullInput(t *testing.T) {
 		t.Errorf("empty input should return empty, got: %s", result)
 	}
 }
+
+func TestMapRangeToVirtual_RoundTrip(t *testing.T) {
+	sm := sourcemap.New(2, 5)
+
+	original := proxy.Range{
+		Start: proxy.Position{Line: 4, Character: 8},
+		End:   proxy.Position{Line: 6, Character: 0},
+	}
+	virtual := proxy.MapRangeToVirtual(original, sm)
+	back := proxy.MapRangeToGastro(virtual, sm)
+	if back != original {
+		t.Errorf("round-trip failed: %+v -> %+v -> %+v", original, virtual, back)
+	}
+}
+
+func TestRemapCodeActionRanges_BasicEdit(t *testing.T) {
+	sm := sourcemap.New(2, 16)
+
+	// One quickfix action carrying a single TextEdit. The TextEdit
+	// range is in virtual coordinates (line 18); after remap it should
+	// land on gastro line 4 (1-indexed 5 -> 0-indexed 4).
+	raw := json.RawMessage(`[
+		{
+			"title": "Organize Imports",
+			"kind": "source.organizeImports",
+			"edit": {
+				"changes": {
+					"file:///foo.gastro": [
+						{
+							"range": {
+								"start": {"line": 18, "character": 0},
+								"end":   {"line": 18, "character": 10}
+							},
+							"newText": ""
+						}
+					]
+				}
+			}
+		}
+	]`)
+
+	actions := proxy.RemapCodeActionRanges(raw, sm)
+	if len(actions) != 1 {
+		t.Fatalf("actions: got %d, want 1", len(actions))
+	}
+	edit := actions[0]["edit"].(map[string]any)
+	changes := edit["changes"].(map[string]any)
+	edits := changes["file:///foo.gastro"].([]any)
+	te := edits[0].(map[string]any)
+	rng := te["range"].(map[string]any)
+	start := rng["start"].(map[string]any)
+	if gotLine := int(start["line"].(float64)); gotLine != 4 {
+		t.Errorf("start.line: got %d, want 4 (remapped)", gotLine)
+	}
+	if title := actions[0]["title"].(string); title != "Organize Imports" {
+		t.Errorf("non-range fields should pass through; title = %q", title)
+	}
+}
+
+func TestRemapCodeActionRanges_NoEdit(t *testing.T) {
+	// Actions can carry only a `command` (no edit). Those must pass
+	// through untouched — we don't fabricate an edit just because we're
+	// walking the response.
+	sm := sourcemap.New(2, 16)
+	raw := json.RawMessage(`[
+		{
+			"title": "Run gastro generate",
+			"kind": "quickfix",
+			"command": {"title": "Generate", "command": "gastro.generate"}
+		}
+	]`)
+	actions := proxy.RemapCodeActionRanges(raw, sm)
+	if len(actions) != 1 {
+		t.Fatalf("actions: got %d, want 1", len(actions))
+	}
+	if _, hasEdit := actions[0]["edit"]; hasEdit {
+		t.Errorf("command-only action gained an edit field")
+	}
+	if title := actions[0]["title"].(string); title != "Run gastro generate" {
+		t.Errorf("title mangled: %q", title)
+	}
+}
+
+func TestRemapCodeActionRanges_DocumentChanges(t *testing.T) {
+	// gopls also emits the documentChanges shape (TextDocumentEdit[])
+	// when the client opts in. Make sure we walk it too.
+	sm := sourcemap.New(2, 16)
+	raw := json.RawMessage(`[
+		{
+			"title": "Add import",
+			"kind": "quickfix",
+			"edit": {
+				"documentChanges": [
+					{
+						"textDocument": {"uri": "file:///foo.gastro", "version": 1},
+						"edits": [
+							{
+								"range": {
+									"start": {"line": 18, "character": 0},
+									"end":   {"line": 18, "character": 0}
+								},
+								"newText": "import \"x\"\n"
+							}
+						]
+					}
+				]
+			}
+		}
+	]`)
+	actions := proxy.RemapCodeActionRanges(raw, sm)
+	edit := actions[0]["edit"].(map[string]any)
+	dc := edit["documentChanges"].([]any)
+	edits := dc[0].(map[string]any)["edits"].([]any)
+	rng := edits[0].(map[string]any)["range"].(map[string]any)
+	start := rng["start"].(map[string]any)
+	if gotLine := int(start["line"].(float64)); gotLine != 4 {
+		t.Errorf("documentChanges remap failed: got line %d, want 4", gotLine)
+	}
+}
+
+func TestRemapCodeActionRanges_NullInput(t *testing.T) {
+	sm := sourcemap.New(2, 5)
+	if got := proxy.RemapCodeActionRanges(json.RawMessage("null"), sm); got != nil {
+		t.Errorf("null input: got %v, want nil", got)
+	}
+	if got := proxy.RemapCodeActionRanges(json.RawMessage(""), sm); got != nil {
+		t.Errorf("empty input: got %v, want nil", got)
+	}
+}

@@ -67,6 +67,14 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 				"hoverProvider":              true,
 				"definitionProvider":         true,
 				"documentFormattingProvider": true,
+				// Quick-fix code actions are tailored to embed-directive
+				// BadVarType diagnostics today; gopls's frontmatter actions
+				// (organize imports, etc.) are merged in by the handler. We
+				// don't advertise resolveProvider because every action's
+				// edit is computed inline (single TextEdit, microscopic).
+				"codeActionProvider": map[string]any{
+					"codeActionKinds": []string{"quickfix"},
+				},
 			},
 			"serverInfo": map[string]any{
 				"name":    "gastro-lsp",
