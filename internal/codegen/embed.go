@@ -349,50 +349,49 @@ func formatTypeExpr(typ ast.Expr) string {
 }
 
 // resolveEmbedPath turns a directive-relative path into an absolute,
-// symlink-resolved path that lives inside ctx.ModuleRoot. The
-// post-EvalSymlinks boundary check is the security-critical step —
-// without it a symlink at, say, repo/secret -> /etc/passwd would let
-// users exfiltrate arbitrary files.
+// symlink-resolved path. The boundary model is two-stage:
+//
+//  1. Syntactic check (pre-EvalSymlinks): the cleaned candidate path
+//     must sit inside ctx.ModuleRoot. This rejects `..` escapes in the
+//     directive argument, which would otherwise let a stray
+//     `//gastro:embed ../../../../etc/passwd` exfiltrate arbitrary
+//     files without any user opt-in.
+//
+//  2. Symlink resolution (EvalSymlinks): if the candidate is a symlink,
+//     follow it WITHOUT re-checking the resolved real path against
+//     ModuleRoot. The user explicitly placed a symlink inside their
+//     module pointing out, so they consented to the embed reach. This
+//     is what makes monorepo layouts work — e.g. examples/gastro
+//     symlinking docs/ to a parent dir's shared content.
+//
+// The combined model: "`..` escapes via path syntax: forbidden;
+// escapes via user-placed symlinks: allowed."
 func resolveEmbedPath(path string, ctx EmbedContext) (string, error) {
 	sourceDir := filepath.Dir(ctx.SourceFile)
 	candidate := filepath.Join(sourceDir, path)
 
-	// Pre-EvalSymlinks early exit for `..` escapes that don't depend
-	// on fs state. Cheaper than reading the symlink chain just to
-	// reject; the EvalSymlinks check below is still authoritative.
 	cleanCandidate, err := filepath.Abs(candidate)
 	if err != nil {
 		return "", fmt.Errorf("resolving %q: %w", path, err)
 	}
-	if rel, err := filepath.Rel(ctx.ModuleRoot, cleanCandidate); err == nil &&
+
+	// Stage 1 (syntactic): cleaned candidate must be inside ModuleRoot.
+	absRoot, err := filepath.Abs(ctx.ModuleRoot)
+	if err != nil {
+		absRoot = ctx.ModuleRoot
+	}
+	if rel, err := filepath.Rel(absRoot, cleanCandidate); err == nil &&
 		(rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
 		return "", fmt.Errorf(
-			"%q escapes the module root (%s); embed targets must live inside the Go module",
+			"%q escapes the module root (%s); embed targets must live inside the Go module (or be reachable via a symlink that does)",
 			path, ctx.ModuleRoot,
 		)
 	}
 
+	// Stage 2 (symlink resolution): follow without re-checking.
 	resolved, err := filepath.EvalSymlinks(cleanCandidate)
 	if err != nil {
 		return "", fmt.Errorf("reading %q: %w", path, err)
-	}
-
-	// Module-root must also be evaluated to its real path so a symlink
-	// inside the module that targets another spot inside the module
-	// (after symlink resolution) compares correctly.
-	realRoot, err := filepath.EvalSymlinks(ctx.ModuleRoot)
-	if err != nil {
-		// Module root doesn't resolve — treat as opaque, fall back to
-		// the input string. This only kicks in for exotic setups.
-		realRoot = ctx.ModuleRoot
-	}
-
-	rel, err := filepath.Rel(realRoot, resolved)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf(
-			"%q resolves to %s, which is outside the module root (%s)",
-			path, resolved, realRoot,
-		)
 	}
 
 	return resolved, nil

@@ -1,3 +1,13 @@
+---
+import "html/template"
+
+type Props struct {
+	IntroHero template.HTML
+}
+
+p := gastro.Props()
+IntroHero := p.IntroHero
+---
 <div class="hero-wrapper">
 	<section class="hero">
 		<div class="hero-content">
@@ -17,10 +27,9 @@
 					<span class="code-dot green"></span>
 					<span class="code-window-title">components/greeting.gastro</span>
 				</div>
-				{{ markdown "pages/intro-hero.md" }}
+				{{ .IntroHero }}
 
 			</div>
 		</div>
 	</section>
 </div>
-

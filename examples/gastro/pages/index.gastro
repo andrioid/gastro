@@ -2,12 +2,21 @@
 import (
 	Hero "components/hero.gastro"
 	Layout "components/layout.gastro"
+	"gastro-website/md"
 )
+
+//gastro:embed intro-hero.md
+var IntroHeroRaw string
+var IntroHero = md.MustRender(IntroHeroRaw)
+
+//gastro:embed intro-component.md
+var IntroComponentRaw string
+var IntroComponent = md.MustRender(IntroComponentRaw)
 
 Title := "Home"
 ---
 {{ wrap Layout (dict "Title" .Title) }}
-	{{ Hero (dict) }}
+	{{ Hero (dict "IntroHero" .IntroHero) }}
 
 	<main id="main-content">
 		<section class="features-section">
@@ -59,7 +68,7 @@ Title := "Home"
 					<div class="quickstart-step">
 						<h3>Write a component</h3>
 						<div class="code-block">
-							{{ markdown "pages/intro-component.md" }}
+							{{ .IntroComponent }}
 						</div>
 					</div>
 					<div class="quickstart-step">

@@ -1,13 +1,18 @@
 ---
 import (
     DocsLayout "components/docs-layout.gastro"
+    "gastro-website/md"
 )
+
+//gastro:embed ../../docs/components.md
+var ContentRaw string
+var Content = md.MustRender(ContentRaw)
 
 Title := "Components"
 Active := "components"
 ---
 {{ wrap DocsLayout (dict "Title" .Title "Active" .Active) }}
-    {{ markdown "../../../../docs/components.md" }}
+    {{ .Content }}
 
     <div class="docs-nav">
         <a href="/docs/pages">

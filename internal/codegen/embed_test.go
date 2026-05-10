@@ -356,11 +356,17 @@ var X string
 	}
 }
 
-func TestEmbed_SymlinkEscapingModule_Rejected(t *testing.T) {
+func TestEmbed_SymlinkEscapingModule_Followed(t *testing.T) {
+	// Locked-in behaviour: a user-placed symlink inside the module
+	// targeting a file outside the module is FOLLOWED, not rejected.
+	// The user opts in by creating the symlink. This makes monorepo
+	// layouts work — e.g. examples/gastro/docs -> ../../docs in the
+	// gastro repo lets the website embed shared content owned by the
+	// parent module. Syntactic `..` escapes in the directive argument
+	// are still rejected (see TestEmbed_PathOutsideModule_Rejected).
 	if runtime.GOOS == "windows" {
 		t.Skip("symlinks unreliable on Windows")
 	}
-	// Build two siblings: <tmp>/inside/ (the module) and <tmp>/outside/.
 	parent := t.TempDir()
 	inside := filepath.Join(parent, "inside")
 	outside := filepath.Join(parent, "outside")
@@ -377,32 +383,28 @@ func TestEmbed_SymlinkEscapingModule_Rejected(t *testing.T) {
 	if err := os.WriteFile(src, []byte("placeholder"), 0o644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
-
-	// Real file lives outside the module.
-	if err := os.WriteFile(filepath.Join(outside, "leak.md"), []byte("LEAK"), 0o644); err != nil {
-		t.Fatalf("write leak: %v", err)
+	if err := os.WriteFile(filepath.Join(outside, "shared.md"), []byte("SHARED"), 0o644); err != nil {
+		t.Fatalf("write shared: %v", err)
 	}
-	// Symlink inside the module pointing out.
-	linkPath := filepath.Join(inside, "pages", "leak.md")
-	if err := os.Symlink(filepath.Join(outside, "leak.md"), linkPath); err != nil {
+	linkPath := filepath.Join(inside, "pages", "shared.md")
+	if err := os.Symlink(filepath.Join(outside, "shared.md"), linkPath); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
 
-	in := `
-
-//gastro:embed leak.md
-var X string
-`
-	_, _, err := codegen.ProcessEmbedDirectives(in, codegen.EmbedContext{
+	in := "\n//gastro:embed shared.md\nvar X string\n"
+	out, deps, err := codegen.ProcessEmbedDirectives(in, codegen.EmbedContext{
 		SourceFile: src,
 		ModuleRoot: inside,
 	})
-	if err == nil {
-		t.Fatal("expected error for symlink escaping module")
+	if err != nil {
+		t.Fatalf("user-placed symlink should be followed even when target is outside the module: %v", err)
 	}
-	if !strings.Contains(err.Error(), "outside the module root") &&
-		!strings.Contains(err.Error(), "escapes the module root") {
-		t.Errorf("error should mention module-root violation: %v", err)
+	if !strings.Contains(out, `"SHARED"`) {
+		t.Errorf("expected SHARED contents baked, got:\n%s", out)
+	}
+	wantReal, _ := filepath.EvalSymlinks(filepath.Join(outside, "shared.md"))
+	if len(deps) != 1 || deps[0] != wantReal {
+		t.Errorf("dep should track real path; want %s, got %v", wantReal, deps)
 	}
 }
 
