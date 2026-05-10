@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.2.0](https://github.com/andrioid/gastro/compare/v0.1.20...v0.2.0) (2026-05-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **codegen:** replace {{ markdown }} with //gastro:embed directive
+
+### Features
+
+* **audit:** add LSP shadow parity harness (cmd/auditshadow + mise task) ([e549346](https://github.com/andrioid/gastro/commit/e549346c11ede3feb67afb057ec575f415de3dce))
+* **codegen:** export FindFrontmatterStart for LSP shadow source maps ([e927d24](https://github.com/andrioid/gastro/commit/e927d24da09e077540668e9eeb5a5dc9ebd8533e))
+* **codegen:** hoist top-level frontmatter decls to package scope ([eeaca3c](https://github.com/andrioid/gastro/commit/eeaca3cf1bc41ebffa05741ffb8a6ca355a5775b))
+* **codegen:** replace {{ markdown }} with //gastro:embed directive ([7450fc1](https://github.com/andrioid/gastro/commit/7450fc14034b7cae6e550c99ffc286397c707fb3))
+* **examples/gastro:** migrate website to //gastro:embed + md helper ([7dc0314](https://github.com/andrioid/gastro/commit/7dc0314bc98ffa9253194f289c37f37eeb524156))
+* **examples/gastro:** migrate website to Tailwind v4 ([daa3a59](https://github.com/andrioid/gastro/commit/daa3a59134b145e1965da813afcb7215b97c07f9))
+* **examples:** mermaid diagram support in markdown renderer ([4611569](https://github.com/andrioid/gastro/commit/46115698e80341aab930678bb6d26b68e0bfa67b))
+* **examples:** theme mermaid diagrams to match site palette ([510edad](https://github.com/andrioid/gastro/commit/510edade853fd7d38d00fe31d3a300b941370d00))
+* **lsp:** //gastro:embed diagnostics, hover, and path completion ([74b9a5c](https://github.com/andrioid/gastro/commit/74b9a5c11aaee9dbc1a6422e508d8554b2507d13))
+* **lsp:** add code-action quick-fix for //gastro:embed BadVarType ([30c5d44](https://github.com/andrioid/gastro/commit/30c5d448d0e54ce73f133387dfe3db0eb6567947))
+
+
+### Bug Fixes
+
+* **examples/gastro:** use `go tool gastro` in //go:generate ([2a2b9f3](https://github.com/andrioid/gastro/commit/2a2b9f3f34ea1b280ea2002cfbad4305fb1bc541))
+* **examples:** tidy go.sum to add github.com/google/shlex ([9719fe8](https://github.com/andrioid/gastro/commit/9719fe86daeaac23c538e36509c65041e7e98aff))
+* **lsp/server:** isolate GASTRO_PROJECT in package tests ([eea5107](https://github.com/andrioid/gastro/commit/eea5107bf7d35f0c6c466788fe7fe34762a4ae3d))
+* **lsp/shadow:** mirror full Go module + propagate component imports ([e8c3ade](https://github.com/andrioid/gastro/commit/e8c3ade88b50b03aca0a2118888c40e8c40c407b))
+* **lsp:** emit `_ = X` markers so queryVariableTypes resolves frontmatter var types ([253c985](https://github.com/andrioid/gastro/commit/253c985982bde05488f007e4cbf4663f4b79a0f7))
+* **lsp:** re-trigger template diagnostics once gopls is ready ([063b132](https://github.com/andrioid/gastro/commit/063b1329c8b3fca795274b5375305d3dcf06483b))
+* **lsp:** unify codegen/lsp dict-key validation, fix Children false-positive ([f9c4738](https://github.com/andrioid/gastro/commit/f9c47380c136e8510dc04318fbb05604f02291cf))
+
+
+### Refactoring
+
+* **lsp/shadow:** generate shadow .go files via codegen pipeline (R6) ([b914c68](https://github.com/andrioid/gastro/commit/b914c681897afcb2186b27a85256edfe400cbe7c))
+* **lsp:** tighten cache semantics, scope-skip telemetry, dataMu discipline ([f3d6f64](https://github.com/andrioid/gastro/commit/f3d6f643ad53a04fb2cb5aad9ba603a6542070be))
+
+
+### Documentation
+
+* **contributing:** document LSP binary refresh + audit harness ([22f3a10](https://github.com/andrioid/gastro/commit/22f3a10d1dfd764b980da9f5a96f969277f1308c))
+* **contributing:** refresh LSP section after gopls reliability fixes ([1955959](https://github.com/andrioid/gastro/commit/1955959b0c7e92a5ca85564e4db5fa102726e133))
+* document //gastro:embed and the user-side markdown story ([15b7958](https://github.com/andrioid/gastro/commit/15b79587721c486e4bf30c5301dca5bc5b288c84))
+* **history:** archive drop-markdown-directive plan as executed ([100b2ca](https://github.com/andrioid/gastro/commit/100b2ca24633fb68dd42c3423fafd5860360a660))
+* **history:** archive five shipped plans ([99bbf31](https://github.com/andrioid/gastro/commit/99bbf316eeeea32b060eb8b6e503eb1b15bad6c6))
+* **lsp:** close shadow audit; archive plan; record Q1–Q3 ([d91e3fb](https://github.com/andrioid/gastro/commit/d91e3fbaae6e20063f6188f843d4f64f2ef21db5))
+
+
+### Miscellaneous
+
+* fix gofmt drift in unrelated files ([a83bb0f](https://github.com/andrioid/gastro/commit/a83bb0f7257b86c44d1aa25485938b61eb63e23e))
+
 ## [0.1.20](https://github.com/andrioid/gastro/compare/v0.1.19...v0.1.20) (2026-05-03)
 
 
