@@ -679,11 +679,11 @@ func createTestProject(t *testing.T) string {
 // createGastroLinkedProject creates a Go project whose go.mod
 // (borrowed from examples/gastro) replaces github.com/andrioid/gastro
 // with the local checkout, so `go build` can type-check shadow output
-// that imports the real gastro runtime — including all transitive
-// runtime dependencies (chroma, goldmark, etc.). Copying the example's
-// go.mod / go.sum is the cheapest way to get a fully resolved module
-// graph without running `go mod tidy` (which is slow and requires
-// network in some configurations).
+// that imports the real gastro runtime. The example's go.mod / go.sum
+// also pull in the user-side markdown stack (goldmark + chroma via the
+// example's md package); copying them is the cheapest way to get a
+// fully resolved module graph without running `go mod tidy` (which is
+// slow and requires network in some configurations).
 func createGastroLinkedProject(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
