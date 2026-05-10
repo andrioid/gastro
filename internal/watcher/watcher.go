@@ -59,10 +59,11 @@ func CollectGastroFiles(dir string) ([]string, error) {
 	return files, err
 }
 
-// ExternalDeps holds the set of markdown files referenced by
-// {{ markdown "..." }} directives across all compiled .gastro files. The
-// dev watcher polls these paths for changes; the compiler populates them
-// from CompileResult.MarkdownDeps after each successful compile.
+// ExternalDeps holds the set of external files referenced by
+// //gastro:embed directives in frontmatter across all compiled .gastro
+// files. The dev watcher polls these paths for changes; the compiler
+// populates them from CompileResult.EmbedDeps after each successful
+// compile.
 //
 // Paths are canonicalized via filepath.EvalSymlinks where possible so the
 // same file reached through a symlink and its target is tracked only once.

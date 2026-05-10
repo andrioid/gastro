@@ -91,12 +91,6 @@ var compileTimeDirectives = []compileTimeDirective{
 		snippet: "wrap ${1:Component} (dict \"${2:key}\" ${3:value})$0",
 	},
 	{
-		name:    "markdown",
-		detail:  "compile-time directive — inlines rendered markdown (path must be a string literal)",
-		plain:   "markdown \"\"",
-		snippet: "markdown \"${1:path.md}\"$0",
-	},
-	{
 		name:    "raw",
 		detail:  "compile-time directive — begins a block whose contents bypass template parsing",
 		plain:   "raw }}$0{{ endraw",
@@ -115,7 +109,7 @@ var compileTimeDirectives = []compileTimeDirective{
 // + gastro compile-time directives).
 //
 // When snippetSupport is true, compile-time directives are returned with
-// snippet placeholders (e.g. wrap/markdown insert a useful argument skeleton).
+// snippet placeholders (e.g. wrap inserts a useful argument skeleton).
 func FuncMapCompletions(snippetSupport bool) []CompletionItem {
 	funcs := gastro.DefaultFuncs()
 	items := make([]CompletionItem, 0, len(funcs)+len(goTemplateBuiltins)+len(compileTimeDirectives))

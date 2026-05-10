@@ -119,7 +119,7 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	if propValCtx := lsptemplate.DetectPropValueContext(parsed.TemplateBody, cursorOffset); propValCtx != nil {
 		if propValCtx.AfterPipe {
 			// Pipe position — only runtime functions make sense here, not
-			// compile-time directives (wrap/markdown/raw/endraw). Disable
+			// compile-time directives (wrap/raw/endraw). Disable
 			// snippet mode so we don't insert argument skeletons where they
 			// wouldn't parse.
 			for _, c := range lsptemplate.FuncMapCompletions(false) {

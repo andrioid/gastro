@@ -1020,3 +1020,62 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestCompile_EmbedDirectiveBakesContent(t *testing.T) {
+	projectDir := filepath.Join("testdata", "embed")
+	outputDir := t.TempDir()
+
+	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	// EmbedDeps should list the resolved (post-symlink) absolute path of
+	// the embedded .md file so the dev watcher tracks edits.
+	if len(result.EmbedDeps) != 1 {
+		t.Fatalf("want 1 EmbedDep, got %d: %v", len(result.EmbedDeps), result.EmbedDeps)
+	}
+	if !strings.HasSuffix(result.EmbedDeps[0], filepath.Join("testdata", "embed", "content", "intro.md")) {
+		t.Errorf("dep should point at intro.md, got %s", result.EmbedDeps[0])
+	}
+
+	// Generated handler should contain the baked literal at package
+	// scope (via the hoister) — `var __<id>_IntroRaw = "# Hello from
+	// embed\n"` or similar after mangling.
+	pageGo := filepath.Join(outputDir, "pages_index.go")
+	src, err := os.ReadFile(pageGo)
+	if err != nil {
+		t.Fatalf("read generated file: %v", err)
+	}
+	if !strings.Contains(string(src), `"# Hello from embed\n"`) {
+		t.Errorf("generated file should contain baked literal, got:\n%s", src)
+	}
+}
+
+func TestCompile_EmbedDirective_MissingFileSurfacesError(t *testing.T) {
+	tmp := t.TempDir()
+	pages := filepath.Join(tmp, "pages")
+	if err := os.MkdirAll(pages, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatalf("go.mod: %v", err)
+	}
+	src := `---
+//gastro:embed missing.md
+var Content string
+---
+<p>{{ .Content }}</p>
+`
+	if err := os.WriteFile(filepath.Join(pages, "index.gastro"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write page: %v", err)
+	}
+
+	_, err := compiler.Compile(tmp, t.TempDir(), compiler.CompileOptions{})
+	if err == nil {
+		t.Fatal("expected compile error for missing embed target")
+	}
+	if !strings.Contains(err.Error(), "missing.md") {
+		t.Errorf("error should mention missing.md: %v", err)
+	}
+}

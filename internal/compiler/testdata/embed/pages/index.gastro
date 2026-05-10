@@ -1,0 +1,8 @@
+---
+//gastro:embed ../content/intro.md
+var IntroRaw string
+
+ctx := gastro.Context()
+_ = ctx
+---
+<article>{{ .IntroRaw }}</article>

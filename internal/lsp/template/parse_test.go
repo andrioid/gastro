@@ -73,25 +73,6 @@ func TestParseTemplateBody_WithComponentFunctions(t *testing.T) {
 	}
 }
 
-func TestParseTemplateBody_MarkdownDirective(t *testing.T) {
-	// The {{ markdown "..." }} directive must be stubbed in the LSP's
-	// FuncMap so templates that use it still parse cleanly. Without this,
-	// ParseTemplateBody fails with `function "markdown" not defined` and
-	// AST-based diagnostics silently fall back to regex analysis for the
-	// whole file.
-	body := `<h1>{{ .Title }}</h1>
-{{ markdown "./intro.md" }}
-<p>{{ .Footer }}</p>`
-
-	tree, err := lsptemplate.ParseTemplateBody(body, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if tree == nil {
-		t.Fatal("expected non-nil tree")
-	}
-}
-
 func TestParseTemplateBody_IncompleteTemplateReturnsError(t *testing.T) {
 	// Unclosed action — common while typing
 	_, err := lsptemplate.ParseTemplateBody(`{{ .Title`, nil)

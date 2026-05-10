@@ -566,7 +566,7 @@ func runDev() error {
 			if err != nil {
 				return nil, err
 			}
-			return result.MarkdownDeps, nil
+			return result.EmbedDeps, nil
 		},
 		OnRestart: startApp,
 		OnReload:  writeReloadSignal,

@@ -426,15 +426,15 @@ var ok = true
 	})
 }
 
-// TestRun_MarkdownDepsTracked: when Generate reports markdown deps, the
+// TestRun_EmbedDepsTracked: when Generate reports embed deps, the
 // watcher polls those paths (even when they live outside the project
 // tree) and emits reload events on change. This is the regression test
 // for the extDeps wiring after the package extraction.
-func TestRun_MarkdownDepsTracked(t *testing.T) {
+func TestRun_EmbedDepsTracked(t *testing.T) {
 	root := setupProject(t)
 	rec := newRecorder()
 
-	// Place the markdown file outside the project tree to prove the
+	// Place the embed target outside the project tree to prove the
 	// watcher follows extDeps absolute paths, not just files under root.
 	mdDir := t.TempDir()
 	mdPath := filepath.Join(mdDir, "shared.md")
@@ -464,10 +464,10 @@ func TestRun_MarkdownDepsTracked(t *testing.T) {
 		drain(rec.reloadCh)
 		drain(rec.genCh)
 
-		// Edit the external markdown — should regen and reload.
+		// Edit the external embed target — should regen and reload.
 		touchLater(t, mdPath, "# updated\n")
-		waitN(t, "regen after md change", rec.genCh, 1)
-		waitN(t, "reload after md change", rec.reloadCh, 1)
+		waitN(t, "regen after embed change", rec.genCh, 1)
+		waitN(t, "reload after embed change", rec.reloadCh, 1)
 	})
 }
 

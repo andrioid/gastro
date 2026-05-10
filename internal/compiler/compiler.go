@@ -30,10 +30,11 @@ type FileWarning struct {
 // CompileResult contains the output of a successful compilation.
 type CompileResult struct {
 	Warnings []FileWarning
-	// MarkdownDeps lists absolute paths to every .md file referenced by a
-	// {{ markdown "..." }} directive during this compile. Useful for the
-	// dev watcher so changes to these files can trigger a regenerate.
-	MarkdownDeps []string
+	// EmbedDeps lists absolute paths to every external file referenced by a
+	// //gastro:embed directive in frontmatter during this compile. Useful
+	// for the dev watcher so changes to these files can trigger a
+	// regenerate.
+	EmbedDeps []string
 	// ComponentCount is the number of component files compiled.
 	ComponentCount int
 	// PageCount is the number of page files compiled.
@@ -66,7 +67,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	var components []componentMeta
 	var templates []templateMeta
 	var allWarnings []FileWarning
-	var allMarkdownDeps []string
+	var allEmbedDeps []string
 	absProjectDir, err := filepath.Abs(projectDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolving project dir: %w", err)
@@ -131,7 +132,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		if result.component != nil {
 			components = append(components, *result.component)
 		}
-		allMarkdownDeps = append(allMarkdownDeps, result.markdownDeps...)
+		allEmbedDeps = append(allEmbedDeps, result.embedDeps...)
 	}
 
 	// Detect static asset directory (ignore dotfiles like .gitkeep, .DS_Store)
@@ -186,7 +187,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 
 	return &CompileResult{
 		Warnings:       allWarnings,
-		MarkdownDeps:   dedupeStrings(allMarkdownDeps),
+		EmbedDeps:      dedupeStrings(allEmbedDeps),
 		ComponentCount: componentCount,
 		PageCount:      pageCount,
 	}, nil
@@ -306,10 +307,10 @@ type componentMeta struct {
 // compileResult is returned by compileFile. It always contains template
 // metadata and optionally component metadata (nil for pages).
 type compileResult struct {
-	template     templateMeta
-	component    *componentMeta
-	warnings     []codegen.Warning
-	markdownDeps []string
+	template   templateMeta
+	component  *componentMeta
+	warnings   []codegen.Warning
+	embedDeps  []string
 }
 
 // gatherComponentSchemas reads each component file's frontmatter, extracts
@@ -359,6 +360,26 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		return compileResult{}, err
 	}
 
+	// Expand //gastro:embed directives in the frontmatter before any
+	// downstream pass touches it. The pass replaces each directive's
+	// uninitialized var with `var X = "<baked>"`; the var-hoister then
+	// lifts that decl to package scope. See internal/codegen/embed.go
+	// for the contract.
+	moduleRoot := codegen.FindModuleRootForFile(absPath)
+	if moduleRoot == "" {
+		// Fall back to the project directory. //gastro:embed will still
+		// reject anything outside this fallback root.
+		moduleRoot = absProjectDir
+	}
+	rewrittenFM, embedDeps, err := codegen.ProcessEmbedDirectives(file.Frontmatter, codegen.EmbedContext{
+		SourceFile: absPath,
+		ModuleRoot: moduleRoot,
+	})
+	if err != nil {
+		return compileResult{}, err
+	}
+	file.Frontmatter = rewrittenFM
+
 	// Analyze frontmatter
 	info, err := codegen.AnalyzeFrontmatter(file.Frontmatter)
 	if err != nil {
@@ -371,20 +392,8 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 	// a component renders children — see internal/codegen/template.go.
 	hasChildren := codegen.TemplateRendersChildren(file.TemplateBody)
 
-	// Expand {{ markdown "path" }} directives before template transformation
-	// so the resulting HTML is treated as part of the template body by all
-	// downstream passes ({{ raw }}, {{ wrap }}, etc.).
-	mdCtx := codegen.MarkdownContext{
-		ProjectRoot: absProjectDir,
-		SourceDir:   filepath.Dir(absPath),
-	}
-	bodyWithMarkdown, markdownDeps, err := codegen.ProcessMarkdownDirectives(file.TemplateBody, mdCtx)
-	if err != nil {
-		return compileResult{}, err
-	}
-
 	// Transform template body
-	transformedBody, err := codegen.TransformTemplate(bodyWithMarkdown, file.Uses)
+	transformedBody, err := codegen.TransformTemplate(file.TemplateBody, file.Uses)
 	if err != nil {
 		return compileResult{}, err
 	}
@@ -475,7 +484,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 
 	// Pages have no component metadata
 	if !isComponent {
-		return compileResult{template: tmplMeta, warnings: combinedWarnings, markdownDeps: markdownDeps}, nil
+		return compileResult{template: tmplMeta, warnings: combinedWarnings, embedDeps: embedDeps}, nil
 	}
 
 	_, hoistedTypes := codegen.HoistTypeDeclarations(file.Frontmatter)
@@ -498,7 +507,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		HasChildren:   hasChildren,
 	}
 
-	return compileResult{template: tmplMeta, component: compMeta, warnings: combinedWarnings, markdownDeps: markdownDeps}, nil
+	return compileResult{template: tmplMeta, component: compMeta, warnings: combinedWarnings, embedDeps: embedDeps}, nil
 }
 
 // syncStatic copies the project's static/ directory into outputDir/static/.

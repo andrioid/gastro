@@ -86,7 +86,7 @@ func TestFuncMapCompletions(t *testing.T) {
 		// Go template builtins
 		"and", "or", "eq", "printf", "len",
 		// compile-time directives
-		"wrap", "markdown", "raw", "endraw",
+		"wrap", "raw", "endraw",
 	} {
 		if !names[want] {
 			t.Errorf("expected %q in completions", want)
@@ -102,7 +102,7 @@ func TestFuncMapCompletions_DirectiveDetails(t *testing.T) {
 		byName[c.Label] = c
 	}
 
-	for _, name := range []string{"wrap", "markdown", "raw", "endraw"} {
+	for _, name := range []string{"wrap", "raw", "endraw"} {
 		c, ok := byName[name]
 		if !ok {
 			t.Fatalf("expected %q in completions", name)
@@ -115,10 +115,10 @@ func TestFuncMapCompletions_DirectiveDetails(t *testing.T) {
 		}
 	}
 
-	// With snippet support: directives use snippet syntax for wrap/markdown.
+	// With snippet support: directives use snippet syntax for wrap.
 	snip := lsptemplate.FuncMapCompletions(true)
 	for _, c := range snip {
-		if c.Label == "wrap" || c.Label == "markdown" {
+		if c.Label == "wrap" {
 			if !c.IsSnippet {
 				t.Errorf("%q: IsSnippet should be true when snippetSupport=true", c.Label)
 			}

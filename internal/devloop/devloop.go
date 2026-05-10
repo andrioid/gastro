@@ -76,11 +76,12 @@ type Config struct {
 	Quiet bool
 
 	// Generate is called once at startup and again after each debounced
-	// change burst. It returns the markdown deps the compiler discovered
-	// (used to drive the markdown-watching path); a nil slice is fine.
+	// change burst. It returns the embed deps the compiler discovered
+	// (used to drive the external-file-watching path); a nil slice is
+	// fine.
 	// On error, the loop logs and skips this regen cycle — the previous
 	// .gastro/ tree continues to serve.
-	Generate func() (markdownDeps []string, err error)
+	Generate func() (embedDeps []string, err error)
 
 	// OnRestart is called once at startup (with the parent ctx) so the
 	// caller can boot its binary without a separate bootstrap call, and

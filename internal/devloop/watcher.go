@@ -26,8 +26,8 @@ type watcherState struct {
 	debounced           func()
 	modTimes            map[string]time.Time
 	fileContents        map[string]string
-	markdownCache       []string
-	markdownDepsVersion uint64
+	embedCache       []string
+	embedDepsVersion uint64
 	// goExcludeBasenames is matched against directory basenames anywhere
 	// in the goRoot tree (always-on defaults like vendor/, node_modules/).
 	goExcludeBasenames []string
@@ -68,7 +68,7 @@ func newWatcherState(
 		s.seedFiles(dir, true)
 	}
 	s.seedFiles("static", false)
-	s.seedMarkdown()
+	s.seedEmbed()
 	if cfg.WatchGoFiles {
 		s.goExcludeBasenames = append(s.goExcludeBasenames, defaultGoExcludeBasenames...)
 		for _, ex := range cfg.ExtraExcludes {
@@ -104,27 +104,27 @@ func (s *watcherState) seedFiles(dir string, gastroOnly bool) {
 	}
 }
 
-func (s *watcherState) syncMarkdownCache() {
+func (s *watcherState) syncEmbedCache() {
 	paths, ver := s.extDeps.Snapshot()
-	if ver == s.markdownDepsVersion && s.markdownCache != nil {
+	if ver == s.embedDepsVersion && s.embedCache != nil {
 		return
 	}
 	newSet := make(map[string]struct{}, len(paths))
 	for _, p := range paths {
 		newSet[p] = struct{}{}
 	}
-	for _, old := range s.markdownCache {
+	for _, old := range s.embedCache {
 		if _, ok := newSet[old]; !ok {
 			delete(s.modTimes, old)
 		}
 	}
-	s.markdownCache = paths
-	s.markdownDepsVersion = ver
+	s.embedCache = paths
+	s.embedDepsVersion = ver
 }
 
-func (s *watcherState) seedMarkdown() {
-	s.syncMarkdownCache()
-	for _, f := range s.markdownCache {
+func (s *watcherState) seedEmbed() {
+	s.syncEmbedCache()
+	for _, f := range s.embedCache {
 		info, err := os.Stat(f)
 		if err != nil {
 			continue
@@ -135,7 +135,7 @@ func (s *watcherState) seedMarkdown() {
 
 // runLoop polls the project tree at PollInterval, classifies each
 // change, and feeds the escalate/debounced pair owned by Run. The state
-// (modTimes, fileContents, markdownCache, markdownDepsVersion) is
+// (modTimes, fileContents, embedCache, embedDepsVersion) is
 // goroutine-local — no cross-goroutine sharing beyond the extDeps
 // snapshot and the escalate/debounced closures (which Run protects with
 // a mutex). Exits when ctx is cancelled.
@@ -162,7 +162,7 @@ func (s *watcherState) runLoop(ctx context.Context) {
 	}
 	modTimes := s.modTimes
 	fileContents := s.fileContents
-	_ = s.extDeps // accessed via s.syncMarkdownCache()
+	_ = s.extDeps // accessed via s.syncEmbedCache()
 	escalate := s.escalate
 	debounced := s.debounced
 	goRoot := s.goRoot
@@ -228,10 +228,10 @@ func (s *watcherState) runLoop(ctx context.Context) {
 			}
 		}
 
-		// Markdown deps — driven by extDeps, refreshed only when its
+		// Embed deps — driven by extDeps, refreshed only when its
 		// version counter changes.
-		s.syncMarkdownCache()
-		for _, f := range s.markdownCache {
+		s.syncEmbedCache()
+		for _, f := range s.embedCache {
 			currentFiles[f] = true
 			info, err := os.Stat(f)
 			if err != nil {
@@ -249,7 +249,7 @@ func (s *watcherState) runLoop(ctx context.Context) {
 			}
 
 			if info.ModTime().After(prev) {
-				logf("gastro: %s changed (markdown)\n", f)
+				logf("gastro: %s changed (embed)\n", f)
 				modTimes[f] = info.ModTime()
 				escalate(watcher.ChangeReload)
 				changed = true
