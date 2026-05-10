@@ -7,7 +7,7 @@
 // (and any future fixture trees) should stay at zero. A non-zero count
 // means the shadow is producing Go that doesn't compile against the
 // real runtime — the exact failure mode the audit document
-// (tmp/lsp-shadow-audit.md) was tracking.
+// (docs/history/lsp-shadow-audit.md) was tracking.
 //
 // Usage:
 //

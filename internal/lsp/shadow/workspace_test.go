@@ -537,6 +537,77 @@ _, _ = gastro.Render.NoSuchComponent("anything")
 	}
 }
 
+// TestWorkspace_RenderAPIRejectsPageName guards Q3 of the audit
+// (docs/history/lsp-shadow-audit.md, resolved 2026-05-10): Render is a
+// component-only API, but a downstream user might typo a page name
+// where they meant a component (e.g. gastro.Render.Index instead of
+// gastro.Render.Card on a project that has both pages/index.gastro
+// and components/card.gastro). Pages live in pages/, scanComponents
+// only walks components/, so pages must NOT show up as Render
+// methods. Surface area: if a future change extends scanComponents
+// to walk pages/, this test fails loudly instead of silently
+// type-checking nonsense.
+func TestWorkspace_RenderAPIRejectsPageName(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: invokes go build")
+	}
+	projectDir := createGastroLinkedProject(t)
+	// Two siblings: a real component (so the Render stub has at least
+	// one valid method, ruling out the cold-start bare-stub path) and
+	// a page that should NOT be reachable via Render.
+	if err := os.MkdirAll(filepath.Join(projectDir, "components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, "pages"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cardSrc := `---
+type Props struct {
+	Title string
+}
+
+p := gastro.Props()
+Heading := p.Title
+---
+<article>{{ .Heading }}</article>`
+	if err := os.WriteFile(filepath.Join(projectDir, "components", "card.gastro"), []byte(cardSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// pages/about.gastro: a real auto-routed page. Should NOT be
+	// callable as gastro.Render.About.
+	aboutSrc := `---
+Title := "About"
+---
+<h1>{{ .Title }}</h1>`
+	if err := os.WriteFile(filepath.Join(projectDir, "pages", "about.gastro"), []byte(aboutSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ws, err := shadow.NewWorkspace(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	pageSrc := `---
+_, _ = gastro.Render.About("anything")
+---
+<p>x</p>`
+
+	if _, err := ws.UpdateFile("pages/index.gastro", pageSrc); err != nil {
+		t.Fatal(err)
+	}
+
+	pkgDir := filepath.Dir(ws.VirtualFilePath("pages/index.gastro"))
+	rel, _ := filepath.Rel(ws.Dir(), pkgDir)
+	cmd := exec.Command("go", "build", "-o", os.DevNull, "./"+rel)
+	cmd.Dir = ws.Dir()
+	out, _ := cmd.CombinedOutput()
+	if !strings.Contains(string(out), "About") {
+		t.Errorf("expected build error mentioning About (page name should not be a Render method), got:\n%s", out)
+	}
+}
+
 // TestWorkspace_NestedProjectFindsModuleRoot verifies the git-pm-shaped
 // case: a gastro project at <module>/internal/web/ where go.mod lives
 // at <module>/, not at the gastro project root. The shadow workspace

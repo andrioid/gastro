@@ -617,7 +617,7 @@ func TestDiagnoseComponentProps_WithChildren(t *testing.T) {
 }
 
 // TestDiagnoseComponentProps_ChildrenDictKey_GitPM is a regression for the
-// drift documented in tmp/lsp-shadow-audit (and the original git-pm bug
+// drift documented in docs/history/lsp-shadow-audit.md (and the original git-pm bug
 // report): when a page passes Children as an explicit dict key on a
 // children-rendering layout, the LSP previously flagged it as an
 // unknown prop because its DiagnoseComponentProps did not special-case
