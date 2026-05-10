@@ -15,10 +15,14 @@ import (
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 )
 
-// renderer is created once at package init. goldmark renderers are safe
-// for concurrent use across goroutines once configured, so a single
-// shared instance is fine for a static-content site.
-var renderer = goldmark.New(
+// mdRenderer is created once at package init. goldmark renderers are
+// safe for concurrent use across goroutines once configured, so a
+// single shared instance is fine for a static-content site.
+//
+// (Named `mdRenderer` rather than `renderer` to avoid shadowing the
+// `github.com/yuin/goldmark/renderer` import pulled in by the mermaid
+// extension in mermaid.go.)
+var mdRenderer = goldmark.New(
 	goldmark.WithExtensions(
 		extension.GFM,
 		extension.Footnote,
@@ -26,6 +30,10 @@ var renderer = goldmark.New(
 			highlighting.WithStyle("github"),
 			highlighting.WithFormatOptions(chromahtml.WithClasses(true)),
 		),
+		// Mermaid: ```mermaid fences become <pre class="mermaid">…</pre>
+		// and are rendered client-side by mermaid.js (loaded lazily in
+		// components/layout.gastro). See md/mermaid.go.
+		NewMermaid(),
 	),
 )
 
@@ -55,7 +63,7 @@ func MustRender(src string) template.HTML {
 // than panic.
 func Render(src string) (template.HTML, error) {
 	var buf bytes.Buffer
-	if err := renderer.Convert([]byte(src), &buf); err != nil {
+	if err := mdRenderer.Convert([]byte(src), &buf); err != nil {
 		return "", err
 	}
 	return template.HTML(buf.String()), nil

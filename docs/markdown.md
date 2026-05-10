@@ -79,6 +79,94 @@ go get github.com/yuin/goldmark github.com/yuin/goldmark-highlighting/v2 github.
 
 That's the entire markdown story for static-content sites.
 
+## Mermaid diagrams
+
+This example site renders fenced ` ```mermaid ` blocks as flowcharts
+and sequence diagrams using [mermaid.js](https://mermaid.js.org/). A
+small extension lives next to the renderer in
+[`md/mermaid.go`](https://github.com/andrioid/gastro/blob/main/examples/gastro/md/mermaid.go);
+the SSE doc has a [live example](/docs/sse#sse-from-page-the-headline)
+of the GET/POST page lifecycle as a flowchart.
+
+The pattern is small enough to copy verbatim and zero new Go
+dependencies are required — it composes the same `goldmark`,
+`goldmark/ast`, `goldmark/parser`, `goldmark/renderer`, `goldmark/text`
+and `goldmark/util` packages that goldmark-highlighting already pulls
+in. Two pieces wired together:
+
+1. **Parser-stage AST transformer.** Walks the parsed tree and replaces
+   every `*ast.FencedCodeBlock` whose info string is `mermaid` with a
+   custom `mermaidBlock` AST node. Running at the parser stage — not as
+   a higher-priority node renderer — means goldmark-highlighting's
+   chroma renderer never sees these nodes, so we don't have to fight
+   the highlighter's registry or re-implement code-block rendering.
+2. **Custom node renderer.** Emits the raw mermaid source (HTML-escaped)
+   inside `<pre class="mermaid">…</pre>`. mermaid.js' default scanner
+   picks up that selector and swaps the element for an SVG diagram on
+   first paint.
+
+Wire it into your goldmark instance alongside the highlighter:
+
+```go
+var renderer = goldmark.New(
+    goldmark.WithExtensions(
+        extension.GFM,
+        extension.Footnote,
+        highlighting.NewHighlighting(/* ... */),
+        md.NewMermaid(), // ```mermaid → <pre class="mermaid">
+    ),
+)
+```
+
+For the client side, lazy-load mermaid.js only when a diagram is
+actually present on the page. This keeps mermaid's ~600KB off every
+page that doesn't need it. Add this once near the bottom of your
+base layout:
+
+```html
+<script>
+    if (document.querySelector('pre.mermaid')) {
+        import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')
+            .then(({ default: mermaid }) => {
+                mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+                mermaid.run({ querySelector: 'pre.mermaid' });
+            });
+    }
+</script>
+```
+
+Use it from any markdown file:
+
+````md
+```mermaid
+flowchart LR
+    A[.md file] -->|gastro:embed| B[raw string]
+    B -->|md.MustRender| C[template.HTML]
+    C --> D[rendered page]
+```
+````
+
+This renders to a flowchart on first paint, while sibling code blocks
+such as ` ```go ` continue to flow through chroma untouched.
+
+The same shape — *parser AST transformer + custom node kind +
+minimal node renderer* — generalises to other diagram or DSL
+extensions you might want (KaTeX math, GraphViz, custom admonitions).
+When one fits your project, copy `md/mermaid.go` and adjust the
+language string and rendered wrapper.
+
+### Trust boundary
+
+Everything inside ` ```mermaid ` ends up as text that mermaid.js
+parses in the browser. The renderer HTML-escapes the source so any
+stray `<script>` in the diagram's labels can't break out and execute,
+and the loader configures `securityLevel: 'strict'` so mermaid itself
+strips dangerous markup from labels before rendering. If you accept
+user-submitted markdown that may contain diagrams, that escape +
+strict combo is the floor; consider also rendering server-side with
+[mermaid-cli](https://github.com/mermaid-js/mermaid-cli) if you want
+to avoid running mermaid in untrusted browsers altogether.
+
 ## Static markdown — the canonical case
 
 Most sites have markdown files committed to the repo: documentation

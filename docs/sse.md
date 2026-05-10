@@ -58,6 +58,17 @@ Count := int(state.Count.Load())
 
 What happens at runtime:
 
+```mermaid
+flowchart TD
+    R[Incoming request] --> M{r.Method}
+    M -->|GET| G[Frontmatter computes<br/>Title, Count]
+    G --> GT[Template renders<br/>full page]
+    M -->|POST| P[Frontmatter mutates state<br/>via state.Count.Add 1]
+    P --> PR[gastro.Render.Counter<br/>→ template.HTML]
+    PR --> PS[datastar.NewSSE<br/>+ PatchElements]
+    PS --> PX[return — body-written flag set<br/>template render skipped]
+```
+
 - **`GET /counter`** — `r.Method == "POST"` is false; the if-block is
   skipped. `Title` and `Count` are computed. The codegen-wrapped
   writer's body-written flag is still false, so the template renders.

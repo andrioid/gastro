@@ -41,6 +41,19 @@ Title := p.Title
         </div>
     </header>
     {{ .Children }}
+    <script>
+        // Lazy-load mermaid.js only when the page actually contains a
+        // diagram. Pages without ```mermaid blocks pay zero bytes for
+        // mermaid (the library is ~600KB gzipped).
+        if (document.querySelector('pre.mermaid')) {
+            import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')
+                .then(({ default: mermaid }) => {
+                    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+                    mermaid.run({ querySelector: 'pre.mermaid' });
+                })
+                .catch((err) => console.error('mermaid load failed', err));
+        }
+    </script>
     <footer class="site-footer">
         <div class="footer-container">
             <p>Built with Gastro &mdash; a file-based component framework for Go.</p>

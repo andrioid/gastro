@@ -55,6 +55,51 @@ func TestMustRender_Footnote(t *testing.T) {
 	}
 }
 
+func TestMustRender_MermaidPassthrough(t *testing.T) {
+	src := "```mermaid\nflowchart LR\n    A --> B\n```\n"
+	out := md.MustRender(src)
+	s := string(out)
+	if !strings.Contains(s, `<pre class="mermaid">`) {
+		t.Errorf("expected <pre class=\"mermaid\"> wrapper, got: %s", s)
+	}
+	if !strings.Contains(s, "flowchart LR") || !strings.Contains(s, "A --&gt; B") {
+		t.Errorf("expected mermaid source preserved (HTML-escaped), got: %s", s)
+	}
+	// Mermaid blocks must NOT be passed through chroma — no highlight
+	// classes should leak in.
+	if strings.Contains(s, "chroma") {
+		t.Errorf("mermaid block should not be syntax-highlighted by chroma, got: %s", s)
+	}
+}
+
+func TestMustRender_NonMermaidStillHighlighted(t *testing.T) {
+	// Non-mermaid fences must remain unaffected by the mermaid extension.
+	src := "```mermaid\nflowchart LR\n    A --> B\n```\n\n```go\nfunc main() {}\n```\n"
+	out := md.MustRender(src)
+	s := string(out)
+	if !strings.Contains(s, `<pre class="mermaid">`) {
+		t.Errorf("expected mermaid wrapper, got: %s", s)
+	}
+	if !strings.Contains(s, "chroma") {
+		t.Errorf("expected chroma class on adjacent Go block, got: %s", s)
+	}
+}
+
+func TestMustRender_MermaidEscapesHTML(t *testing.T) {
+	// Mermaid sources can include angle brackets in arrow syntax. The
+	// renderer must escape them so the SVG renderer (and the browser's
+	// HTML parser before it) sees the original characters.
+	src := "```mermaid\nA-->B & <script>alert(1)</script>\n```\n"
+	out := md.MustRender(src)
+	s := string(out)
+	if strings.Contains(s, "<script>alert(1)</script>") {
+		t.Errorf("raw <script> must not survive HTML escaping, got: %s", s)
+	}
+	if !strings.Contains(s, "&lt;script&gt;") {
+		t.Errorf("expected escaped script tag, got: %s", s)
+	}
+}
+
 func TestRender_ReturnsErrorRatherThanPanic(t *testing.T) {
 	// goldmark is famously hard to make fail; this is mostly a smoke
 	// test that the non-panic API path is wired.
