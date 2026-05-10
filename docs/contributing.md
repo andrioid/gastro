@@ -66,8 +66,8 @@ go generate ./...
 ```
 
 The `//go:generate` directives in `examples/gastro/generate.go` invoke
-`tailwindcss` followed by `gastro generate`. CI runs the same command
-and fails if the result differs from what's committed.
+`tailwindcss` followed by `go tool gastro generate`. CI runs the same
+command and fails if the result differs from what's committed.
 
 For a hot-reload dev loop that rebuilds CSS, regenerates the gastro
 tree, and restarts the binary on every change:
