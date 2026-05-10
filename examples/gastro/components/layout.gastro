@@ -45,10 +45,54 @@ Title := p.Title
         // Lazy-load mermaid.js only when the page actually contains a
         // diagram. Pages without ```mermaid blocks pay zero bytes for
         // mermaid (the library is ~600KB gzipped).
+        //
+        // The themeVariables block below maps the site's design tokens
+        // (see static/styles.css :root) onto mermaid's `base` theme so
+        // diagrams pick up the same warm cream / muted brown / accent
+        // orange palette as the rest of the site instead of mermaid's
+        // default pastel-purple. Keep these in sync with --color-*
+        // tokens if the site palette changes.
         if (document.querySelector('pre.mermaid')) {
             import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')
                 .then(({ default: mermaid }) => {
-                    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+                    mermaid.initialize({
+                        startOnLoad: false,
+                        securityLevel: 'strict',
+                        theme: 'base',
+                        fontFamily: '"DM Sans", system-ui, -apple-system, sans-serif',
+                        themeVariables: {
+                            background:           'transparent',
+                            primaryColor:         '#f7f2ec', /* --color-surface         */
+                            primaryTextColor:     '#2c2418', /* --color-text            */
+                            primaryBorderColor:   '#a89f90', /* --color-text-subtle     */
+                            secondaryColor:       '#fef3eb', /* --color-accent-light    */
+                            secondaryBorderColor: '#e8722a', /* --color-accent          */
+                            secondaryTextColor:   '#2c2418',
+                            tertiaryColor:        '#fffbf7', /* --color-bg              */
+                            tertiaryBorderColor:  '#e8e0d4', /* --color-border          */
+                            tertiaryTextColor:    '#2c2418',
+                            mainBkg:              '#f7f2ec',
+                            nodeBorder:           '#a89f90',
+                            nodeTextColor:        '#2c2418',
+                            lineColor:            '#7a6e5d', /* --color-text-muted      */
+                            defaultLinkColor:     '#7a6e5d',
+                            titleColor:           '#2c2418',
+                            edgeLabelBackground:  '#fffbf7',
+                            clusterBkg:           '#f2ece4', /* --color-border-light    */
+                            clusterBorder:        '#e8e0d4',
+                            /* sequence + state diagram surfaces */
+                            actorBkg:             '#f7f2ec',
+                            actorBorder:          '#a89f90',
+                            actorTextColor:       '#2c2418',
+                            actorLineColor:       '#7a6e5d',
+                            labelBoxBkgColor:     '#fef3eb',
+                            labelBoxBorderColor:  '#e8722a',
+                            labelTextColor:       '#2c2418',
+                            noteBkgColor:         '#fef3eb',
+                            noteBorderColor:      '#e8722a',
+                            noteTextColor:        '#2c2418',
+                        },
+                    });
                     mermaid.run({ querySelector: 'pre.mermaid' });
                 })
                 .catch((err) => console.error('mermaid load failed', err));

@@ -671,6 +671,35 @@ h3 code {
 }
 
 /* -------------------------------------------------------
+   Mermaid diagrams (rendered client-side, see layout.gastro)
+   -------------------------------------------------------
+   Hide the raw mermaid source until mermaid.js has swapped
+   it for an SVG (it sets data-processed="true" when done).
+   visibility:hidden preserves layout space so we don't
+   reflow on render. The SVG itself inherits the cream page
+   background via theme=base + transparent canvas.
+   ------------------------------------------------------- */
+
+.docs-content pre.mermaid {
+    margin: 1.5rem 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    text-align: center;
+    overflow-x: auto;
+}
+
+.docs-content pre.mermaid:not([data-processed="true"]) {
+    visibility: hidden;
+    min-height: 6rem;
+}
+
+.docs-content pre.mermaid svg {
+    max-width: 100%;
+    height: auto;
+}
+
+/* -------------------------------------------------------
    Markdown-rendered code blocks (chroma, classed output)
    -------------------------------------------------------
    Site-specific muted palette. Kept in styles.css (not
