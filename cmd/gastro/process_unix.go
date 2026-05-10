@@ -1,3 +1,5 @@
+//go:build unix
+
 package main
 
 import (
@@ -27,11 +29,11 @@ import (
 // using Kill(-pgid, SIGTERM) so every descendant (including the
 // grandchild) gets the signal at once.
 //
-// This is a Unix-only concern — Windows uses job objects and a different
-// API surface. `gastro watch` v1 is Unix-only per the plan's anti-goal
-// list (\u00a72) and out-of-scope list (\u00a710); the SysProcAttr value used here
-// (Setpgid) doesn't exist on Windows, which is why this file lives next
-// to a future process_windows.go stub if we ever take that on.
+// This is a Unix-only concern — Windows uses a different API surface
+// (taskkill /T to walk the process tree) and lives in
+// process_windows.go alongside this file. The SysProcAttr.Setpgid
+// field used below doesn't exist on Windows, so this file is gated
+// behind //go:build unix.
 type App struct {
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -40,9 +42,8 @@ type App struct {
 }
 
 // gracePeriod is how long Stop waits between SIGTERM and SIGKILL.
-// Hardcoded to 5 seconds in v1; the plan's \u00a710 out-of-scope list
-// records that making this configurable is deferred until someone
-// reports a slow-shutdown binary that needs longer.
+// Hardcoded to 5 seconds in v1; making this configurable is deferred
+// until someone reports a slow-shutdown binary that needs longer.
 const gracePeriod = 5 * time.Second
 
 // Start spawns command in its own process group. The command is parsed
