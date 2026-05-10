@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/andrioid/gastro/compare/v0.2.0...v0.3.0) (2026-05-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** cross-compile gastro for windows
+
+### Bug Fixes
+
+* **cli:** cross-compile gastro for windows ([c01b1d0](https://github.com/andrioid/gastro/commit/c01b1d0f02077e6d9aa4bf4b0b33e72abc8441ad))
+
 ## [0.2.0](https://github.com/andrioid/gastro/compare/v0.1.20...v0.2.0) (2026-05-10)
 
 
