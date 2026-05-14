@@ -190,7 +190,10 @@ http.ListenAndServe(":4242", router.Handler())
 your HTTP server. Other options include `WithDeps[T]` for typed dependency
 injection into pages, `WithOverride(pattern, handler)` for replacing an
 auto-generated route with a Go handler, `WithMiddleware(pattern, fn)` for
-wrapping routes (subtree wildcards via `"/admin/{path...}"`), and
+wrapping routes (subtree wildcards via `"/admin/{path...}"`),
+`WithRequestFuncs(binder)` for **request-aware template helpers** (i18n
+translators, CSRF tokens, CSP nonces — see [Helpers → Request-aware
+helpers](docs/helpers.md#request-aware-helpers-withrequestfuncs)), and
 `WithErrorHandler(fn)` for custom render-error responses (logging, error
 tracking, branded 500 pages). See [Pages & Routing](docs/pages.md) for
 the full API and [Error Handling](docs/error-handling.md) for the

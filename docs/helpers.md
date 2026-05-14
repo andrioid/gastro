@@ -304,8 +304,17 @@ make the trade-off visible, the LSP publishes an **info-level
 diagnostic** on the `gastro.WithRequestFuncs(...)` call site explaining
 the situation and pointing at the literal-`FuncMap` workaround.
 
-### Worked example
+### Worked examples
 
-A fuller end-to-end example app — with locale detection middleware, PO
-file loading, plural rules, and an `Accept-Language` switcher — lives in
-`examples/i18n/` (added in the follow-up PR alongside this feature).
+Three example apps in `examples/` exercise `WithRequestFuncs` along
+different axes:
+
+| Example | What it stresses |
+|---|---|
+| `examples/i18n/` | The motivating case. Three helpers (`t`, `tn`, `tc`) from one binder, locale detection middleware, gettext-style PO catalogues. |
+| `examples/csrf/` | Mixed return types in one binder (`csrfToken` returns `string`, `csrfField` returns `template.HTML`). Middleware mints + verifies tokens; helpers only read. |
+| `examples/csp/` | Helper-to-middleware coordination: the middleware writes a `Content-Security-Policy: nonce-X` header and the `cspNonce` helper renders the matching `<script nonce="X">`. The two must agree. |
+
+Each example has its own `README.md` that walks through the recipe in
+depth, including how to swap in a battle-tested library (gotext,
+gorilla/csrf, etc.) without changing the `WithRequestFuncs` wiring.
