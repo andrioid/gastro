@@ -1041,9 +1041,10 @@ func (__r *Router) __gastro_renderComponent(name string, r *http.Request, buf *b
 //
 // Cost: each nested component render does its own Clone (prod) or fresh
 // parse (dev), so a page with N nested components costs O(N) Clones.
-// html/template.Clone is O(size of parse tree); for typical templates
-// this is well under a microsecond per level. See the
-// BenchmarkNestedClone* suite for measured numbers.
+// Measured on Apple M3 / Go 1.26, a typical component template clones
+// in roughly 1.2 µs and ~3.5 KB per level — well under the noise floor
+// of HTTP + middleware + Execute. See BenchmarkNestedClone for the
+// per-depth roll-up.
 //
 // Panics inside binders or Execute are recovered, logged with the
 // panicking binder's registration index when known, and returned as an

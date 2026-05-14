@@ -276,8 +276,11 @@ Under the hood, each request Clones the page's parsed template (or, in
 dev mode, re-parses it) and applies the per-request FuncMap to the
 clone. Bare component invocations are then dispatched through closures
 that thread the request all the way down the component tree. Cost is
-proportional to nesting depth; each Clone is well under a microsecond
-for typical templates.
+proportional to nesting depth; on an Apple M3 a typical component
+template clones in ~1.2 µs, so a 5-deep tree adds ~6 µs per request —
+well below the per-request budget of any real handler. See the
+`BenchmarkNestedClone` suite in `internal/compiler/` for the per-depth
+roll-up.
 
 ### Editor support
 
