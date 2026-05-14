@@ -307,10 +307,10 @@ type componentMeta struct {
 // compileResult is returned by compileFile. It always contains template
 // metadata and optionally component metadata (nil for pages).
 type compileResult struct {
-	template   templateMeta
-	component  *componentMeta
-	warnings   []codegen.Warning
-	embedDeps  []string
+	template  templateMeta
+	component *componentMeta
+	warnings  []codegen.Warning
+	embedDeps []string
 }
 
 // gatherComponentSchemas reads each component file's frontmatter, extracts
