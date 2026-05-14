@@ -1,0 +1,21 @@
+---
+import (
+    Layout "components/layout.gastro"
+)
+
+Title := "i18n example"
+Items := []string{"apple", "banana", "cherry"}
+Count := len(Items)
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    <h1>{{ t "Welcome" }}</h1>
+    <!-- gettext's ngettext returns the *localised format string*, then
+         we printf the count into it. This is the same idiom every
+         gettext-based library follows. -->
+    <p>{{ printf (tn "%d item" "%d items" .Count) .Count }}</p>
+    <ul>
+        {{ range .Items }}
+        <li>{{ . }}</li>
+        {{ end }}
+    </ul>
+{{ end }}

@@ -1,0 +1,32 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: de\n"
+
+msgid "Welcome"
+msgstr "Willkommen"
+
+msgid "About this example"
+msgstr "Über dieses Beispiel"
+
+msgid "This page demonstrates WithRequestFuncs."
+msgstr "Diese Seite demonstriert WithRequestFuncs."
+
+msgid "Home"
+msgstr "Startseite"
+
+msgid "About"
+msgstr "Über"
+
+msgid "%d item"
+msgid_plural "%d items"
+msgstr[0] "%d Element"
+msgstr[1] "%d Elemente"
+
+msgctxt "button"
+msgid "Open"
+msgstr "Öffnen"
+
+msgctxt "adjective"
+msgid "Open"
+msgstr "Geöffnet"
