@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.2](https://github.com/andrioid/gastro/compare/v0.3.1...v0.3.2) (2026-05-14)
+
+
+### Documentation
+
+* add Go Reference and MIT license badges to README ([10e283a](https://github.com/andrioid/gastro/commit/10e283a92106c250eb9a80b4c87d125134707d49))
+* add MIT LICENSE file ([0f11e64](https://github.com/andrioid/gastro/commit/0f11e645978a454e58e61a8ef221ea4474f9f32c))
+* add package docs and runnable examples for pkg.go.dev ([041fb13](https://github.com/andrioid/gastro/commit/041fb136bd7fdc645d578d70908e20d3dd8321f6))
+
 ## [0.3.1](https://github.com/andrioid/gastro/compare/v0.3.0...v0.3.1) (2026-05-14)
 
 
