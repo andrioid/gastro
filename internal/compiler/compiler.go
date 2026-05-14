@@ -576,8 +576,10 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 
@@ -592,6 +594,8 @@ var _ = fmt.Errorf
 var _ = regexp.Compile
 var _ = strings.Contains
 var _ = reflect.TypeOf
+var _ = httptest.NewRequest
+var _ = debug.Stack
 
 // Option configures the generated router. Pass options to New().
 type Option func(*config)
@@ -603,6 +607,7 @@ type config struct {
 	middleware   []middlewareEntry
 	devMode      *bool // nil = use GASTRO_DEV env var; non-nil = override
 	errorHandler gastroRuntime.PageErrorHandler
+	binders      []func(*http.Request) template.FuncMap
 }
 
 // middlewareEntry pairs a route-pattern matcher with the middleware to
@@ -714,6 +719,40 @@ func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
 	}
 }
 
+// WithRequestFuncs registers a function-map binder that runs once per
+// request. The returned FuncMap is merged with the static FuncMap built
+// from WithFuncs before the page (or Render.With(r) call) executes.
+//
+// Multiple WithRequestFuncs calls compose. Helper names must be unique
+// across the union of built-ins, WithFuncs, and all binders — including
+// any name that shadows a Gastro built-in. Duplicates panic at New().
+//
+// Binders are probed at New() with a synthetic *http.Request whose
+// context carries no adopter-installed values. Binders must therefore:
+//   - return a stable key set independent of request state, and
+//   - not panic during top-level execution when context accessors return
+//     zero values (e.g. an i18n FromCtx helper must tolerate a missing
+//     locale).
+//
+// Closures and method values inside the returned map are NOT invoked
+// during probing; only the map's keys are read.
+//
+// If a binder panics at request time (not probe time), Gastro recovers
+// the panic, logs it with the binder's registration index, and dispatches
+// to the configured error handler (default: 500 response). One bad
+// binder cannot crash the server.
+//
+// Zero-cost when unused: if no WithRequestFuncs option is registered,
+// page handlers fall through to the same direct-Execute path as before.
+func WithRequestFuncs(binder func(*http.Request) template.FuncMap) Option {
+	if binder == nil {
+		panic("gastro: WithRequestFuncs: nil binder")
+	}
+	return func(c *config) {
+		c.binders = append(c.binders, binder)
+	}
+}
+
 // WithErrorHandler installs a custom handler for page render errors.
 //
 // The handler is invoked when a generated page handler's template Execute
@@ -747,7 +786,21 @@ type Router struct {
 	deps         map[reflect.Type]any
 	mux          *http.ServeMux
 	errorHandler gastroRuntime.PageErrorHandler
+	binders      []func(*http.Request) template.FuncMap
+	// binderKeys is the union of helper names contributed by every
+	// registered binder. It's discovered at probe time and used to seed
+	// placeholder funcs into parse-time FuncMaps so templates that
+	// reference request-aware helpers parse successfully at New(). The
+	// real funcs are applied later via Funcs() at request time.
+	binderKeys map[string]bool
 }
+
+// __gastro_binderPlaceholder is the variadic stub installed for every
+// discovered binder helper name at parse time. It is never invoked at
+// runtime: the request-aware execution path replaces it via Funcs()
+// before Execute. If somehow invoked (e.g. a stale Clone), it returns
+// nil and the template renders an empty string for that call.
+func __gastro_binderPlaceholder(args ...any) any { return nil }
 
 // __gastro_handleError dispatches a page render error to the user-supplied
 // WithErrorHandler when one is installed; otherwise to the runtime default.
@@ -774,11 +827,21 @@ func (__r *Router) __gastro_handleError(w http.ResponseWriter, r *http.Request, 
 var __gastro_active atomic.Pointer[Router]
 
 // __gastro_buildFuncMap constructs the FuncMap for the named template,
-// merging user functions with per-template component wiring.
+// merging user functions with per-template component wiring and any
+// placeholder stubs for request-aware helpers discovered at probe time.
 func (__r *Router) __gastro_buildFuncMap(name string, userFuncs template.FuncMap) template.FuncMap {
 	fm := template.FuncMap{}
 	for k, v := range userFuncs {
 		fm[k] = v
+	}
+	// Seed placeholder stubs for request-aware helper names so the
+	// template parser accepts references like t or csrfField at New()
+	// time. The real funcs are supplied per request via
+	// __gastro_renderPage's .Funcs() call.
+	for k := range __r.binderKeys {
+		if _, exists := fm[k]; !exists {
+			fm[k] = __gastro_binderPlaceholder
+		}
 	}
 	switch name {
 {{- range .Templates}}{{- if .Uses}}{{$fn := .FuncName}}
@@ -852,6 +915,140 @@ func (__r *Router) __gastro_getTemplate(name string) *template.Template {
 	return __r.registry[name]
 }
 
+// __gastro_renderPage dispatches a page render. It is the single entry
+// point from generated page handlers; the same call site is used whether
+// or not WithRequestFuncs binders are registered.
+//
+//   - When no binders are registered, this falls through to the same
+//     __gastro_getTemplate(name).Execute(w, data) call as pre-binder
+//     code. No Clone, no per-request FuncMap rebuild.
+//   - When binders are registered, each binder is invoked with r, its
+//     returned funcs are merged onto a Cloned template (prod) or applied
+//     to the freshly-parsed dev template (dev), and Execute runs against
+//     that per-request template.
+//
+// Panics inside binders or template execution are recovered, logged with
+// the binder index, and returned as an error so the page handler can
+// dispatch through __gastro_handleError. Generated handlers call this
+// method and route any non-nil error through their installed error
+// handler.
+func (__r *Router) __gastro_renderPage(name string, w http.ResponseWriter, r *http.Request, data any) (rerr error) {
+	if len(__r.binders) == 0 {
+		return __r.__gastro_getTemplate(name).Execute(w, data)
+	}
+
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("gastro: WithRequestFuncs panic on %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+			rerr = fmt.Errorf("gastro: WithRequestFuncs panic on %s %s: %v", r.Method, r.URL.Path, rec)
+		}
+	}()
+
+	extra := template.FuncMap{}
+	for i, b := range __r.binders {
+		fm := __r.__gastro_callBinder(i, b, r)
+		for k, v := range fm {
+			extra[k] = v
+		}
+	}
+
+	var tmpl *template.Template
+	if __r.isDev {
+		// Dev: template is re-parsed per request anyway, so apply the
+		// effective FuncMap (built-in + WithFuncs + binders) to the fresh
+		// parse directly; skip Clone.
+		effective := template.FuncMap{}
+		for k, v := range __r.userFuncs {
+			effective[k] = v
+		}
+		for k, v := range extra {
+			effective[k] = v
+		}
+		tfs := gastroRuntime.GetTemplateFS(templateFS)
+		parsed, err := __r.__gastro_parseTemplate(name, tfs, effective)
+		if err != nil {
+			return err
+		}
+		tmpl = parsed
+	} else {
+		cached := __r.registry[name]
+		if cached == nil {
+			return fmt.Errorf("gastro: no template registered for %q", name)
+		}
+		cloned, err := cached.Clone()
+		if err != nil {
+			return fmt.Errorf("gastro: cloning template %q: %w", name, err)
+		}
+		cloned.Funcs(extra)
+		tmpl = cloned
+	}
+
+	// Buffer the render so a panic mid-Execute produces a clean 500
+	// rather than committing partial bytes to the response. The
+	// streaming Execute() path (zero-binders) is unchanged; only this
+	// request-aware path pays the extra allocation, which is dwarfed by
+	// the Clone cost above.
+	var __buf bytes.Buffer
+	if err := tmpl.Execute(&__buf, data); err != nil {
+		return err
+	}
+	_, err := w.Write(__buf.Bytes())
+	return err
+}
+
+// __gastro_callBinder invokes a binder with recover-and-rethrow semantics
+// so a binder panic is attributable to its registration index in logs.
+func (__r *Router) __gastro_callBinder(i int, b func(*http.Request) template.FuncMap, r *http.Request) (fm template.FuncMap) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			panic(fmt.Sprintf("WithRequestFuncs[%d]: %v", i, rec))
+		}
+	}()
+	return b(r)
+}
+
+// __gastro_probeBinders runs every registered binder once at New() time
+// with a synthetic request and validates that the union of built-ins,
+// WithFuncs, and binder keys contains no duplicates. Panics on the first
+// collision with a message naming both sources. Returns the discovered
+// union of binder helper names so the caller can seed placeholder stubs
+// into parse-time FuncMaps.
+func __gastro_probeBinders(cfg *config) map[string]bool {
+	if len(cfg.binders) == 0 {
+		return nil
+	}
+	probe := httptest.NewRequest(http.MethodGet, "/__gastro_probe", nil)
+
+	seen := map[string]string{}
+	for name := range gastroRuntime.DefaultFuncs() {
+		seen[name] = "built-in"
+	}
+	for name := range cfg.funcs {
+		// Skip names that came from built-ins (DefaultFuncs is the base of
+		// cfg.funcs). Only flag names that WithFuncs added on top.
+		if _, isBuiltin := gastroRuntime.DefaultFuncs()[name]; isBuiltin {
+			continue
+		}
+		seen[name] = "WithFuncs"
+	}
+	keys := map[string]bool{}
+	for i, b := range cfg.binders {
+		fm := b(probe)
+		src := fmt.Sprintf("WithRequestFuncs[%d]", i)
+		for name := range fm {
+			if existing, ok := seen[name]; ok {
+				panic(fmt.Sprintf(
+					"gastro: helper name %q registered twice\n  - %s\n  - %s",
+					name, existing, src,
+				))
+			}
+			seen[name] = src
+			keys[name] = true
+		}
+	}
+	return keys
+}
+
 // New constructs a gastro Router from the supplied options.
 //
 // Mount the router on your HTTP server via Handler() (returns an http.Handler
@@ -878,11 +1075,20 @@ func New(opts ...Option) *Router {
 		isDev = *cfg.devMode
 	}
 
+	// Probe each binder with a synthetic request to discover its key set.
+	// This validates name uniqueness against built-ins, WithFuncs, and other
+	// binders. Binders must tolerate an empty context here — closures
+	// inside the returned FuncMap are NOT invoked during probing; only the
+	// map's keys are read.
+	binderKeys := __gastro_probeBinders(cfg)
+
 	__r := &Router{
 		isDev:        isDev,
 		userFuncs:    cfg.funcs,
 		deps:         cfg.deps,
 		errorHandler: cfg.errorHandler,
+		binders:      cfg.binders,
+		binderKeys:   binderKeys,
 	}
 
 	// Validate WithOverride patterns: each must match a known auto-route

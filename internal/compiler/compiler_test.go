@@ -319,9 +319,12 @@ func TestCompile_ComponentComposition(t *testing.T) {
 	cardContent, _ := os.ReadFile(filepath.Join(outputDir, "components_card.go"))
 	assertStringContains(t, string(cardContent), `__gastro_getTemplate("componentCard")`)
 
-	// Page should use registry lookup for its own template.
+	// Page should dispatch through __gastro_renderPage, the request-aware
+	// render entry point. (When no WithRequestFuncs binders are registered
+	// this falls through to the same __gastro_getTemplate(...).Execute(...)
+	// path as before.)
 	pageContent, _ := os.ReadFile(filepath.Join(outputDir, "pages_index.go"))
-	assertStringContains(t, string(pageContent), `__gastro_getTemplate("pageIndex")`)
+	assertStringContains(t, string(pageContent), `__gastro_renderPage("pageIndex"`)
 }
 
 func TestCompile_RoutesContainsTemplateFuncMapWiring(t *testing.T) {

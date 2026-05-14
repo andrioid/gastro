@@ -43,8 +43,10 @@ Title := "Hello"`,
 	// Should NOT contain private variables in the data map
 	assertNotContains(t, output, `"ctx": ctx`)
 
-	// Should call template execution
-	assertContains(t, output, `Execute`)
+	// Should dispatch through __gastro_renderPage (the request-aware page
+	// render entry point; falls through to direct Execute when no
+	// WithRequestFuncs binders are registered).
+	assertContains(t, output, `__gastro_renderPage("pageIndex"`)
 
 	// Should emit `_ = Title` so the LSP shadow's queryVariableTypes
 	// can resolve the type via gopls hover. Required for template-body
@@ -351,8 +353,11 @@ func TestGenerate_NoExportedVars(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should still work with an empty or nil data map
-	assertContains(t, output, "Execute")
+	// Should still work with an empty or nil data map. Page handlers
+	// dispatch through __gastro_renderPage rather than calling Execute
+	// directly so request-aware FuncMaps (WithRequestFuncs) can be
+	// threaded in transparently.
+	assertContains(t, output, `__gastro_renderPage("pageIndex"`)
 }
 
 // TestGenerate_PageHandlerDispatchesExecuteError verifies that page handlers

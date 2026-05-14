@@ -652,7 +652,12 @@ func (ws *Workspace) routerStub(pkgName string) string {
 
 	sb.WriteString("type Router struct{}\n\n")
 	sb.WriteString("func (*Router) __gastro_getTemplate(string) *template.Template { return nil }\n")
-	sb.WriteString("func (*Router) __gastro_handleError(http.ResponseWriter, *http.Request, error) {}\n\n")
+	sb.WriteString("func (*Router) __gastro_handleError(http.ResponseWriter, *http.Request, error) {}\n")
+	// __gastro_renderPage is the request-aware page dispatch entry point
+	// generated handlers call. The shadow stubs it so frontmatter
+	// hover/typecheck for pages still works regardless of whether the
+	// project registers WithRequestFuncs.
+	sb.WriteString("func (*Router) __gastro_renderPage(string, http.ResponseWriter, *http.Request, any) error { return nil }\n\n")
 
 	sb.WriteString("type renderAPI struct{}\n\n")
 	sb.WriteString("var Render = &renderAPI{}\n\n")

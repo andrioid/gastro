@@ -304,7 +304,7 @@ func (__router *Router) {{ .FuncName }}(w http.ResponseWriter, r *http.Request) 
 	{{- end }}
 	}
 
-	if __err := __router.__gastro_getTemplate("{{ .FuncName }}").Execute(w, __data); __err != nil {
+	if __err := __router.__gastro_renderPage("{{ .FuncName }}", w, r, __data); __err != nil {
 		__router.__gastro_handleError(w, r, __err)
 	}
 }
