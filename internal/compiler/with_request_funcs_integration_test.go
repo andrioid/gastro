@@ -63,6 +63,32 @@ func TestCompile_WithRequestFuncs(t *testing.T) {
 	// nested binders work via the Render.With path.
 	mustWriteFile(t, filepath.Join(componentsDir, "greeting.gastro"),
 		"<span>{{ locale }}-greeting</span>\n")
+	// A no-Props leaf component that reads a binder helper inside its
+	// body. Used by the bare-call nested-propagation test.
+	mustWriteFile(t, filepath.Join(componentsDir, "nest.gastro"),
+		"<span>nest-locale={{ locale }}</span>\n")
+	// A wrap-capable component (Children is auto-provided by codegen for
+	// every component; no Props declaration needed). The slot's body is
+	// authored by the page, and we assert the slot inherits the page's
+	// per-request FuncMap so the binder helper resolves inside it.
+	mustWriteFile(t, filepath.Join(componentsDir, "wrapper.gastro"),
+		"<div class=\"wrap\">{{ .Children }}</div>\n")
+	// Page that invokes a bare child component using a binder helper.
+	// Without nested propagation, {{ locale }} inside Nest would render
+	// empty (the parse-time placeholder); with propagation it resolves
+	// against the page's request.
+	mustWriteFile(t, filepath.Join(pagesDir, "nested.gastro"),
+		"---\n"+
+			"import Nest \"components/nest.gastro\"\n"+
+			"---\n"+
+			"<main>page-locale={{ locale }} {{ Nest (dict) }}</main>\n")
+	// Page that wraps a slot body inside a component. The slot body uses
+	// the binder helper, exercising the wrap-block propagation path.
+	mustWriteFile(t, filepath.Join(pagesDir, "wrapnest.gastro"),
+		"---\n"+
+			"import Wrapper \"components/wrapper.gastro\"\n"+
+			"---\n"+
+			"{{ wrap Wrapper (dict) }}<em>slot-locale={{ locale }}</em>{{ end }}\n")
 
 	gastroOut := filepath.Join(projectDir, ".gastro")
 	if _, err := compiler.Compile(projectDir, gastroOut, compiler.CompileOptions{}); err != nil {
@@ -386,6 +412,57 @@ func TestRenderWithBindsRequest(t *testing.T) {
 	}
 	if strings.Contains(htmlStatic, "fr") {
 		t.Errorf("static path should not see request state; got %q", htmlStatic)
+	}
+}
+
+// TestNestedComponentInheritsBinder: a page invokes a child component
+// via a bare {{ Nest (dict) }} call. The child's template body uses a
+// binder helper. With nested propagation, the helper resolves against
+// the page's request; without it, the child would render the helper as
+// empty (the parse-time placeholder).
+func TestNestedComponentInheritsBinder(t *testing.T) {
+	r := gastro.New(gastro.WithRequestFuncs(makeBinder(false)))
+	srv := httptest.NewServer(r.Handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/nested", nil)
+	req.Header.Set("Accept-Language", "fr")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get /nested: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	// The page itself sees fr (sanity check for the page-level path)...
+	if !strings.Contains(string(body), "page-locale=fr") {
+		t.Errorf("page-level helper did not resolve; body=%q", body)
+	}
+	// ...and the bare-call child component inherits it.
+	if !strings.Contains(string(body), "nest-locale=fr") {
+		t.Errorf("nested component did not inherit request-aware helper; body=%q", body)
+	}
+}
+
+// TestWrapSlotInheritsBinder: a page uses a {{ wrap Wrapper (dict) }}
+// block whose slot body references a binder helper. The slot must be
+// rendered with the page's per-request FuncMap so the helper resolves.
+// This exercises the post-tmpl-selection override of
+// __gastro_render_children inside __gastro_executeForRequest.
+func TestWrapSlotInheritsBinder(t *testing.T) {
+	r := gastro.New(gastro.WithRequestFuncs(makeBinder(false)))
+	srv := httptest.NewServer(r.Handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/wrapnest", nil)
+	req.Header.Set("Accept-Language", "fr")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get /wrapnest: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), "slot-locale=fr") {
+		t.Errorf("wrap-slot did not inherit request-aware helper; body=%q", body)
 	}
 }
 

@@ -256,35 +256,28 @@ Gastro recovers the panic, logs it with the panicking binder's
 registration index, and dispatches to your `WithErrorHandler` (default:
 `500 Internal Server Error`). One bad binder cannot crash the server.
 
-### Known limitation: components called from templates
+### Components, slots, and wrap blocks
 
-In this release, request-aware helpers are visible to:
+Request-aware helpers propagate through every layer of a page render:
 
 - Page templates (`pages/foo.gastro`).
-- Components rendered via `gastro.Render.With(r).Component(props)` from
-  Go code.
+- Components invoked from a page via `{{ Component . }}` or
+  `{{ wrap Component (dict ...) }}`.
+- Slot content rendered inside a wrap block.
+- Components rendered programmatically via
+  `gastro.Render.With(r).Component(props)`.
 
-They are **not** automatically visible to components invoked
-transitively from a template via `{{ Component . }}`. If you need
-`{{ t "…" }}` inside a shared layout component, the two workable
-patterns are:
+In every case, helpers like `{{ t "…" }}`, `{{ csrfField }}`, and
+`{{ cspNonce }}` resolve against the right per-request state. You don't
+need to translate strings in the page's frontmatter and pass them as
+props — the helper just works inside the component template body.
 
-1. **Translate in the page's frontmatter and pass as props.**
-
-   ```gastro
-   ---
-   import Layout "components/layout.gastro"
-   Title := gastroRuntime.FromContext[i18n.L](r.Context()).T("Welcome")
-   ---
-   <Layout title={Title}>
-       ...
-   </Layout>
-   ```
-
-2. **Pre-render the component via `Render.With(r)` and pass as Children.**
-
-This is a temporary limitation; nested-component propagation is on the
-roadmap for a future Gastro release.
+Under the hood, each request Clones the page's parsed template (or, in
+dev mode, re-parses it) and applies the per-request FuncMap to the
+clone. Bare component invocations are then dispatched through closures
+that thread the request all the way down the component tree. Cost is
+proportional to nesting depth; each Clone is well under a microsecond
+for typical templates.
 
 ### Editor support
 
