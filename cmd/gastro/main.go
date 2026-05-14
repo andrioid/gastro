@@ -1,3 +1,37 @@
+// Command gastro is the CLI for the gastro server-side UI framework.
+//
+// It compiles .gastro source files into typed Go code, drives the dev
+// loop, formats sources, and exposes the language server used by
+// editors. The same binary serves both supported integration styles:
+//
+//   - Framework mode (`gastro dev`) — gastro owns the process and
+//     serves your app directly. Use when starting a new project.
+//
+//   - Library mode (`gastro watch`) — you keep main.go; gastro
+//     watches files, regenerates code, and signals your build/run
+//     commands. Use when adding server-rendered UI to an existing
+//     Go service. See
+//     https://github.com/andrioid/gastro/blob/main/docs/getting-started-library.md
+//
+// Commands:
+//
+//	gastro new <name>       scaffold a new gastro project
+//	gastro generate         compile .gastro files to Go (run after edits)
+//	gastro build            compile + build the host binary
+//	gastro dev              framework-mode dev server (owns the process)
+//	gastro watch            library-mode dev loop (--run your binary)
+//	gastro list             list pages, components, and props
+//	gastro fmt              format .gastro source files
+//	gastro check            validate sources without writing output
+//	gastro lsp              run the language server (used by editors)
+//	gastro version          print the build version
+//
+// Install with mise, `go install`, or as a project-local tool:
+//
+//	go get -tool github.com/andrioid/gastro/cmd/gastro
+//
+// The `go tool` install method pins the CLI version in your go.mod so
+// every contributor uses the same gastro release.
 package main
 
 import (
