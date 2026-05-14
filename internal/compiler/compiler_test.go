@@ -143,7 +143,11 @@ func TestCompile_GeneratesRenderFile(t *testing.T) {
 
 	// Should have the renderAPI struct and Render var
 	assertStringContains(t, s, "var Render = &renderAPI{}")
-	assertStringContains(t, s, "type renderAPI struct{ router *Router }")
+	// renderAPI has both a router (Router this renderAPI dispatches to) and
+	// a req field (set by With(r) to enable WithRequestFuncs binders).
+	assertStringContains(t, s, "type renderAPI struct {")
+	assertStringContains(t, s, "router *Router")
+	assertStringContains(t, s, "req    *http.Request")
 
 	// Should have a Render method for the Layout component (which has Props)
 	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps)")

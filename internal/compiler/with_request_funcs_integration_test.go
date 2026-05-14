@@ -45,6 +45,10 @@ func TestCompile_WithRequestFuncs(t *testing.T) {
 	if err := os.MkdirAll(pagesDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	componentsDir := filepath.Join(projectDir, "components")
+	if err := os.MkdirAll(componentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	// A single page that exercises a request-aware helper. The helper
 	// returns a value derived from r — specifically the Accept-Language
@@ -54,6 +58,11 @@ func TestCompile_WithRequestFuncs(t *testing.T) {
 	// A panicking-helper page exercises the runtime recover path.
 	mustWriteFile(t, filepath.Join(pagesDir, "boom.gastro"),
 		"<p>{{ boom }}</p>\n")
+	// A component used by Render.With(r).Greeting(...) tests. It reads a
+	// request-aware helper inside its template body so the test can prove
+	// nested binders work via the Render.With path.
+	mustWriteFile(t, filepath.Join(componentsDir, "greeting.gastro"),
+		"<span>{{ locale }}-greeting</span>\n")
 
 	gastroOut := filepath.Join(projectDir, ".gastro")
 	if _, err := compiler.Compile(projectDir, gastroOut, compiler.CompileOptions{}); err != nil {
@@ -310,6 +319,46 @@ func TestNilBinderRejected(t *testing.T) {
 		}
 	}()
 	_ = gastro.WithRequestFuncs(nil)
+}
+
+// TestRenderWithBindsRequest: Render.With(r).Component(props) routes the
+// component render through the request-aware FuncMap path, so binder
+// helpers resolve against r. Without With(r), the static path is taken
+// and binder funcs are absent — in that case the helper renders empty
+// (the placeholder stub returns nil).
+func TestRenderWithBindsRequest(t *testing.T) {
+	router := gastro.New(gastro.WithRequestFuncs(makeBinder(false)))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Accept-Language", "fr")
+
+	html, err := router.Render().With(req).Greeting()
+	if err != nil {
+		t.Fatalf("Render.With.Greeting: %v", err)
+	}
+	if !strings.Contains(html, "fr-greeting") {
+		t.Errorf("expected request-aware locale to flow into component; got %q", html)
+	}
+
+	// The package-level Render takes the static path. The placeholder
+	// stub returns nil so {{ locale }} renders as the empty string.
+	htmlStatic, err := router.Render().Greeting()
+	if err != nil {
+		t.Fatalf("Render.Greeting: %v", err)
+	}
+	if strings.Contains(htmlStatic, "fr") {
+		t.Errorf("static path should not see request state; got %q", htmlStatic)
+	}
+}
+
+// TestRenderWithNilRequestIsHarmless: calling With(nil) collapses to the
+// static path. Documented as a guard so handler code can pass r without
+// branching.
+func TestRenderWithNilRequestIsHarmless(t *testing.T) {
+	router := gastro.New(gastro.WithRequestFuncs(makeBinder(false)))
+	if _, err := router.Render().With(nil).Greeting(); err != nil {
+		t.Fatalf("Render.With(nil).Greeting: %v", err)
+	}
 }
 
 // TestNoBindersIsZeroCostPath: when binders are registered, even pages
