@@ -45,6 +45,13 @@ func (s *server) handleDefinition(msg *jsonRPCMessage) *jsonRPCMessage {
 		return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: loc}
 	}
 
+	// Template body: cursor on a {{ helperName }} call where helperName
+	// was registered via WithRequestFuncs jumps into the binder's FuncMap
+	// entry in main.go.
+	if loc := s.requestFuncDefinition(params.TextDocument.URI, content, parsed, params.Position); loc != nil {
+		return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: loc}
+	}
+
 	// Template body: check for field/variable go-to-definition (Phase 4.4).
 	// Top-level frontmatter variables already have `_ = VarName` lines in
 	// the shadow file; chained sub-fields (.Agent.Name) require an
@@ -294,6 +301,59 @@ func applyInsertProbe(source, probeText string, probeLine int) string {
 	out = append(out, probeText)
 	out = append(out, lines[probeLine:]...)
 	return strings.Join(out, "\n")
+}
+
+// requestFuncDefinition returns an LSP Location pointing at the line
+// the binder helper's FuncMap key was declared on. Mirrors the discovery
+// info stored in requestFuncsCache.HelperAt by hover.go's request-aware
+// branch — hover and definition should agree on which entry the cursor
+// refers to.
+//
+// Returns nil when the cursor isn't on a function-kind target, when the
+// target's name isn't a discovered binder helper, or when the LSP
+// instance can't be resolved (no project root).
+func (s *server) requestFuncDefinition(uri, content string, parsed *parser.File, pos proxy.Position) any {
+	cursorOffset := cursorPosToBodyOffset(content, pos, parsed.TemplateBodyLine)
+	if cursorOffset < 0 {
+		return nil
+	}
+	inst := s.instanceForURI(uri)
+	if inst == nil {
+		return nil
+	}
+	entry := s.requestFuncs.Lookup(inst.root)
+	if len(entry.Names()) == 0 {
+		return nil
+	}
+	tree, err := lsptemplate.ParseTemplateBodyWithRequestFuncs(parsed.TemplateBody, parsed.Uses, entry.Names())
+	if err != nil || tree == nil {
+		return nil
+	}
+	target := lsptemplate.NodeAtCursor(tree, cursorOffset)
+	if target == nil || target.Kind != "function" {
+		return nil
+	}
+	info, ok := entry.HelperAt(target.Name)
+	if !ok {
+		return nil
+	}
+	// LSP positions are 0-indexed; requestFuncInfo records 1-indexed
+	// line/column from the Go scanner.
+	line := info.Line - 1
+	if line < 0 {
+		line = 0
+	}
+	ch := info.Column - 1
+	if ch < 0 {
+		ch = 0
+	}
+	return map[string]any{
+		"uri": "file://" + info.File,
+		"range": map[string]any{
+			"start": map[string]any{"line": line, "character": ch},
+			"end":   map[string]any{"line": line, "character": ch + len(info.Name) + 2}, // +2 for surrounding quotes
+		},
+	}
 }
 
 // componentDefinition returns an LSP Location for the component file when

@@ -292,9 +292,17 @@ function reference in the same file), helper names show up in:
 - Template completion (`{{ t<TAB>` suggests `t` with detail
   *"request-aware helper"*).
 - Template parse — no spurious *"function not defined"* diagnostic.
+- Hover on `{{ t "…" }}` shows the binder index and a source link
+  pointing at the FuncMap key in `main.go`.
+- Go-to-definition on a helper name jumps to that same FuncMap entry.
 
-Binders that build their FuncMap dynamically degrade gracefully: the
-helpers still work at runtime, they just don't appear in completion.
+Binders that build their FuncMap dynamically (e.g. by ranging over a
+slice, or returning a `template.FuncMap` constructed in another
+package) still work at runtime, but the LSP can't statically extract
+their keys — so completion / hover / go-to-def don't list them. To
+make the trade-off visible, the LSP publishes an **info-level
+diagnostic** on the `gastro.WithRequestFuncs(...)` call site explaining
+the situation and pointing at the literal-`FuncMap` workaround.
 
 ### Worked example
 
