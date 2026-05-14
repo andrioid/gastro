@@ -9,6 +9,10 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 **Status:** Early development. The core pipeline works end-to-end (parse, codegen,
 route, build, serve). Editor support is in progress.
 
+See [`ROADMAP.md`](ROADMAP.md) for deferred work and known
+limitations, and [`DECISIONS.md`](DECISIONS.md) for the chronological
+design log.
+
 
 ## Scope
 
