@@ -32,7 +32,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 )
 
@@ -78,7 +77,10 @@ func newRequestFuncsCache() *requestFuncsCache {
 }
 
 // Lookup returns the discovered helpers for projectRoot, scanning if the
-// cached entry is missing or stale.
+// cached entry is missing or stale. Staleness is detected via main.go's
+// modtime: each call os.Stat's main.go and re-scans when the modtime
+// differs from the cached entry. This keeps the cache coherent without
+// requiring an explicit didChange wire-up.
 func (c *requestFuncsCache) Lookup(projectRoot string) requestFuncsCacheEntry {
 	mainPath := filepath.Join(projectRoot, "main.go")
 	info, statErr := os.Stat(mainPath)
@@ -109,14 +111,6 @@ func (c *requestFuncsCache) Lookup(projectRoot string) requestFuncsCacheEntry {
 	c.mu.Unlock()
 
 	return entry
-}
-
-// Invalidate forgets cached results for projectRoot. Used when the LSP
-// receives a didChange for the project's main.go.
-func (c *requestFuncsCache) Invalidate(projectRoot string) {
-	c.mu.Lock()
-	delete(c.entries, projectRoot)
-	c.mu.Unlock()
 }
 
 // scanRequestFuncs reads mainPath and extracts WithRequestFuncs binder
@@ -331,10 +325,4 @@ func (e requestFuncsCacheEntry) HelperAt(name string) (requestFuncInfo, bool) {
 	}
 	info, ok := e.helpers[name]
 	return info, ok
-}
-
-// strJoinedHelperList is a small helper used by callers that want to log
-// or surface the discovered helper list as a single string.
-func strJoinedHelperList(names []string) string {
-	return strings.Join(names, ", ")
 }

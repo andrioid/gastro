@@ -305,6 +305,44 @@ func TestCollisionWithUserFuncs(t *testing.T) {
 	)
 }
 
+// TestCollisionWithUserFuncsOverridingBuiltin: if WithFuncs overrides a
+// built-in helper (an existing documented WithFuncs feature) and a binder
+// then collides on that same name, the panic message should attribute
+// the collision to "WithFuncs" (the source the adopter actually
+// registered), not to "built-in". Without this, an adopter who
+// override-and-collides on e.g. "upper" would see a misleading message
+// pointing at a source they never directly touched.
+func TestCollisionWithUserFuncsOverridingBuiltin(t *testing.T) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected panic for WithFuncs-overrides-builtin + binder collision")
+		}
+		msg, ok := v.(string)
+		if !ok {
+			t.Fatalf("panic value is not a string: %T", v)
+		}
+		if !strings.Contains(msg, "upper") {
+			t.Errorf("panic should name colliding helper; got %q", msg)
+		}
+		if !strings.Contains(msg, "WithFuncs") {
+			t.Errorf("panic should attribute to WithFuncs (the actual override source); got %q", msg)
+		}
+		if strings.Contains(msg, "built-in") {
+			t.Errorf("panic should not say built-in when WithFuncs overrode the built-in; got %q", msg)
+		}
+	}()
+
+	gastro.New(
+		gastro.WithFuncs(template.FuncMap{
+			"upper": func(s string) string { return s }, // override built-in
+		}),
+		gastro.WithRequestFuncs(func(*http.Request) template.FuncMap {
+			return template.FuncMap{"upper": func() string { return "x" }}
+		}),
+	)
+}
+
 // TestNilBinderRejected: WithRequestFuncs(nil) panics with a descriptive
 // message at option construction.
 func TestNilBinderRejected(t *testing.T) {
@@ -384,7 +422,7 @@ func TestNoBindersIsZeroCostPath(t *testing.T) {
 }
 `)
 
-	cmd := exec.Command("go", "test", "-race", "-count=1", "-run", "Test", "./...")
+	cmd := exec.Command("go", "test", "-race", "-count=1", "-v", "-run", "Test", "./...")
 	cmd.Dir = projectDir
 	cmd.Env = append(os.Environ(), "GOFLAGS=")
 	out, err := cmd.CombinedOutput()
@@ -393,5 +431,11 @@ func TestNoBindersIsZeroCostPath(t *testing.T) {
 	}
 	if strings.Contains(string(out), "FAIL") {
 		t.Fatalf("subprocess test failed:\n%s", out)
+	}
+	// Sanity check: the new override-built-in test must actually run in the
+	// subprocess (catches accidental omission of the test from the embedded
+	// source). Output is captured -v so RUN lines are present.
+	if !strings.Contains(string(out), "TestCollisionWithUserFuncsOverridingBuiltin") {
+		t.Errorf("subprocess did not run TestCollisionWithUserFuncsOverridingBuiltin; output:\n%s", out)
 	}
 }

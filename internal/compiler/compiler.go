@@ -610,6 +610,12 @@ type config struct {
 	devMode      *bool // nil = use GASTRO_DEV env var; non-nil = override
 	errorHandler gastroRuntime.PageErrorHandler
 	binders      []func(*http.Request) template.FuncMap
+	// userFuncNames records names registered via WithFuncs so the probe
+	// can distinguish them from built-in defaults when reporting
+	// collisions. Tracked separately because cfg.funcs starts as
+	// DefaultFuncs() and WithFuncs merges on top, so post-merge we can't
+	// tell which source contributed a given name.
+	userFuncNames map[string]bool
 }
 
 // middlewareEntry pairs a route-pattern matcher with the middleware to
@@ -637,8 +643,12 @@ func WithDevMode(dev bool) Option {
 // User-provided functions override built-in defaults with the same name.
 func WithFuncs(fm template.FuncMap) Option {
 	return func(c *config) {
+		if c.userFuncNames == nil {
+			c.userFuncNames = map[string]bool{}
+		}
 		for k, v := range fm {
 			c.funcs[k] = v
+			c.userFuncNames[k] = true
 		}
 	}
 }
@@ -1039,12 +1049,11 @@ func __gastro_probeBinders(cfg *config) map[string]bool {
 	for name := range gastroRuntime.DefaultFuncs() {
 		seen[name] = "built-in"
 	}
-	for name := range cfg.funcs {
-		// Skip names that came from built-ins (DefaultFuncs is the base of
-		// cfg.funcs). Only flag names that WithFuncs added on top.
-		if _, isBuiltin := gastroRuntime.DefaultFuncs()[name]; isBuiltin {
-			continue
-		}
+	// WithFuncs entries override the "built-in" attribution: if an adopter
+	// used WithFuncs to override a built-in helper, a binder colliding on
+	// that name should be reported against WithFuncs (the actual source
+	// the adopter registered) rather than "built-in".
+	for name := range cfg.userFuncNames {
 		seen[name] = "WithFuncs"
 	}
 	keys := map[string]bool{}
