@@ -710,12 +710,17 @@ include this step.
 ## 13. CLI
 
 ```
+gastro new <name>  Scaffold a new gastro project
 gastro generate    Compile all .gastro files -> .gastro/ directory
 gastro build       gastro generate + go build -> single deployable binary
-gastro dev         Watch mode: regenerate on change, run Go server
+gastro dev         Watch mode: regenerate on change, run Go server (framework mode)
+gastro watch       Watch mode for library-mode projects (`--build` / `--run`)
+gastro fmt         Format .gastro files
+gastro check       Verify .gastro/ matches the source (CI gate)
+gastro list        List components and pages with their props (--json available)
+gastro lsp         Language server (invoked by editor extensions)
+gastro version     Print version
 ```
-
-**Future:** `gastro new` -- scaffold a new gastro project (not yet implemented).
 
 ### `gastro dev` Behavior
 

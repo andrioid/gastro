@@ -9,6 +9,10 @@ Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 **Status:** Early development. The core pipeline works end-to-end (parse, codegen,
 route, build, serve). Editor support is in progress.
 
+See [`ROADMAP.md`](ROADMAP.md) for deferred work and known
+limitations, and [`DECISIONS.md`](DECISIONS.md) for the chronological
+design log.
+
 
 ## Scope
 
@@ -206,11 +210,11 @@ failure-mode catalogue.
 ### Deployment
 
 `gastro build` produces a single binary. Deploy by copying it to the server.
-
-**Note:** Embedding of templates and static assets via `//go:embed` is designed
-but not yet wired into the compiler. For now, templates are compiled into the
-Go source at generation time. Static assets in `static/` are served from disk
-at the `/static/` URL prefix.
+Templates and static assets (`static/`) are baked into the binary via
+`//go:embed`, so the deployed binary is self-contained — no
+`templates/` or `static/` directories need to ship alongside it. In
+dev mode (`GASTRO_DEV=1`, set automatically by `gastro dev`) both are
+read from disk so edits hot-reload.
 
 ```sh
 gastro generate
