@@ -1,0 +1,11 @@
+---
+import (
+    Layout "components/layout.gastro"
+)
+
+Title := "About"
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    <h1>{{ t "About this example" }}</h1>
+    <p>{{ t "This page demonstrates WithRequestFuncs." }}</p>
+{{ end }}

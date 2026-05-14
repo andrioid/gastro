@@ -246,6 +246,27 @@ full, _  := gastro.Render.Layout(gastro.LayoutProps{
 })
 ```
 
+### Request-aware helpers in SSE patches
+
+When your handler registers
+[`WithRequestFuncs`](helpers.md#request-aware-helpers-withrequestfuncs)
+binders (i18n, CSRF tokens, CSP nonces, ...), the package-level
+`gastro.Render` doesn't see request state — it takes the static
+path. To render an SSE patch with request-aware helpers in scope,
+use `Render.With(r)`:
+
+```go
+func handleUpdate(w http.ResponseWriter, r *http.Request) {
+    html, _ := gastro.Render.With(r).Counter(gastro.CounterProps{Count: 42})
+    datastar.NewSSE(w, r).PatchElements(html)
+}
+```
+
+`Render.With(r)` is the SSE/handler counterpart to the auto-routes:
+both paths produce HTML with full request-aware helper resolution.
+The returned `*renderAPI` is reusable within a single request (store
+it in a local for multi-fragment handlers), not goroutine-safe.
+
 ## Design Notes
 
 - **No external dependencies.** The SSE protocol is ~90 lines of Go.

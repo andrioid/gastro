@@ -25,10 +25,12 @@ gastro dev
 ```
 
 `gastro dev` watches `components/`, `pages/`, and `static/`, regenerates code
-as needed, and serves the app on `:4242` (or `$PORT`). It takes no flags by
-design — the scaffold's batteries-included experience is the only thing it
-knows. If you find yourself wanting to customise the build or run command,
-that's the signal to switch to `gastro watch`.
+as needed, and serves the app on `:4242` (or `$PORT`). It takes one flag
+only — `--watch GLOB` (see [Watching extra files](#watching-extra-files)
+below) — the rest of the build/run surface is intentionally hidden behind
+the scaffold's batteries-included experience. If you find yourself wanting
+to customise the build or run command, that's the signal to switch to
+`gastro watch`.
 
 ## Quick start (library mode)
 
@@ -133,6 +135,42 @@ running server. Any source watcher can drive them:
 # Manually signal a browser reload:
 touch .gastro/.reload
 ```
+
+## Watching extra files
+
+Both `gastro dev` and `gastro watch` accept `--watch GLOB` to register
+additional file patterns with the dev watcher. The canonical use case is
+files baked into the binary via `//go:embed` — e.g. translation
+catalogues for i18n — where the in-memory state is stale until the
+binary is rebuilt. Any change, create, or delete on a matched file
+triggers a full restart.
+
+```sh
+# Reload when any .po file under i18n/ changes.
+gastro dev --watch "i18n/*.po"
+
+# Repeat the flag for multiple patterns, or comma-separate them.
+gastro dev --watch "i18n/*.po" --watch "config/*.toml"
+gastro dev --watch "i18n/*.po,config/*.toml"
+```
+
+The glob syntax matches `filepath.Match`. Patterns are evaluated relative
+to the gastro project root on every poll tick, so new files that match
+the pattern (e.g. `i18n/de.po` added mid-session) are picked up
+automatically without needing a restart.
+
+The same flag works under `gastro watch`:
+
+```sh
+gastro watch \
+  --run 'go run ./cmd/myapp' \
+  --watch "i18n/*.po"
+```
+
+If you only need to watch source files for a custom file extension (not
+binary-embedded content), the [composition recipe](#composing-with-other-runners)
+with `watchexec` is often simpler. Use `--watch` when the file content
+flows through `//go:embed` and a rebuild is required to see the change.
 
 ## Composing with other runners
 

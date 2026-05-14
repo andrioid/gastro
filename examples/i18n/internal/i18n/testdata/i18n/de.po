@@ -1,0 +1,20 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: de\n"
+
+msgid "Welcome"
+msgstr "Willkommen"
+
+msgid "%d item"
+msgid_plural "%d items"
+msgstr[0] "%d Element"
+msgstr[1] "%d Elemente"
+
+msgctxt "button"
+msgid "Open"
+msgstr "Öffnen"
+
+msgctxt "adjective"
+msgid "Open"
+msgstr "Geöffnet"

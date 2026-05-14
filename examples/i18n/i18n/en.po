@@ -1,0 +1,42 @@
+# English source catalogue. Translations are identity strings — gettext
+# treats the msgid as the source-language display string, so en.po only
+# needs entries that diverge (plurals, contexts). This file exists so
+# Catalog.Load doesn't 404 on the fallback locale and so xgettext-style
+# tooling has a canonical entry point.
+
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: en\n"
+
+msgid "Welcome"
+msgstr "Welcome"
+
+msgid "About this example"
+msgstr "About this example"
+
+msgid "This page demonstrates WithRequestFuncs."
+msgstr "This page demonstrates WithRequestFuncs."
+
+msgid "Home"
+msgstr "Home"
+
+msgid "About"
+msgstr "About"
+
+# Plural form — n-items counter.
+msgid "%d item"
+msgid_plural "%d items"
+msgstr[0] "%d item"
+msgstr[1] "%d items"
+
+# Contextual translation — the same English word maps to different
+# meanings depending on the surrounding UI element. Used by the
+# Open-Card example in the layout footer.
+msgctxt "button"
+msgid "Open"
+msgstr "Open"
+
+msgctxt "adjective"
+msgid "Open"
+msgstr "Open"

@@ -1,0 +1,32 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: da\n"
+
+msgid "Welcome"
+msgstr "Velkommen"
+
+msgid "About this example"
+msgstr "Om dette eksempel"
+
+msgid "This page demonstrates WithRequestFuncs."
+msgstr "Denne side viser WithRequestFuncs."
+
+msgid "Home"
+msgstr "Forside"
+
+msgid "About"
+msgstr "Om"
+
+msgid "%d item"
+msgid_plural "%d items"
+msgstr[0] "%d ting"
+msgstr[1] "%d ting"
+
+msgctxt "button"
+msgid "Open"
+msgstr "Åbn"
+
+msgctxt "adjective"
+msgid "Open"
+msgstr "Åben"

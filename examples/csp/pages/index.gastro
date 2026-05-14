@@ -1,0 +1,39 @@
+---
+Heading := "CSP Nonce Example"
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ .Heading }}</title>
+</head>
+<body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 2rem auto; padding: 0 1rem;">
+    <h1>{{ .Heading }}</h1>
+
+    <p>The inline script below executes only when its
+       <code>nonce</code> attribute matches the value the server
+       advertised in the <code>Content-Security-Policy</code> response
+       header. Open DevTools &rarr; Network &rarr; click this document
+       to inspect the header; the nonce should be present and identical
+       to the one in the <code>&lt;script&gt;</code> tag.</p>
+
+    <p id="status">Inline script has NOT run yet.</p>
+
+    <!-- This is the WithRequestFuncs payoff: cspNonce closes over the
+         per-request nonce the middleware attached to the context, so
+         the value rendered here matches the Content-Security-Policy
+         header for the same request. -->
+    <script nonce="{{ cspNonce }}">
+        document.getElementById("status").textContent =
+            "Inline script ran. nonce was honoured.";
+        document.getElementById("status").style.color = "green";
+    </script>
+
+    <h2>Try blocking the script</h2>
+    <p>Open DevTools and add an inline <code>&lt;script&gt;</code> via the
+       console (Elements panel &rarr; edit as HTML). Reload. The browser
+       will refuse to execute it and log a CSP violation, because the
+       nonce in your manually-inserted tag won't match the
+       server-issued one.</p>
+</body>
+</html>

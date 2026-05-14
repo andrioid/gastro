@@ -1,0 +1,19 @@
+---
+// LangSwitch renders a row of locale links. Each link rewrites the
+// current URL with a different locale prefix via the langPath template
+// helper (registered in main.go).
+//
+// This component reads request-aware state in two ways:
+//
+//   - locales: registered as a static WithFuncs helper that closes
+//     over the catalogue at startup. Returns the same list every
+//     call.
+//   - r.URL.Path: pulled in via .Path on the parent's data context.
+//     The page passes its path explicitly to avoid coupling the
+//     component to the request structure.
+---
+<span class="lang">
+    {{ range locales }}
+        <a href="{{ langPath . "/" }}">{{ . }}</a>
+    {{ end }}
+</span>

@@ -38,16 +38,57 @@ func devFlagRejectionMessage(flag string) string {
 // when args is empty; an error containing devFlagRejectionMessage otherwise.
 // The first looks-like-a-flag arg drives the message because reporting more
 // than one would obscure the suggested fix.
+//
+// Exception: --watch GLOB is allowed (and only this flag). It registers an
+// additional glob pattern with the dev-mode watcher (Phase 4, see
+// docs/dev-mode.md). The flag is repeatable; comma-separated values are
+// also accepted.
 func validateDevArgs(args []string) error {
-	for _, a := range args {
-		if strings.HasPrefix(a, "-") {
-			return errors.New(devFlagRejectionMessage(a))
+	_, err := parseDevWatchFlags(args)
+	return err
+}
+
+// parseDevWatchFlags extracts `--watch GLOB[,GLOB...]` repetitions from a
+// `gastro dev` argv. Any other flag-like or positional argument is
+// rejected with the devFlagRejectionMessage. Returns the deduplicated
+// list of glob patterns to forward to devloop.Config.ExtraWatch.
+func parseDevWatchFlags(args []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		var value string
+		var hasValue bool
+
+		if eq := strings.IndexByte(a, '='); eq > 0 && strings.HasPrefix(a, "--") {
+			value = a[eq+1:]
+			a = a[:eq]
+			hasValue = true
+		}
+		if a != "--watch" {
+			return nil, errors.New(devFlagRejectionMessage(a))
+		}
+
+		if !hasValue {
+			if i+1 >= len(args) {
+				return nil, errors.New("--watch needs a value")
+			}
+			value = args[i+1]
+			i++
+		}
+		i++
+
+		for _, g := range strings.Split(value, ",") {
+			g = strings.TrimSpace(g)
+			if g == "" || seen[g] {
+				continue
+			}
+			seen[g] = true
+			out = append(out, g)
 		}
 	}
-	if len(args) > 0 {
-		return errors.New(devFlagRejectionMessage(args[0]))
-	}
-	return nil
+	return out, nil
 }
 
 // watchFlags is the parsed result of `gastro watch ...`'s argv. Build is
@@ -55,13 +96,14 @@ func validateDevArgs(args []string) error {
 // tailwindcss-then-go-build); Run is single because exactly one
 // long-running process makes sense per watch session.
 type watchFlags struct {
-	Run       string
-	Build     []string
-	Excludes  []string
-	Project   string
-	WatchRoot string
-	Debounce  time.Duration
-	Quiet     bool
+	Run        string
+	Build      []string
+	Excludes   []string
+	Project    string
+	WatchRoot  string
+	Debounce   time.Duration
+	Quiet      bool
+	ExtraWatch []string
 }
 
 // parseWatchArgs is a hand-rolled parser rather than flag.NewFlagSet
@@ -154,6 +196,19 @@ func parseWatchArgs(args []string) (watchFlags, error) {
 				return fl, fmt.Errorf("--debounce %q: %w", value, err)
 			}
 			fl.Debounce = d
+		case "--watch":
+			if !hasValue {
+				if i+1 >= len(args) {
+					return fl, fmt.Errorf("%s needs a value", a)
+				}
+				value = args[i+1]
+				consumed = 2
+			}
+			for _, g := range strings.Split(value, ",") {
+				if g = strings.TrimSpace(g); g != "" {
+					fl.ExtraWatch = append(fl.ExtraWatch, g)
+				}
+			}
 		case "--quiet", "-q":
 			fl.Quiet = true
 		case "--help", "-h":
@@ -369,6 +424,7 @@ func runWatchLoop(ctx context.Context, flags watchFlags) error {
 		Quiet:         flags.Quiet,
 		WatchGoFiles:  true,
 		ExtraExcludes: flags.Excludes,
+		ExtraWatch:    flags.ExtraWatch,
 		Generate: func() ([]string, error) {
 			result, err := runGenerate(false)
 			if err != nil {

@@ -34,6 +34,11 @@ type watcherState struct {
 	// goExcludePrefixes is matched as a slash-normalised prefix relative
 	// to goRoot (user-supplied via --exclude).
 	goExcludePrefixes []string
+	// extraWatchGlobs is the cfg.ExtraWatch list copied at seed time.
+	// Each pattern is evaluated relative to root via filepath.Glob on
+	// every poll; matches participate in modTimes / currentFiles like
+	// the built-in surfaces.
+	extraWatchGlobs []string
 }
 
 // newWatcherState seeds modTimes/fileContents from the on-disk state of
@@ -76,7 +81,45 @@ func newWatcherState(
 		}
 		seedGoFiles(s.goRoot, s.goExcludeBasenames, s.goExcludePrefixes, s.modTimes)
 	}
+	s.extraWatchGlobs = append([]string(nil), cfg.ExtraWatch...)
+	for _, f := range collectExtraWatchFiles(root, s.extraWatchGlobs) {
+		info, err := os.Stat(f)
+		if err != nil {
+			continue
+		}
+		s.modTimes[f] = info.ModTime()
+	}
 	return s
+}
+
+// collectExtraWatchFiles expands each glob (rooted at root) and returns
+// the matched filesystem entries. Missing matches return an empty slice;
+// directories among matches are skipped so callers don't add directories
+// to modTimes. Errors during glob are silently ignored — the next tick
+// will retry.
+func collectExtraWatchFiles(root string, globs []string) []string {
+	if len(globs) == 0 {
+		return nil
+	}
+	var out []string
+	for _, g := range globs {
+		pattern := g
+		if !filepath.IsAbs(pattern) {
+			pattern = filepath.Join(root, pattern)
+		}
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			info, err := os.Stat(m)
+			if err != nil || info.IsDir() {
+				continue
+			}
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func (s *watcherState) seedFiles(dir string, gastroOnly bool) {
@@ -307,6 +350,36 @@ func (s *watcherState) runLoop(ctx context.Context) {
 					modTimes[f] = info.ModTime()
 					// All .go changes are restart-class; smart
 					// classification only applies to .gastro files.
+					escalate(watcher.ChangeRestart)
+					changed = true
+				}
+			}
+		}
+
+		// Extra --watch globs (e.g. "i18n/*.po"). Any change/create on a
+		// matched file escalates to ChangeRestart — these patterns are
+		// intended for files baked into the binary via //go:embed, where
+		// the in-memory state is stale until rebuild.
+		if len(s.extraWatchGlobs) > 0 {
+			for _, f := range collectExtraWatchFiles(s.root, s.extraWatchGlobs) {
+				currentFiles[f] = true
+				info, err := os.Stat(f)
+				if err != nil {
+					continue
+				}
+
+				prev, known := modTimes[f]
+				if !known {
+					logf("gastro: new file %s (watch)\n", f)
+					modTimes[f] = info.ModTime()
+					escalate(watcher.ChangeRestart)
+					changed = true
+					continue
+				}
+
+				if info.ModTime().After(prev) {
+					logf("gastro: %s changed (watch)\n", f)
+					modTimes[f] = info.ModTime()
 					escalate(watcher.ChangeRestart)
 					changed = true
 				}

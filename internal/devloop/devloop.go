@@ -128,6 +128,20 @@ type Config struct {
 	// relative to GoWatchRoot (or ProjectRoot if GoWatchRoot is empty).
 	// Used by `gastro watch --exclude` (R2).
 	ExtraExcludes []string
+
+	// ExtraWatch adds glob patterns whose matched files participate in
+	// the watch surface. Patterns are filepath-style, evaluated relative
+	// to ProjectRoot, and matched on every poll tick (so files newly
+	// matching a pattern — e.g. `i18n/*.po` after a new locale is
+	// added — are picked up without a restart). Any change, create, or
+	// delete on a matched file is classified as ChangeRestart — the
+	// assumption is that adopters use this for files baked into the
+	// binary via //go:embed (translation catalogues, config blobs, etc.)
+	// where a recompile is required to pick up the change.
+	//
+	// Wired up by `gastro dev --watch GLOB` / `gastro watch --watch GLOB`
+	// (the flag is repeatable; comma-separated lists are also accepted).
+	ExtraWatch []string
 }
 
 // defaultGoExcludeBasenames is the always-on exclude set for *.go

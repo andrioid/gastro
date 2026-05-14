@@ -1,0 +1,41 @@
+---
+import (
+    "net/http"
+    "fmt"
+)
+
+if r.Method == http.MethodPost {
+    // The middleware already verified the CSRF token, so any POST that
+    // reaches this point has a valid form submission.
+    name := r.FormValue("name")
+    fmt.Fprintf(w, "Hello, %s! (CSRF-protected)", name)
+    return
+}
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CSRF Example</title>
+    <!-- AJAX clients can lift the token from this meta tag and send it
+         via the X-CSRF-Token header. -->
+    <meta name="csrf-token" content="{{ csrfToken }}">
+</head>
+<body style="font-family: system-ui, sans-serif; max-width: 28rem; margin: 2rem auto;">
+    <h1>Greeting form</h1>
+    <form method="POST">
+        {{ csrfField }}
+        <label>Name:
+            <input type="text" name="name" autocomplete="off" required>
+        </label>
+        <button type="submit">Submit</button>
+    </form>
+
+    <hr>
+
+    <h2>Try it from JavaScript (AJAX)</h2>
+    <p>The token in the <code>&lt;meta&gt;</code> tag above is
+       <code>{{ csrfToken }}</code>. Send it via the
+       <code>X-CSRF-Token</code> header on POST/PUT/DELETE.</p>
+</body>
+</html>

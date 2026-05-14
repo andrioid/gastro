@@ -1,0 +1,39 @@
+---
+import (
+    LangSwitch "components/lang-switch.gastro"
+)
+
+type Props struct {
+    Title string
+}
+
+p := gastro.Props()
+Title := p.Title
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ .Title }}</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; }
+        nav a { margin-right: 1rem; }
+        .lang { float: right; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">{{ t "Home" }}</a>
+        <a href="/about">{{ t "About" }}</a>
+        {{ LangSwitch (dict) }}
+    </nav>
+    <main>
+        {{ .Children }}
+    </main>
+    <footer style="margin-top: 4rem; opacity: 0.6;">
+        <small>
+            {{ tc "button" "Open" }} / {{ tc "adjective" "Open" }} — contextual translations.
+        </small>
+    </footer>
+</body>
+</html>
