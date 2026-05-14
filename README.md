@@ -285,4 +285,4 @@ dynamic pages, template helpers, and static assets.
 
 ## License
 
-MIT
+[MIT](LICENSE) © Andri Óskarsson
