@@ -83,6 +83,13 @@ type server struct {
 	templateDiagsSkipLogAt map[string]time.Time // URI -> last time a scope-skip log was emitted for this URI (5s dedup window); protected by dataMu
 	notifiedGoplsMissing   sync.Once            // ensures gopls-unavailable notification is sent only once
 	notifiedGoMissing      sync.Once            // ensures go-unavailable notification is sent only once
+
+	// requestFuncs caches discovered WithRequestFuncs binder helper
+	// names per project root. Shared across instances; safe for
+	// concurrent use. Lazy-populated by Lookup on first template-edit
+	// session per project; invalidated when the project's main.go
+	// changes via didChange handling.
+	requestFuncs *requestFuncsCache
 }
 
 func newServer(version string) *server {
@@ -98,6 +105,7 @@ func newServer(version string) *server {
 		templateDiagsStale:     make(map[string]bool),
 		templateDiagsRetries:   make(map[string]int),
 		templateDiagsSkipLogAt: make(map[string]time.Time),
+		requestFuncs:           newRequestFuncsCache(),
 	}
 }
 

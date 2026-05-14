@@ -72,7 +72,11 @@ func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *
 		return result
 	}
 
-	tree, err := lsptemplate.ParseTemplateBody(parsed.TemplateBody, parsed.Uses)
+	var rfNames []string
+	if inst := s.instanceForURI(uri); inst != nil {
+		rfNames = s.requestFuncs.Lookup(inst.root).Names()
+	}
+	tree, err := lsptemplate.ParseTemplateBodyWithRequestFuncs(parsed.TemplateBody, parsed.Uses, rfNames)
 	if err != nil {
 		return nil
 	}

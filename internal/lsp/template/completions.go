@@ -111,12 +111,27 @@ var compileTimeDirectives = []compileTimeDirective{
 // When snippetSupport is true, compile-time directives are returned with
 // snippet placeholders (e.g. wrap inserts a useful argument skeleton).
 func FuncMapCompletions(snippetSupport bool) []CompletionItem {
+	return FuncMapCompletionsWithRequestFuncs(snippetSupport, nil)
+}
+
+// FuncMapCompletionsWithRequestFuncs is the WithRequestFuncs-aware
+// variant. Request-aware helper names (discovered by scanning the
+// project's main.go) appear in the completion list with a distinct
+// "request-aware helper" detail so editors can render them differently.
+func FuncMapCompletionsWithRequestFuncs(snippetSupport bool, requestFuncNames []string) []CompletionItem {
 	funcs := gastro.DefaultFuncs()
-	items := make([]CompletionItem, 0, len(funcs)+len(goTemplateBuiltins)+len(compileTimeDirectives))
+	items := make([]CompletionItem, 0, len(funcs)+len(goTemplateBuiltins)+len(compileTimeDirectives)+len(requestFuncNames))
 	for name := range funcs {
 		items = append(items, CompletionItem{
 			Label:      name,
 			Detail:     "template function",
+			InsertText: name,
+		})
+	}
+	for _, name := range requestFuncNames {
+		items = append(items, CompletionItem{
+			Label:      name,
+			Detail:     "request-aware helper",
 			InsertText: name,
 		})
 	}

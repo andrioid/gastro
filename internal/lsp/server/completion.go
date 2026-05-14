@@ -108,10 +108,18 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 	// to replace from the dot through the cursor, avoiding double-dot insertion.
 	dotChar := findDotStart(content, pos.Line, pos.Character)
 
+	// Discover WithRequestFuncs binder names so the parse + completion
+	// paths see request-aware helpers. Lookup is cached and cheap.
+	rfInstParse := s.instanceForURI(uri)
+	var rfParseNames []string
+	if rfInstParse != nil {
+		rfParseNames = s.requestFuncs.Lookup(rfInstParse.root).Names()
+	}
+
 	// Determine cursor scope by parsing the template body into an AST
 	// and checking if the cursor is inside a range/with block.
 	cursorScope := lsptemplate.ScopeInfo{}
-	tree, parseErr := lsptemplate.ParseTemplateBody(parsed.TemplateBody, parsed.Uses)
+	tree, parseErr := lsptemplate.ParseTemplateBodyWithRequestFuncs(parsed.TemplateBody, parsed.Uses, rfParseNames)
 	if parseErr == nil && tree != nil {
 		if cursorOffset >= 0 {
 			cursorScope = lsptemplate.CursorScope(tree, cursorOffset)
@@ -129,7 +137,7 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 			// compile-time directives (wrap/raw/endraw). Disable
 			// snippet mode so we don't insert argument skeletons where they
 			// wouldn't parse.
-			for _, c := range lsptemplate.FuncMapCompletions(false) {
+			for _, c := range lsptemplate.FuncMapCompletionsWithRequestFuncs(false, rfParseNames) {
 				items = append(items, map[string]any{
 					"label":      c.Label,
 					"kind":       completionKindFunction,
@@ -280,7 +288,10 @@ func (s *server) templateCompletions(uri, content string, pos proxy.Position, te
 		items = append(items, item)
 	}
 
-	for _, c := range lsptemplate.FuncMapCompletions(s.snippetSupport) {
+	// WithRequestFuncs binder helpers (request-aware) discovered by
+	// scanning the project's main.go. Reuses the names captured above
+	// for parse-stub feeding so we only walk main.go once per request.
+	for _, c := range lsptemplate.FuncMapCompletionsWithRequestFuncs(s.snippetSupport, rfParseNames) {
 		item := map[string]any{
 			"label":      c.Label,
 			"kind":       completionKindFunction,
