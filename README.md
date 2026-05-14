@@ -1,5 +1,8 @@
 # Gastro
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/andrioid/gastro.svg)](https://pkg.go.dev/github.com/andrioid/gastro)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A file-based component framework for Go. `.gastro` files combine Go frontmatter
 with `html/template` markup in a single file, compiled to type-safe Go code with
 file-based routing.
