@@ -69,6 +69,79 @@ func TestDev_AcceptsNoArgs(t *testing.T) {
 	}
 }
 
+// TestDev_AcceptsWatchFlag: --watch is the sole allowed flag for `gastro
+// dev`. Verifies the parsed globs are returned in the right order, the
+// flag is repeatable, comma-separated values are accepted, and the
+// --watch=GLOB form works.
+func TestDev_AcceptsWatchFlag(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			"single --watch with separate value",
+			[]string{"--watch", "i18n/*.po"},
+			[]string{"i18n/*.po"},
+		},
+		{
+			"--watch=VALUE form",
+			[]string{"--watch=i18n/*.po"},
+			[]string{"i18n/*.po"},
+		},
+		{
+			"repeatable --watch",
+			[]string{"--watch", "i18n/*.po", "--watch", "config/*.toml"},
+			[]string{"i18n/*.po", "config/*.toml"},
+		},
+		{
+			"comma-separated values",
+			[]string{"--watch", "i18n/*.po,config/*.toml"},
+			[]string{"i18n/*.po", "config/*.toml"},
+		},
+		{
+			"dedups identical globs",
+			[]string{"--watch", "i18n/*.po", "--watch", "i18n/*.po"},
+			[]string{"i18n/*.po"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseDevWatchFlags(tc.args)
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if !equalStringSlices(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDev_WatchMissingValue: --watch with no value reports a clear
+// error instead of silently swallowing the next arg.
+func TestDev_WatchMissingValue(t *testing.T) {
+	_, err := parseDevWatchFlags([]string{"--watch"})
+	if err == nil {
+		t.Fatal("expected error for --watch with no value")
+	}
+	if !strings.Contains(err.Error(), "--watch") || !strings.Contains(err.Error(), "value") {
+		t.Errorf("expected helpful error mentioning --watch and value; got %q", err.Error())
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // TestParseWatchArgs covers the flag surface defined in the plan (\u00a74).
 // Repeatable flags, value/equals forms, missing-value errors, unknown
 // flags, and --help all land here so a regression in any of them

@@ -56,12 +56,13 @@ func main() {
 			os.Exit(1)
 		}
 	case "dev":
-		if err := validateDevArgs(os.Args[2:]); err != nil {
+		devWatch, err := parseDevWatchFlags(os.Args[2:])
+		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
 		applyGastroProject()
-		if err := runDev(); err != nil {
+		if err := runDev(devWatch); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro dev: %v\n", err)
 			os.Exit(1)
 		}
@@ -488,7 +489,7 @@ func findAvailablePort(startPort int) (string, error) {
 	return "", fmt.Errorf("no available port found in range %d-%d", startPort, startPort+9)
 }
 
-func runDev() error {
+func runDev(extraWatch []string) error {
 	port := os.Getenv("PORT")
 	if port == "" {
 		p, err := findAvailablePort(4242)
@@ -568,8 +569,9 @@ func runDev() error {
 			}
 			return result.EmbedDeps, nil
 		},
-		OnRestart: startApp,
-		OnReload:  writeReloadSignal,
+		OnRestart:  startApp,
+		OnReload:   writeReloadSignal,
+		ExtraWatch: extraWatch,
 	})
 
 	// Cleanup: kill the running app process. devloop.Run has already
