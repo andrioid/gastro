@@ -76,7 +76,11 @@ func (s *server) fieldDefinition(uri, content string, parsed *parser.File, pos p
 	if cursorOffset < 0 {
 		return nil
 	}
-	tree, err := lsptemplate.ParseTemplateBody(parsed.TemplateBody, parsed.Uses)
+	var rfNames []string
+	if inst := s.instanceForURI(uri); inst != nil {
+		rfNames = s.requestFuncs.Lookup(inst.root).Names()
+	}
+	tree, err := lsptemplate.ParseTemplateBodyWithRequestFuncs(parsed.TemplateBody, parsed.Uses, rfNames)
 	if err != nil || tree == nil {
 		return nil
 	}

@@ -632,6 +632,7 @@ func (ws *Workspace) routerStub(pkgName string) string {
 	sb.WriteString("package " + pkgName + "\n\n")
 
 	sb.WriteString("import (\n")
+	sb.WriteString("\t\"bytes\"\n")
 	sb.WriteString("\t\"html/template\"\n")
 	sb.WriteString("\t\"net/http\"\n")
 	// Sorted iteration so the stub is deterministic across runs —
@@ -648,11 +649,17 @@ func (ws *Workspace) routerStub(pkgName string) string {
 	// least one XProps field type — that's why neededImportsForFields
 	// only includes packages whose name appears in a field qualifier
 	// — so they don't need suppression lines.
-	sb.WriteString("var _ http.ResponseWriter\nvar _ template.HTML\n\n")
+	sb.WriteString("var _ http.ResponseWriter\nvar _ template.HTML\nvar _ bytes.Buffer\n\n")
 
 	sb.WriteString("type Router struct{}\n\n")
 	sb.WriteString("func (*Router) __gastro_getTemplate(string) *template.Template { return nil }\n")
-	sb.WriteString("func (*Router) __gastro_handleError(http.ResponseWriter, *http.Request, error) {}\n\n")
+	sb.WriteString("func (*Router) __gastro_handleError(http.ResponseWriter, *http.Request, error) {}\n")
+	// __gastro_renderPage / __gastro_renderComponent are the request-aware
+	// dispatch entry points generated page handlers and component methods
+	// call. The shadow stubs them so frontmatter hover/typecheck still
+	// works regardless of whether the project registers WithRequestFuncs.
+	sb.WriteString("func (*Router) __gastro_renderPage(string, http.ResponseWriter, *http.Request, any) error { return nil }\n")
+	sb.WriteString("func (*Router) __gastro_renderComponent(string, *http.Request, *bytes.Buffer, any) error { return nil }\n\n")
 
 	sb.WriteString("type renderAPI struct{}\n\n")
 	sb.WriteString("var Render = &renderAPI{}\n\n")

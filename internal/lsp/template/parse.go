@@ -15,7 +15,21 @@ import (
 // any component functions derived from use declarations. The parser
 // only checks that function names exist — stub values are sufficient.
 func ParseTemplateBody(body string, uses []gastroparser.UseDeclaration) (*parse.Tree, error) {
+	return ParseTemplateBodyWithRequestFuncs(body, uses, nil)
+}
+
+// ParseTemplateBodyWithRequestFuncs is the WithRequestFuncs-aware
+// variant of ParseTemplateBody. requestFuncNames is the set of helper
+// names discovered from the project's gastro.WithRequestFuncs binders;
+// they are added as stubs so {{ t "..." }} and similar request-aware
+// invocations parse without spurious "function not defined" errors.
+func ParseTemplateBodyWithRequestFuncs(body string, uses []gastroparser.UseDeclaration, requestFuncNames []string) (*parse.Tree, error) {
 	stubFuncs := buildStubFuncMap(uses)
+	for _, name := range requestFuncNames {
+		if _, exists := stubFuncs[name]; !exists {
+			stubFuncs[name] = ""
+		}
+	}
 
 	trees, err := parse.Parse("template", body, "{{", "}}", stubFuncs)
 	if err != nil {

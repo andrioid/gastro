@@ -129,3 +129,179 @@ http.ListenAndServe(":4242", router.Handler())
 ```
 
 Custom functions are available in all pages and components, just like the built-in helpers.
+
+## Request-aware Helpers (`WithRequestFuncs`)
+
+`WithFuncs` registers helpers at template-parse time — their bodies are
+fixed for the lifetime of the router. **Request-aware helpers** are
+different: their bodies close over a `*http.Request` and can read
+request state. That makes the same helper name (`t`, `csrfField`,
+`cspNonce`, …) return different values on different requests.
+
+Use `gastro.WithRequestFuncs(binder)` to register them:
+
+```go
+router := gastro.New(
+    gastro.WithMiddleware("/", i18n.Middleware),
+    gastro.WithRequestFuncs(func(r *http.Request) template.FuncMap {
+        l := i18n.FromCtx(r.Context())
+        return template.FuncMap{
+            "t":  l.T,
+            "tn": l.TN,
+            "tc": l.TC,
+        }
+    }),
+)
+```
+
+In a `.gastro` template:
+
+```gastro
+---
+---
+<h1>{{ t "Welcome" }}</h1>
+<p>{{ tn "1 item" "%d items" .Count }}</p>
+<button>{{ tc "button" "Open" }}</button>
+```
+
+The binder runs once per request. The closures it returns capture `r`,
+so `{{ t "Welcome" }}` resolves against the request's locale, CSRF
+cookie, CSP nonce, or whatever else your middleware attached to the
+request context.
+
+### When to use it
+
+| Pattern | Library | Helpers registered |
+|---|---|---|
+| Internationalisation (gettext-style) | `gotext`, `go-i18n`, hand-rolled | `t`, `tn`, `tc` |
+| CSRF protection | `gorilla/csrf`, custom | `csrfToken`, `csrfField` |
+| CSP nonces | custom (a few lines of `crypto/rand`) | `cspNonce` |
+| Named-route reversal | custom | `routePath` |
+| Asset hashing | custom | `asset` |
+| Feature flags | flag library of choice | `flag` |
+
+The common thread: anything that needs to read **per-request state**
+at template time, where pre-computing in frontmatter would be
+repetitive across many pages.
+
+### Rendering from handlers and SSE
+
+When you call `gastro.Render.X(props)` from a Go handler, the static
+FuncMap is used — binders are *not* invoked, so request-aware helpers
+resolve to placeholders (typically the empty string). To bind a render
+call to a specific request, use `Render.With(r)`:
+
+```go
+func handleUpdate(w http.ResponseWriter, r *http.Request) {
+    html, _ := gastro.Render.With(r).Card(gastro.CardProps{Title: "Hello"})
+    datastar.NewSSE(w, r).PatchElements(html)
+}
+```
+
+The returned `*renderAPI` is reusable within a single request — store
+it in a local and render multiple components from it. It is **not**
+goroutine-safe and must not be retained beyond the request.
+
+### Multiple binders compose
+
+You can register `WithRequestFuncs` multiple times — e.g. one for i18n,
+one for CSRF — and the helper sets are merged. The only constraint is
+that helper names must be unique across the union of:
+
+- Gastro built-ins (`upper`, `lower`, `dict`, … — see top of this page)
+- `WithFuncs` registrations
+- All `WithRequestFuncs` binders
+
+A collision panics at `gastro.New()` with both sources named:
+
+```
+gastro: helper name "t" registered twice
+  - WithFuncs
+  - WithRequestFuncs[1]
+```
+
+This is intentional — silent shadowing of a built-in or another binder
+would make template behaviour depend on registration order, which is
+brittle and hard to debug.
+
+### The binder contract
+
+A `WithRequestFuncs` binder is a `func(*http.Request) template.FuncMap`.
+It MUST:
+
+- Return a **stable key set** — the *names* returned must not depend on
+  request state. (Closure *bodies* may read request state freely; that's
+  the whole point.) Gastro probes each binder once at `New()` with a
+  synthetic request to discover its key set for collision detection.
+- Not panic during top-level execution when fed a probe request whose
+  context carries no adopter-installed values. In particular, your
+  `FromCtx`-style accessors must tolerate a missing locale / cookie /
+  nonce and return safe zero defaults. The probe never invokes the
+  *closures* inside the FuncMap — only the map's keys are read — but
+  top-level statements in the binder body do run.
+
+A binder SHOULD:
+
+- Be cheap. It runs on every request.
+- Return a **literal `template.FuncMap{...}`** so the Gastro LSP can
+  extract helper names via static analysis and surface them in
+  completion / hover / go-to-definition. Dynamically constructed maps
+  (`m := make(template.FuncMap); m["t"] = …; return m`) work at runtime
+  but degrade the editor experience for those helpers.
+
+### Runtime panic recovery
+
+If a binder or any helper it returned panics during request handling,
+Gastro recovers the panic, logs it with the panicking binder's
+registration index, and dispatches to your `WithErrorHandler` (default:
+`500 Internal Server Error`). One bad binder cannot crash the server.
+
+### Known limitation: components called from templates
+
+In this release, request-aware helpers are visible to:
+
+- Page templates (`pages/foo.gastro`).
+- Components rendered via `gastro.Render.With(r).Component(props)` from
+  Go code.
+
+They are **not** automatically visible to components invoked
+transitively from a template via `{{ Component . }}`. If you need
+`{{ t "…" }}` inside a shared layout component, the two workable
+patterns are:
+
+1. **Translate in the page's frontmatter and pass as props.**
+
+   ```gastro
+   ---
+   import Layout "components/layout.gastro"
+   Title := gastroRuntime.FromContext[i18n.L](r.Context()).T("Welcome")
+   ---
+   <Layout title={Title}>
+       ...
+   </Layout>
+   ```
+
+2. **Pre-render the component via `Render.With(r)` and pass as Children.**
+
+This is a temporary limitation; nested-component propagation is on the
+roadmap for a future Gastro release.
+
+### Editor support
+
+The Gastro LSP discovers `WithRequestFuncs` binder helpers by AST-
+parsing your project's `main.go`. As long as the binder returns a
+literal `template.FuncMap{…}` (either inline or via a one-hop named
+function reference in the same file), helper names show up in:
+
+- Template completion (`{{ t<TAB>` suggests `t` with detail
+  *"request-aware helper"*).
+- Template parse — no spurious *"function not defined"* diagnostic.
+
+Binders that build their FuncMap dynamically degrade gracefully: the
+helpers still work at runtime, they just don't appear in completion.
+
+### Worked example
+
+A fuller end-to-end example app — with locale detection middleware, PO
+file loading, plural rules, and an `Accept-Language` switcher — lives in
+`examples/i18n/` (added in the follow-up PR alongside this feature).

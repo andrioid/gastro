@@ -304,7 +304,7 @@ func (__router *Router) {{ .FuncName }}(w http.ResponseWriter, r *http.Request) 
 	{{- end }}
 	}
 
-	if __err := __router.__gastro_getTemplate("{{ .FuncName }}").Execute(w, __data); __err != nil {
+	if __err := __router.__gastro_renderPage("{{ .FuncName }}", w, r, __data); __err != nil {
 		__router.__gastro_handleError(w, r, __err)
 	}
 }
@@ -322,6 +322,7 @@ import (
 	"bytes"
 	"html/template"
 	"log"
+	"net/http"
 
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 {{- range .Imports }}
@@ -334,6 +335,7 @@ var _ = gastroRuntime.DefaultFuncs
 var _ bytes.Buffer
 var _ = template.Must
 var _ = log.Println
+var _ http.Request
 
 {{- if .HoistedDecls }}
 
@@ -354,6 +356,18 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 		delete(propsMap, "Children")
 	}
 	_ = __children
+
+	// __gastro_request is the sentinel key Render.With(r).{{ .ExportedName }}
+	// injects so this method routes Execute through the request-aware
+	// FuncMap path. Absence means the caller is the legacy static path
+	// (package-level Render or template-driven dispatch); no Clone, no
+	// per-request FuncMap.
+	var __gastro_req *http.Request
+	if __rv, __rok := propsMap["__gastro_request"]; __rok {
+		__gastro_req, _ = __rv.(*http.Request)
+		delete(propsMap, "__gastro_request")
+	}
+	_ = __gastro_req
 
 	{{- if .PropsTypeName }}
 	__props, __err := gastroRuntime.MapToStruct[{{ .PropsTypeName }}](propsMap)
@@ -381,7 +395,12 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	}
 
 	var __buf bytes.Buffer
-	if __err := __router.__gastro_getTemplate("{{ .FuncName }}").Execute(&__buf, __data); __err != nil {
+	if __gastro_req != nil {
+		if __err := __router.__gastro_renderComponent("{{ .FuncName }}", __gastro_req, &__buf, __data); __err != nil {
+			log.Printf("gastro: component {{ .FuncName }}: template execution failed: %v", __err)
+			return ""
+		}
+	} else if __err := __router.__gastro_getTemplate("{{ .FuncName }}").Execute(&__buf, __data); __err != nil {
 		log.Printf("gastro: component {{ .FuncName }}: template execution failed: %v", __err)
 		return ""
 	}
@@ -739,8 +758,13 @@ func parseStructFieldsLegacy(hoistedTypes string) []StructField {
 // than silently shifting LSP diagnostics by a few lines.
 //
 //	page (handlerTmpl):              "defer gastroRuntime.Recover(w, r)"
-//	component, no Props struct:      "_ = __children"
+//	component, no Props struct:      "_ = __gastro_req"
 //	component, with Props struct:    "_ = __props"
+//
+// The component anchors shifted past "_ = __children" / "_ = __props"
+// when WithRequestFuncs added a "__gastro_request" sentinel block to
+// every component. The new anchors are still uniquely last-before-
+// frontmatter, so the +3 offset below remains correct.
 //
 // Returns 0 if the anchor is not found, which indicates the input is
 // not a codegen handler/component output (callers should treat this
@@ -753,7 +777,7 @@ func FindFrontmatterStart(generated string, isComponent bool, hasProps bool) int
 	case hasProps:
 		anchor = "_ = __props"
 	default:
-		anchor = "_ = __children"
+		anchor = "_ = __gastro_req"
 	}
 
 	for i, line := range strings.Split(generated, "\n") {

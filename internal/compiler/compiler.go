@@ -573,11 +573,14 @@ import (
 	"bytes"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 
@@ -592,6 +595,9 @@ var _ = fmt.Errorf
 var _ = regexp.Compile
 var _ = strings.Contains
 var _ = reflect.TypeOf
+var _ = httptest.NewRequest
+var _ = debug.Stack
+var _ io.Writer
 
 // Option configures the generated router. Pass options to New().
 type Option func(*config)
@@ -603,6 +609,7 @@ type config struct {
 	middleware   []middlewareEntry
 	devMode      *bool // nil = use GASTRO_DEV env var; non-nil = override
 	errorHandler gastroRuntime.PageErrorHandler
+	binders      []func(*http.Request) template.FuncMap
 }
 
 // middlewareEntry pairs a route-pattern matcher with the middleware to
@@ -714,6 +721,40 @@ func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
 	}
 }
 
+// WithRequestFuncs registers a function-map binder that runs once per
+// request. The returned FuncMap is merged with the static FuncMap built
+// from WithFuncs before the page (or Render.With(r) call) executes.
+//
+// Multiple WithRequestFuncs calls compose. Helper names must be unique
+// across the union of built-ins, WithFuncs, and all binders — including
+// any name that shadows a Gastro built-in. Duplicates panic at New().
+//
+// Binders are probed at New() with a synthetic *http.Request whose
+// context carries no adopter-installed values. Binders must therefore:
+//   - return a stable key set independent of request state, and
+//   - not panic during top-level execution when context accessors return
+//     zero values (e.g. an i18n FromCtx helper must tolerate a missing
+//     locale).
+//
+// Closures and method values inside the returned map are NOT invoked
+// during probing; only the map's keys are read.
+//
+// If a binder panics at request time (not probe time), Gastro recovers
+// the panic, logs it with the binder's registration index, and dispatches
+// to the configured error handler (default: 500 response). One bad
+// binder cannot crash the server.
+//
+// Zero-cost when unused: if no WithRequestFuncs option is registered,
+// page handlers fall through to the same direct-Execute path as before.
+func WithRequestFuncs(binder func(*http.Request) template.FuncMap) Option {
+	if binder == nil {
+		panic("gastro: WithRequestFuncs: nil binder")
+	}
+	return func(c *config) {
+		c.binders = append(c.binders, binder)
+	}
+}
+
 // WithErrorHandler installs a custom handler for page render errors.
 //
 // The handler is invoked when a generated page handler's template Execute
@@ -747,7 +788,21 @@ type Router struct {
 	deps         map[reflect.Type]any
 	mux          *http.ServeMux
 	errorHandler gastroRuntime.PageErrorHandler
+	binders      []func(*http.Request) template.FuncMap
+	// binderKeys is the union of helper names contributed by every
+	// registered binder. It's discovered at probe time and used to seed
+	// placeholder funcs into parse-time FuncMaps so templates that
+	// reference request-aware helpers parse successfully at New(). The
+	// real funcs are applied later via Funcs() at request time.
+	binderKeys map[string]bool
 }
+
+// __gastro_binderPlaceholder is the variadic stub installed for every
+// discovered binder helper name at parse time. It is never invoked at
+// runtime: the request-aware execution path replaces it via Funcs()
+// before Execute. If somehow invoked (e.g. a stale Clone), it returns
+// nil and the template renders an empty string for that call.
+func __gastro_binderPlaceholder(args ...any) any { return nil }
 
 // __gastro_handleError dispatches a page render error to the user-supplied
 // WithErrorHandler when one is installed; otherwise to the runtime default.
@@ -774,11 +829,21 @@ func (__r *Router) __gastro_handleError(w http.ResponseWriter, r *http.Request, 
 var __gastro_active atomic.Pointer[Router]
 
 // __gastro_buildFuncMap constructs the FuncMap for the named template,
-// merging user functions with per-template component wiring.
+// merging user functions with per-template component wiring and any
+// placeholder stubs for request-aware helpers discovered at probe time.
 func (__r *Router) __gastro_buildFuncMap(name string, userFuncs template.FuncMap) template.FuncMap {
 	fm := template.FuncMap{}
 	for k, v := range userFuncs {
 		fm[k] = v
+	}
+	// Seed placeholder stubs for request-aware helper names so the
+	// template parser accepts references like t or csrfField at New()
+	// time. The real funcs are supplied per request via
+	// __gastro_renderPage's .Funcs() call.
+	for k := range __r.binderKeys {
+		if _, exists := fm[k]; !exists {
+			fm[k] = __gastro_binderPlaceholder
+		}
 	}
 	switch name {
 {{- range .Templates}}{{- if .Uses}}{{$fn := .FuncName}}
@@ -852,6 +917,154 @@ func (__r *Router) __gastro_getTemplate(name string) *template.Template {
 	return __r.registry[name]
 }
 
+// __gastro_renderPage dispatches a page render. It is the single entry
+// point from generated page handlers; the same call site is used whether
+// or not WithRequestFuncs binders are registered.
+//
+//   - When no binders are registered, this falls through to the same
+//     __gastro_getTemplate(name).Execute(w, data) call as pre-binder
+//     code. No Clone, no per-request FuncMap rebuild.
+//   - When binders are registered, each binder is invoked with r, its
+//     returned funcs are merged onto a Cloned template (prod) or applied
+//     to the freshly-parsed dev template (dev), and Execute runs against
+//     that per-request template.
+//
+// Panics inside binders or template execution are recovered, logged with
+// the binder index, and returned as an error so the page handler can
+// dispatch through __gastro_handleError. Generated handlers call this
+// method and route any non-nil error through their installed error
+// handler.
+func (__r *Router) __gastro_renderPage(name string, w http.ResponseWriter, r *http.Request, data any) (rerr error) {
+	if len(__r.binders) == 0 {
+		return __r.__gastro_getTemplate(name).Execute(w, data)
+	}
+	var buf bytes.Buffer
+	if err := __r.__gastro_executeForRequest(name, r, &buf, data); err != nil {
+		return err
+	}
+	_, err := w.Write(buf.Bytes())
+	return err
+}
+
+// __gastro_renderComponent is the request-aware sibling of
+// __gastro_renderPage used by components when invoked via
+// Render.With(r).X(props). It always uses the per-request FuncMap path
+// (writes into the supplied bytes.Buffer so the caller can return
+// template.HTML). When no binders are registered the per-request path
+// still works — it just produces an empty extras FuncMap and the
+// behaviour collapses to a Clone-and-Execute.
+func (__r *Router) __gastro_renderComponent(name string, r *http.Request, buf *bytes.Buffer, data any) error {
+	return __r.__gastro_executeForRequest(name, r, buf, data)
+}
+
+// __gastro_executeForRequest is the shared request-aware execution path.
+// It builds the per-request FuncMap (built-in + WithFuncs + binders),
+// either Clones the cached production template or applies funcs to the
+// per-request dev-mode parse, and Executes into the supplied writer.
+//
+// Panics inside binders or Execute are recovered, logged with the
+// panicking binder's registration index when known, and returned as an
+// error so the caller (page handler or component method) can decide how
+// to surface the failure to the client.
+func (__r *Router) __gastro_executeForRequest(name string, r *http.Request, w io.Writer, data any) (rerr error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("gastro: WithRequestFuncs panic on %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+			rerr = fmt.Errorf("gastro: WithRequestFuncs panic on %s %s: %v", r.Method, r.URL.Path, rec)
+		}
+	}()
+
+	extra := template.FuncMap{}
+	for i, b := range __r.binders {
+		fm := __r.__gastro_callBinder(i, b, r)
+		for k, v := range fm {
+			extra[k] = v
+		}
+	}
+
+	var tmpl *template.Template
+	if __r.isDev {
+		effective := template.FuncMap{}
+		for k, v := range __r.userFuncs {
+			effective[k] = v
+		}
+		for k, v := range extra {
+			effective[k] = v
+		}
+		tfs := gastroRuntime.GetTemplateFS(templateFS)
+		parsed, err := __r.__gastro_parseTemplate(name, tfs, effective)
+		if err != nil {
+			return err
+		}
+		tmpl = parsed
+	} else {
+		cached := __r.registry[name]
+		if cached == nil {
+			return fmt.Errorf("gastro: no template registered for %q", name)
+		}
+		cloned, err := cached.Clone()
+		if err != nil {
+			return fmt.Errorf("gastro: cloning template %q: %w", name, err)
+		}
+		cloned.Funcs(extra)
+		tmpl = cloned
+	}
+	return tmpl.Execute(w, data)
+}
+
+// __gastro_callBinder invokes a binder with recover-and-rethrow semantics
+// so a binder panic is attributable to its registration index in logs.
+func (__r *Router) __gastro_callBinder(i int, b func(*http.Request) template.FuncMap, r *http.Request) (fm template.FuncMap) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			panic(fmt.Sprintf("WithRequestFuncs[%d]: %v", i, rec))
+		}
+	}()
+	return b(r)
+}
+
+// __gastro_probeBinders runs every registered binder once at New() time
+// with a synthetic request and validates that the union of built-ins,
+// WithFuncs, and binder keys contains no duplicates. Panics on the first
+// collision with a message naming both sources. Returns the discovered
+// union of binder helper names so the caller can seed placeholder stubs
+// into parse-time FuncMaps.
+func __gastro_probeBinders(cfg *config) map[string]bool {
+	if len(cfg.binders) == 0 {
+		return nil
+	}
+	probe := httptest.NewRequest(http.MethodGet, "/__gastro_probe", nil)
+
+	seen := map[string]string{}
+	for name := range gastroRuntime.DefaultFuncs() {
+		seen[name] = "built-in"
+	}
+	for name := range cfg.funcs {
+		// Skip names that came from built-ins (DefaultFuncs is the base of
+		// cfg.funcs). Only flag names that WithFuncs added on top.
+		if _, isBuiltin := gastroRuntime.DefaultFuncs()[name]; isBuiltin {
+			continue
+		}
+		seen[name] = "WithFuncs"
+	}
+	keys := map[string]bool{}
+	for i, b := range cfg.binders {
+		fm := b(probe)
+		src := fmt.Sprintf("WithRequestFuncs[%d]", i)
+		for name := range fm {
+			if existing, ok := seen[name]; ok {
+				panic(fmt.Sprintf(
+					"gastro: helper name %q registered twice\n  - %s\n  - %s",
+					name, existing, src,
+				))
+			}
+			seen[name] = src
+			keys[name] = true
+		}
+	}
+	return keys
+}
+
 // New constructs a gastro Router from the supplied options.
 //
 // Mount the router on your HTTP server via Handler() (returns an http.Handler
@@ -878,11 +1091,20 @@ func New(opts ...Option) *Router {
 		isDev = *cfg.devMode
 	}
 
+	// Probe each binder with a synthetic request to discover its key set.
+	// This validates name uniqueness against built-ins, WithFuncs, and other
+	// binders. Binders must tolerate an empty context here — closures
+	// inside the returned FuncMap are NOT invoked during probing; only the
+	// map's keys are read.
+	binderKeys := __gastro_probeBinders(cfg)
+
 	__r := &Router{
 		isDev:        isDev,
 		userFuncs:    cfg.funcs,
 		deps:         cfg.deps,
 		errorHandler: cfg.errorHandler,
+		binders:      cfg.binders,
+		binderKeys:   binderKeys,
 	}
 
 	// Validate WithOverride patterns: each must match a known auto-route
@@ -1056,7 +1278,7 @@ var renderTmpl = template.Must(template.New("render").Parse(`// Code generated b
 //                              produces HTML outside the page-routing
 //                              flow (e.g. SSE handlers patching a card).
 //
-// Two ways to call it:
+// Three ways to call it:
 //
 //	// 1. Package-level Render — simplest, uses the most-recently-
 //	//    constructed Router. Fine for single-router apps.
@@ -1067,6 +1289,11 @@ var renderTmpl = template.Must(template.New("render").Parse(`// Code generated b
 //	router := gastro.New(opts...)
 //	html, err := router.Render().Card(gastro.CardProps{Title: "Hello"})
 //
+//	// 3. Render.With(r) — binds the call to a *http.Request so request-
+//	//    aware helpers (WithRequestFuncs) see per-request state. Use from
+//	//    SSE handlers and custom http handlers.
+//	html, err := gastro.Render.With(r).Card(gastro.CardProps{Title: "Hello"})
+//
 // Each method takes a typed Props value (and optional children for
 // components that accept them) and returns an HTML string plus an error.
 // Internally it calls the unexported componentX function shared with the
@@ -1076,11 +1303,13 @@ package gastro
 import (
 	"fmt"
 	"html/template"
+	"net/http"
 )
 
 // Suppress unused import warnings.
 var _ = fmt.Errorf
 var _ template.HTML
+var _ http.Request
 
 // Render is the package-level entry point for rendering components from
 // Go code. It dispatches to the most-recently-constructed Router (set by
@@ -1113,7 +1342,15 @@ func (r *Router) Render() *renderAPI { return &renderAPI{router: r} }
 // A nil router means "use the most-recently-constructed Router" (the
 // package-level Render value); a non-nil router pins dispatch to that
 // instance.
-type renderAPI struct{ router *Router }
+//
+// The req field, when non-nil, signals that calls on this renderAPI
+// should route through the request-aware FuncMap path — i.e. binder
+// helpers registered via WithRequestFuncs see per-request state. A nil
+// req routes through the legacy static path. See With() below.
+type renderAPI struct {
+	router *Router
+	req    *http.Request
+}
 
 // resolve returns the Router this renderAPI should dispatch to. If the
 // renderAPI is bound to a specific Router (via Router.Render()), that's
@@ -1124,6 +1361,20 @@ func (r *renderAPI) resolve() *Router {
 		return r.router
 	}
 	return __gastro_active.Load()
+}
+
+// With returns a request-bound renderAPI. Calls on the returned value
+// route through the per-request FuncMap path, so request-aware helpers
+// (WithRequestFuncs) see the supplied request's state.
+//
+// The returned *renderAPI is reusable within a single request — store
+// it in a local and render multiple components from it. It must not be
+// shared across goroutines or retained beyond the request lifetime. A
+// nil request is allowed and behaves identically to the receiver
+// (useful as a guard so handler code doesn't have to branch on test vs
+// production request availability).
+func (r *renderAPI) With(req *http.Request) *renderAPI {
+	return &renderAPI{router: r.router, req: req}
 }
 {{ range .Components }}
 {{- /*
@@ -1159,6 +1410,9 @@ func (r *renderAPI) {{ .ExportedName }}({{ if or .HasProps .HasChildren }}props 
 {{- if .HasChildren }}
 		"Children": props.Children,
 {{- end }}
+	}
+	if r.req != nil {
+		propsMap["__gastro_request"] = r.req
 	}
 	rt := r.resolve()
 	if rt == nil {
