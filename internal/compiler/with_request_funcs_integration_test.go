@@ -369,6 +369,45 @@ func TestCollisionWithUserFuncsOverridingBuiltin(t *testing.T) {
 	)
 }
 
+// TestCollisionWithComponentName: a binder returning a helper named
+// after a component (e.g. "Greeting" — one of the components compiled
+// into this test project) panics at New() with the component named as
+// the conflicting source. This prevents silent shadowing: without the
+// check, the request-aware FuncMap would override the bare-component
+// dispatcher entry, and template behaviour would depend on registration
+// order — brittle and hard to debug.
+func TestCollisionWithComponentName(t *testing.T) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected panic for component-name collision")
+		}
+		msg, ok := v.(string)
+		if !ok {
+			t.Fatalf("panic value is not a string: %T", v)
+		}
+		if !strings.Contains(msg, "Greeting") {
+			t.Errorf("panic should name colliding component; got %q", msg)
+		}
+		if !strings.Contains(msg, "component") {
+			t.Errorf("panic should attribute to component source; got %q", msg)
+		}
+		if !strings.Contains(msg, "WithRequestFuncs") {
+			t.Errorf("panic should name binder source; got %q", msg)
+		}
+	}()
+
+	gastro.New(gastro.WithRequestFuncs(func(*http.Request) template.FuncMap {
+		return template.FuncMap{
+			"Greeting": func() string { return "x" },
+			// Include locale/boom so the rest of the binder probe doesn't
+			// complain when the test project's templates are parsed.
+			"locale": func() string { return "x" },
+			"boom":   func() string { return "x" },
+		}
+	}))
+}
+
 // TestNilBinderRejected: WithRequestFuncs(nil) panics with a descriptive
 // message at option construction.
 func TestNilBinderRejected(t *testing.T) {
@@ -509,10 +548,17 @@ func TestNoBindersIsZeroCostPath(t *testing.T) {
 	if strings.Contains(string(out), "FAIL") {
 		t.Fatalf("subprocess test failed:\n%s", out)
 	}
-	// Sanity check: the new override-built-in test must actually run in the
-	// subprocess (catches accidental omission of the test from the embedded
+	// Sanity check: the most-recently-added tests must actually run in
+	// the subprocess (catches accidental omission from the embedded
 	// source). Output is captured -v so RUN lines are present.
-	if !strings.Contains(string(out), "TestCollisionWithUserFuncsOverridingBuiltin") {
-		t.Errorf("subprocess did not run TestCollisionWithUserFuncsOverridingBuiltin; output:\n%s", out)
+	for _, sub := range []string{
+		"TestCollisionWithUserFuncsOverridingBuiltin",
+		"TestCollisionWithComponentName",
+		"TestNestedComponentInheritsBinder",
+		"TestWrapSlotInheritsBinder",
+	} {
+		if !strings.Contains(string(out), sub) {
+			t.Errorf("subprocess did not run %s; output:\n%s", sub, out)
+		}
 	}
 }
