@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.3.1](https://github.com/andrioid/gastro/compare/v0.3.0...v0.3.1) (2026-05-14)
+
+
+### Features
+
+* **compiler,examples:** nested-component request propagation + examples/i18n ([93ebeed](https://github.com/andrioid/gastro/commit/93ebeed4506d31a46acfc4e8aeb78668f14f06d0))
+* **compiler,lsp:** WithRequestFuncs follow-ups — nested propagation + LSP completion ([e7bd6cd](https://github.com/andrioid/gastro/commit/e7bd6cdc436c00856c45a29b7bbee0416a738eb1))
+* **compiler:** nested-component request propagation ([4effc91](https://github.com/andrioid/gastro/commit/4effc914ca1878ee9aae87ceb15124712364ad62))
+* **compiler:** probe rejects binder helpers shadowing component names ([dffad1b](https://github.com/andrioid/gastro/commit/dffad1b48e4c5e11587309f8ce3e8dfe0b8dac97))
+* **compiler:** Render.With(r) — request-aware component rendering ([a32db72](https://github.com/andrioid/gastro/commit/a32db722763df737719ee181162219805315205f))
+* **compiler:** WithRequestFuncs runtime — request-aware template helpers ([0bffe3c](https://github.com/andrioid/gastro/commit/0bffe3cb9673d8f5867781bcf8845e52120a8326))
+* **devloop:** `--watch GLOB` flag for dev/watch — extra files trigger restart ([999a29a](https://github.com/andrioid/gastro/commit/999a29a431e121545fc8b1eb9bf10eb74b98b7e8))
+* **examples:** csrf + csp \u2014 the remaining two WithRequestFuncs consumers ([e54f00e](https://github.com/andrioid/gastro/commit/e54f00e4bcafafb23433c6fb84e178659a5bce63))
+* **lsp:** discover WithRequestFuncs binders for template parse + completion ([f00a33d](https://github.com/andrioid/gastro/commit/f00a33d2ed934e4ef6da7ad456ad96aa9e80b7d5))
+* **lsp:** hover, go-to-def, and non-literal binder diagnostic ([96db2cd](https://github.com/andrioid/gastro/commit/96db2cd91fb336495d8e4862dd95c66c0207b7a0))
+* WithRequestFuncs — request-aware template helpers (PR 1/2) ([b89a67d](https://github.com/andrioid/gastro/commit/b89a67d377b3b8fa289473796a542ec87c3d83b8))
+* WithRequestFuncs examples + --watch flag + docs (PR 2/2) ([d5cce1d](https://github.com/andrioid/gastro/commit/d5cce1dde1a6089c496fada71574843c6a1ee8ff))
+
+
+### Documentation
+
+* add ROADMAP.md and link it from README ([c4aab4c](https://github.com/andrioid/gastro/commit/c4aab4cdd82606829887f9a7a87f9b6043322c8a))
+* add WithRequestFuncs section to docs/helpers.md ([7946375](https://github.com/andrioid/gastro/commit/794637523bf76d2f0ba6a0877434ebbf066474d8))
+* full WithRequestFuncs documentation pass + DECISIONS entry ([d5eb147](https://github.com/andrioid/gastro/commit/d5eb14701702b16d217d7cae88327697de2334a2))
+* refresh stale embed/CLI claims in README and design.md ([94eea87](https://github.com/andrioid/gastro/commit/94eea876f67aa667f1a6bd708c7c33666c72fb62))
+* stale-claim fixes + ROADMAP.md ([fec81a1](https://github.com/andrioid/gastro/commit/fec81a178b6b9e1f42997f38a34c751aa7ab7d62))
+
+
+### Miscellaneous
+
+* gofmt drift in four pre-existing files ([6eed0ef](https://github.com/andrioid/gastro/commit/6eed0ef7e79e44da891ca2004c77b937e4532712))
+
 ## [0.3.0](https://github.com/andrioid/gastro/compare/v0.2.0...v0.3.0) (2026-05-10)
 
 
