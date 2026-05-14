@@ -17,7 +17,6 @@ package main
 
 import (
 	"fmt"
-	"html/template"
 	"net/http"
 	"os"
 
@@ -29,13 +28,7 @@ import (
 func main() {
 	router := gastro.New(
 		gastro.WithMiddleware("/{path...}", csp.Middleware),
-		gastro.WithRequestFuncs(func(r *http.Request) template.FuncMap {
-			fm := template.FuncMap{}
-			for k, v := range csp.RequestFuncs(r) {
-				fm[k] = v
-			}
-			return fm
-		}),
+		gastro.WithRequestFuncs(csp.RequestFuncs),
 	)
 
 	port := os.Getenv("PORT")

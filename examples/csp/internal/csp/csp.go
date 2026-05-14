@@ -21,6 +21,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"html/template"
 	"net/http"
 )
 
@@ -73,9 +74,9 @@ func Middleware(next http.Handler) http.Handler {
 //	gastro.WithRequestFuncs(csp.RequestFuncs)
 //
 // and templates use {{ cspNonce }} on inline <script> tags.
-func RequestFuncs(r *http.Request) map[string]any {
+func RequestFuncs(r *http.Request) template.FuncMap {
 	nonce := NonceFromCtx(r.Context())
-	return map[string]any{
+	return template.FuncMap{
 		"cspNonce": func() string { return nonce },
 	}
 }

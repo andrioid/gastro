@@ -67,9 +67,6 @@ func parseDevWatchFlags(args []string) ([]string, error) {
 			hasValue = true
 		}
 		if a != "--watch" {
-			if strings.HasPrefix(a, "-") {
-				return nil, errors.New(devFlagRejectionMessage(a))
-			}
 			return nil, errors.New(devFlagRejectionMessage(a))
 		}
 
