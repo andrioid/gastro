@@ -32,17 +32,18 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 )
 
 // requestFuncInfo describes a single request-aware helper discovered by
-// scanning a project's main.go. Position is the *.go file URI and line
-// the name was declared on — used by hover/go-to-definition.
+// scanning a project's main.go. Position is the *.go file path and the
+// line/column the key string literal was declared on — used by hover
+// and go-to-definition to jump precisely to the FuncMap entry.
 type requestFuncInfo struct {
 	Name     string // helper name as referenced from templates, e.g. "t"
 	File     string // absolute path to the Go file where the key was declared
 	Line     int    // 1-indexed line of the key string literal
+	Column   int    // 1-indexed column of the key string literal's opening quote
 	BinderID int    // 0-based index of the binder in registration order
 }
 
@@ -52,6 +53,12 @@ type requestFuncInfo struct {
 type requestFuncsCache struct {
 	mu      sync.RWMutex
 	entries map[string]requestFuncsCacheEntry // projectRoot -> entry
+	// publishedModTime tracks the most recent main.go modtime for which
+	// the LSP has published info-level diagnostics covering non-literal
+	// binder sites. Used to dedupe redundant publishes when many .gastro
+	// files belong to the same project and each didOpen would otherwise
+	// re-publish the same diagnostic set.
+	publishedModTime map[string]int64 // projectRoot -> last-published modtime
 }
 
 type requestFuncsCacheEntry struct {
@@ -65,20 +72,62 @@ type requestFuncsCacheEntry struct {
 }
 
 // requestFuncBinderSite describes a WithRequestFuncs call whose argument
-// shape resisted static analysis (e.g. dynamically built FuncMap).
+// shape resisted static analysis (e.g. dynamically built FuncMap). The
+// position (1-indexed line + column) anchors an info-level diagnostic
+// at the call site.
 type requestFuncBinderSite struct {
-	File string
-	Line int
+	File   string
+	Line   int
+	Column int
 }
 
 // newRequestFuncsCache constructs a cache. Safe to call multiple times;
 // each call returns a fresh, independent cache.
 func newRequestFuncsCache() *requestFuncsCache {
-	return &requestFuncsCache{entries: make(map[string]requestFuncsCacheEntry)}
+	return &requestFuncsCache{
+		entries:          make(map[string]requestFuncsCacheEntry),
+		publishedModTime: make(map[string]int64),
+	}
+}
+
+// markPublished records that diagnostics have been published for
+// projectRoot at the given main.go modtime. Subsequent calls to
+// shouldPublish for the same root + modtime return false until the
+// modtime changes (main.go edit). Race-safe.
+func (c *requestFuncsCache) markPublished(projectRoot string, modTime int64) {
+	c.mu.Lock()
+	c.publishedModTime[projectRoot] = modTime
+	c.mu.Unlock()
+}
+
+// shouldPublish reports whether the LSP should (re-)publish info
+// diagnostics for projectRoot. Returns false when we've already
+// published for this root at the same modtime.
+func (c *requestFuncsCache) shouldPublish(projectRoot string, modTime int64) bool {
+	c.mu.RLock()
+	last, ok := c.publishedModTime[projectRoot]
+	c.mu.RUnlock()
+	return !ok || last != modTime
+}
+
+// modTimeFor returns the cached main.go modtime for projectRoot, or 0
+// when no entry has been observed yet. Used by the diagnostic publisher
+// to key its dedup gate against the same value Lookup keyed its
+// staleness check against.
+func (c *requestFuncsCache) modTimeFor(projectRoot string) int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if entry, ok := c.entries[projectRoot]; ok {
+		return entry.mainModTime
+	}
+	return 0
 }
 
 // Lookup returns the discovered helpers for projectRoot, scanning if the
-// cached entry is missing or stale.
+// cached entry is missing or stale. Staleness is detected via main.go's
+// modtime: each call os.Stat's main.go and re-scans when the modtime
+// differs from the cached entry. This keeps the cache coherent without
+// requiring an explicit didChange wire-up.
 func (c *requestFuncsCache) Lookup(projectRoot string) requestFuncsCacheEntry {
 	mainPath := filepath.Join(projectRoot, "main.go")
 	info, statErr := os.Stat(mainPath)
@@ -109,14 +158,6 @@ func (c *requestFuncsCache) Lookup(projectRoot string) requestFuncsCacheEntry {
 	c.mu.Unlock()
 
 	return entry
-}
-
-// Invalidate forgets cached results for projectRoot. Used when the LSP
-// receives a didChange for the project's main.go.
-func (c *requestFuncsCache) Invalidate(projectRoot string) {
-	c.mu.Lock()
-	delete(c.entries, projectRoot)
-	c.mu.Unlock()
 }
 
 // scanRequestFuncs reads mainPath and extracts WithRequestFuncs binder
@@ -167,8 +208,9 @@ func scanRequestFuncs(mainPath string) (map[string]requestFuncInfo, []requestFun
 		extracted, recognised := extractFuncMapKeys(arg, funcDecls, fset, callPos.Filename, binderIdx)
 		if !recognised {
 			sites = append(sites, requestFuncBinderSite{
-				File: callPos.Filename,
-				Line: callPos.Line,
+				File:   callPos.Filename,
+				Line:   callPos.Line,
+				Column: callPos.Column,
 			})
 			binderIdx++
 			return true
@@ -282,6 +324,7 @@ func extractFromFuncBody(
 			Name:     name,
 			File:     file,
 			Line:     pos.Line,
+			Column:   pos.Column,
 			BinderID: binderIdx,
 		}
 	}
@@ -331,10 +374,4 @@ func (e requestFuncsCacheEntry) HelperAt(name string) (requestFuncInfo, bool) {
 	}
 	info, ok := e.helpers[name]
 	return info, ok
-}
-
-// strJoinedHelperList is a small helper used by callers that want to log
-// or surface the discovered helper list as a single string.
-func strJoinedHelperList(names []string) string {
-	return strings.Join(names, ", ")
 }

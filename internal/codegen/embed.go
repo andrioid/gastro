@@ -87,13 +87,13 @@ const (
 // Line/column are 1-indexed within the supplied frontmatter source so
 // the LSP can rebase them onto the .gastro file's coordinates.
 type EmbedDiagnostic struct {
-	Kind         EmbedDiagnosticKind
-	Message      string
+	Kind          EmbedDiagnosticKind
+	Message       string
 	DirectiveLine int    // line of the //gastro:embed comment (1-indexed)
-	DeclLine     int    // line of the associated var decl (1-indexed); 0 if none
-	Path         string // user-supplied path (may be empty if grammar-level error)
-	VarName      string // associated var name (may be empty)
-	VarType      string // associated var type as written (may be empty)
+	DeclLine      int    // line of the associated var decl (1-indexed); 0 if none
+	Path          string // user-supplied path (may be empty if grammar-level error)
+	VarName       string // associated var name (may be empty)
+	VarType       string // associated var type as written (may be empty)
 }
 
 // ValidateEmbedDirectives is the read-only counterpart to

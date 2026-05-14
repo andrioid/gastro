@@ -18,14 +18,14 @@ import (
 // user-observable post-startup event" — critical for tests that edit
 // files immediately after the initial OnRestart returns.
 type watcherState struct {
-	cfg                 Config
-	root                string
-	goRoot              string
-	extDeps             *watcher.ExternalDeps
-	escalate            func(watcher.ChangeType)
-	debounced           func()
-	modTimes            map[string]time.Time
-	fileContents        map[string]string
+	cfg              Config
+	root             string
+	goRoot           string
+	extDeps          *watcher.ExternalDeps
+	escalate         func(watcher.ChangeType)
+	debounced        func()
+	modTimes         map[string]time.Time
+	fileContents     map[string]string
 	embedCache       []string
 	embedDepsVersion uint64
 	// goExcludeBasenames is matched against directory basenames anywhere

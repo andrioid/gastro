@@ -304,9 +304,9 @@ func TestCodeAction_CapabilityAdvertised(t *testing.T) {
 
 func TestVarTypeSpanInLine(t *testing.T) {
 	cases := []struct {
-		name  string
-		line  string
-		want  string // substring extracted from line[start:end]
+		name   string
+		line   string
+		want   string // substring extracted from line[start:end]
 		wantOK bool
 	}{
 		{"string", "var X string", "string", true},

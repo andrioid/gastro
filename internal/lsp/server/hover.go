@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -110,6 +111,25 @@ func (s *server) templateHover(uri, content string, pos proxy.Position, parsed *
 		}
 
 	case "function":
+		// Request-aware helper (registered via WithRequestFuncs) takes
+		// precedence over the built-in function table so the hover shows
+		// the source location adopters actually edit. The discovery cache
+		// recorded File/Line/Column when scanning main.go.
+		if inst := s.instanceForURI(uri); inst != nil {
+			entry := s.requestFuncs.Lookup(inst.root)
+			if info, ok := entry.HelperAt(target.Name); ok {
+				typeStr = target.Name
+				rel := info.File
+				if r, err := filepath.Rel(inst.root, info.File); err == nil {
+					rel = r
+				}
+				description = fmt.Sprintf(
+					"request-aware helper (WithRequestFuncs[%d]) · defined in %s:%d",
+					info.BinderID, rel, info.Line,
+				)
+				break
+			}
+		}
 		sigs := lsptemplate.FuncSignatures()
 		if sig, ok := sigs[target.Name]; ok {
 			typeStr = sig

@@ -256,35 +256,31 @@ Gastro recovers the panic, logs it with the panicking binder's
 registration index, and dispatches to your `WithErrorHandler` (default:
 `500 Internal Server Error`). One bad binder cannot crash the server.
 
-### Known limitation: components called from templates
+### Components, slots, and wrap blocks
 
-In this release, request-aware helpers are visible to:
+Request-aware helpers propagate through every layer of a page render:
 
 - Page templates (`pages/foo.gastro`).
-- Components rendered via `gastro.Render.With(r).Component(props)` from
-  Go code.
+- Components invoked from a page via `{{ Component . }}` or
+  `{{ wrap Component (dict ...) }}`.
+- Slot content rendered inside a wrap block.
+- Components rendered programmatically via
+  `gastro.Render.With(r).Component(props)`.
 
-They are **not** automatically visible to components invoked
-transitively from a template via `{{ Component . }}`. If you need
-`{{ t "…" }}` inside a shared layout component, the two workable
-patterns are:
+In every case, helpers like `{{ t "…" }}`, `{{ csrfField }}`, and
+`{{ cspNonce }}` resolve against the right per-request state. You don't
+need to translate strings in the page's frontmatter and pass them as
+props — the helper just works inside the component template body.
 
-1. **Translate in the page's frontmatter and pass as props.**
-
-   ```gastro
-   ---
-   import Layout "components/layout.gastro"
-   Title := gastroRuntime.FromContext[i18n.L](r.Context()).T("Welcome")
-   ---
-   <Layout title={Title}>
-       ...
-   </Layout>
-   ```
-
-2. **Pre-render the component via `Render.With(r)` and pass as Children.**
-
-This is a temporary limitation; nested-component propagation is on the
-roadmap for a future Gastro release.
+Under the hood, each request Clones the page's parsed template (or, in
+dev mode, re-parses it) and applies the per-request FuncMap to the
+clone. Bare component invocations are then dispatched through closures
+that thread the request all the way down the component tree. Cost is
+proportional to nesting depth; on an Apple M3 a typical component
+template clones in ~1.2 µs, so a 5-deep tree adds ~6 µs per request —
+well below the per-request budget of any real handler. See the
+`BenchmarkNestedClone` suite in `internal/compiler/` for the per-depth
+roll-up.
 
 ### Editor support
 
@@ -296,9 +292,17 @@ function reference in the same file), helper names show up in:
 - Template completion (`{{ t<TAB>` suggests `t` with detail
   *"request-aware helper"*).
 - Template parse — no spurious *"function not defined"* diagnostic.
+- Hover on `{{ t "…" }}` shows the binder index and a source link
+  pointing at the FuncMap key in `main.go`.
+- Go-to-definition on a helper name jumps to that same FuncMap entry.
 
-Binders that build their FuncMap dynamically degrade gracefully: the
-helpers still work at runtime, they just don't appear in completion.
+Binders that build their FuncMap dynamically (e.g. by ranging over a
+slice, or returning a `template.FuncMap` constructed in another
+package) still work at runtime, but the LSP can't statically extract
+their keys — so completion / hover / go-to-def don't list them. To
+make the trade-off visible, the LSP publishes an **info-level
+diagnostic** on the `gastro.WithRequestFuncs(...)` call site explaining
+the situation and pointing at the literal-`FuncMap` workaround.
 
 ### Worked example
 

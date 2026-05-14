@@ -87,8 +87,9 @@ type server struct {
 	// requestFuncs caches discovered WithRequestFuncs binder helper
 	// names per project root. Shared across instances; safe for
 	// concurrent use. Lazy-populated by Lookup on first template-edit
-	// session per project; invalidated when the project's main.go
-	// changes via didChange handling.
+	// session per project; invalidated via main.go modtime comparison
+	// inside Lookup, so the cache stays coherent without an explicit
+	// didChange wire-up.
 	requestFuncs *requestFuncsCache
 }
 

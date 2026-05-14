@@ -115,6 +115,12 @@ func (s *server) handleDidOpen(msg *jsonRPCMessage) {
 	// its first diagnostic set for the virtual file.
 	s.syncToGopls(uri, params.TextDocument.Text)
 	s.runTemplateDiagnostics(uri, params.TextDocument.Text)
+	// Surface info-level diagnostics for any non-literal
+	// WithRequestFuncs binder in this project's main.go. Idempotent
+	// across many .gastro didOpens — publisher dedupes on modtime.
+	if inst := s.instanceForURI(uri); inst != nil {
+		s.publishRequestFuncDiagnostics(inst.root)
+	}
 }
 
 type didChangeParams struct {
@@ -152,6 +158,13 @@ func (s *server) handleDidChange(msg *jsonRPCMessage) {
 		// publishes its updated diagnostic set.
 		s.syncToGopls(uri, content)
 		s.runTemplateDiagnostics(uri, content)
+		// Re-check non-literal binder diagnostics on every change. If
+		// the user edited main.go between this didChange and the
+		// previous one, the publisher will detect the modtime delta
+		// and re-publish (possibly with a different diagnostic set).
+		if inst := s.instanceForURI(uri); inst != nil {
+			s.publishRequestFuncDiagnostics(inst.root)
+		}
 	}
 }
 

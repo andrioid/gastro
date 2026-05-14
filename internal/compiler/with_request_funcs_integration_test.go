@@ -63,6 +63,32 @@ func TestCompile_WithRequestFuncs(t *testing.T) {
 	// nested binders work via the Render.With path.
 	mustWriteFile(t, filepath.Join(componentsDir, "greeting.gastro"),
 		"<span>{{ locale }}-greeting</span>\n")
+	// A no-Props leaf component that reads a binder helper inside its
+	// body. Used by the bare-call nested-propagation test.
+	mustWriteFile(t, filepath.Join(componentsDir, "nest.gastro"),
+		"<span>nest-locale={{ locale }}</span>\n")
+	// A wrap-capable component (Children is auto-provided by codegen for
+	// every component; no Props declaration needed). The slot's body is
+	// authored by the page, and we assert the slot inherits the page's
+	// per-request FuncMap so the binder helper resolves inside it.
+	mustWriteFile(t, filepath.Join(componentsDir, "wrapper.gastro"),
+		"<div class=\"wrap\">{{ .Children }}</div>\n")
+	// Page that invokes a bare child component using a binder helper.
+	// Without nested propagation, {{ locale }} inside Nest would render
+	// empty (the parse-time placeholder); with propagation it resolves
+	// against the page's request.
+	mustWriteFile(t, filepath.Join(pagesDir, "nested.gastro"),
+		"---\n"+
+			"import Nest \"components/nest.gastro\"\n"+
+			"---\n"+
+			"<main>page-locale={{ locale }} {{ Nest (dict) }}</main>\n")
+	// Page that wraps a slot body inside a component. The slot body uses
+	// the binder helper, exercising the wrap-block propagation path.
+	mustWriteFile(t, filepath.Join(pagesDir, "wrapnest.gastro"),
+		"---\n"+
+			"import Wrapper \"components/wrapper.gastro\"\n"+
+			"---\n"+
+			"{{ wrap Wrapper (dict) }}<em>slot-locale={{ locale }}</em>{{ end }}\n")
 
 	gastroOut := filepath.Join(projectDir, ".gastro")
 	if _, err := compiler.Compile(projectDir, gastroOut, compiler.CompileOptions{}); err != nil {
@@ -305,6 +331,83 @@ func TestCollisionWithUserFuncs(t *testing.T) {
 	)
 }
 
+// TestCollisionWithUserFuncsOverridingBuiltin: if WithFuncs overrides a
+// built-in helper (an existing documented WithFuncs feature) and a binder
+// then collides on that same name, the panic message should attribute
+// the collision to "WithFuncs" (the source the adopter actually
+// registered), not to "built-in". Without this, an adopter who
+// override-and-collides on e.g. "upper" would see a misleading message
+// pointing at a source they never directly touched.
+func TestCollisionWithUserFuncsOverridingBuiltin(t *testing.T) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected panic for WithFuncs-overrides-builtin + binder collision")
+		}
+		msg, ok := v.(string)
+		if !ok {
+			t.Fatalf("panic value is not a string: %T", v)
+		}
+		if !strings.Contains(msg, "upper") {
+			t.Errorf("panic should name colliding helper; got %q", msg)
+		}
+		if !strings.Contains(msg, "WithFuncs") {
+			t.Errorf("panic should attribute to WithFuncs (the actual override source); got %q", msg)
+		}
+		if strings.Contains(msg, "built-in") {
+			t.Errorf("panic should not say built-in when WithFuncs overrode the built-in; got %q", msg)
+		}
+	}()
+
+	gastro.New(
+		gastro.WithFuncs(template.FuncMap{
+			"upper": func(s string) string { return s }, // override built-in
+		}),
+		gastro.WithRequestFuncs(func(*http.Request) template.FuncMap {
+			return template.FuncMap{"upper": func() string { return "x" }}
+		}),
+	)
+}
+
+// TestCollisionWithComponentName: a binder returning a helper named
+// after a component (e.g. "Greeting" — one of the components compiled
+// into this test project) panics at New() with the component named as
+// the conflicting source. This prevents silent shadowing: without the
+// check, the request-aware FuncMap would override the bare-component
+// dispatcher entry, and template behaviour would depend on registration
+// order — brittle and hard to debug.
+func TestCollisionWithComponentName(t *testing.T) {
+	defer func() {
+		v := recover()
+		if v == nil {
+			t.Fatal("expected panic for component-name collision")
+		}
+		msg, ok := v.(string)
+		if !ok {
+			t.Fatalf("panic value is not a string: %T", v)
+		}
+		if !strings.Contains(msg, "Greeting") {
+			t.Errorf("panic should name colliding component; got %q", msg)
+		}
+		if !strings.Contains(msg, "component") {
+			t.Errorf("panic should attribute to component source; got %q", msg)
+		}
+		if !strings.Contains(msg, "WithRequestFuncs") {
+			t.Errorf("panic should name binder source; got %q", msg)
+		}
+	}()
+
+	gastro.New(gastro.WithRequestFuncs(func(*http.Request) template.FuncMap {
+		return template.FuncMap{
+			"Greeting": func() string { return "x" },
+			// Include locale/boom so the rest of the binder probe doesn't
+			// complain when the test project's templates are parsed.
+			"locale": func() string { return "x" },
+			"boom":   func() string { return "x" },
+		}
+	}))
+}
+
 // TestNilBinderRejected: WithRequestFuncs(nil) panics with a descriptive
 // message at option construction.
 func TestNilBinderRejected(t *testing.T) {
@@ -351,6 +454,57 @@ func TestRenderWithBindsRequest(t *testing.T) {
 	}
 }
 
+// TestNestedComponentInheritsBinder: a page invokes a child component
+// via a bare {{ Nest (dict) }} call. The child's template body uses a
+// binder helper. With nested propagation, the helper resolves against
+// the page's request; without it, the child would render the helper as
+// empty (the parse-time placeholder).
+func TestNestedComponentInheritsBinder(t *testing.T) {
+	r := gastro.New(gastro.WithRequestFuncs(makeBinder(false)))
+	srv := httptest.NewServer(r.Handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/nested", nil)
+	req.Header.Set("Accept-Language", "fr")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get /nested: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	// The page itself sees fr (sanity check for the page-level path)...
+	if !strings.Contains(string(body), "page-locale=fr") {
+		t.Errorf("page-level helper did not resolve; body=%q", body)
+	}
+	// ...and the bare-call child component inherits it.
+	if !strings.Contains(string(body), "nest-locale=fr") {
+		t.Errorf("nested component did not inherit request-aware helper; body=%q", body)
+	}
+}
+
+// TestWrapSlotInheritsBinder: a page uses a {{ wrap Wrapper (dict) }}
+// block whose slot body references a binder helper. The slot must be
+// rendered with the page's per-request FuncMap so the helper resolves.
+// This exercises the post-tmpl-selection override of
+// __gastro_render_children inside __gastro_executeForRequest.
+func TestWrapSlotInheritsBinder(t *testing.T) {
+	r := gastro.New(gastro.WithRequestFuncs(makeBinder(false)))
+	srv := httptest.NewServer(r.Handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/wrapnest", nil)
+	req.Header.Set("Accept-Language", "fr")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get /wrapnest: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), "slot-locale=fr") {
+		t.Errorf("wrap-slot did not inherit request-aware helper; body=%q", body)
+	}
+}
+
 // TestRenderWithNilRequestIsHarmless: calling With(nil) collapses to the
 // static path. Documented as a guard so handler code can pass r without
 // branching.
@@ -384,7 +538,7 @@ func TestNoBindersIsZeroCostPath(t *testing.T) {
 }
 `)
 
-	cmd := exec.Command("go", "test", "-race", "-count=1", "-run", "Test", "./...")
+	cmd := exec.Command("go", "test", "-race", "-count=1", "-v", "-run", "Test", "./...")
 	cmd.Dir = projectDir
 	cmd.Env = append(os.Environ(), "GOFLAGS=")
 	out, err := cmd.CombinedOutput()
@@ -393,5 +547,18 @@ func TestNoBindersIsZeroCostPath(t *testing.T) {
 	}
 	if strings.Contains(string(out), "FAIL") {
 		t.Fatalf("subprocess test failed:\n%s", out)
+	}
+	// Sanity check: the most-recently-added tests must actually run in
+	// the subprocess (catches accidental omission from the embedded
+	// source). Output is captured -v so RUN lines are present.
+	for _, sub := range []string{
+		"TestCollisionWithUserFuncsOverridingBuiltin",
+		"TestCollisionWithComponentName",
+		"TestNestedComponentInheritsBinder",
+		"TestWrapSlotInheritsBinder",
+	} {
+		if !strings.Contains(string(out), sub) {
+			t.Errorf("subprocess did not run %s; output:\n%s", sub, out)
+		}
 	}
 }

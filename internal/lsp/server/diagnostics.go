@@ -19,6 +19,7 @@ import (
 const (
 	diagnosticSeverityError   = 1
 	diagnosticSeverityWarning = 2
+	diagnosticSeverityInfo    = 3
 )
 
 // Stale-diagnostic retry tuning. The walker depends on gopls type / field
@@ -261,6 +262,70 @@ func (s *server) publishParseDiagnostic(uri, content, message string, line int) 
 	}}
 	s.publishMergedDiagnostics(uri)
 	s.dataMu.Unlock()
+}
+
+// publishRequestFuncDiagnostics emits info-level diagnostics for every
+// gastro.WithRequestFuncs(...) call site whose argument is a binder that
+// couldn't be statically analyzed (dynamically built FuncMap, return
+// from another package, etc.). These helpers still work at runtime
+// — they just don't surface in template completion/hover. The
+// diagnostic tells the adopter why and points at the literal-FuncMap
+// workaround.
+//
+// Idempotent across multiple .gastro file events in the same project:
+// dedup gated on main.go's modtime. When the user fixes a non-literal
+// binder, the next publish carries an empty diagnostic set so the old
+// hint disappears.
+//
+// The diagnostic targets main.go's URI directly. gastro's gopls
+// instance runs against the shadow workspace (not the user's main.go),
+// so this doesn't collide with gopls's own diagnostics for the file —
+// editors that run a separate gopls for .go files keep showing those
+// alongside ours.
+func (s *server) publishRequestFuncDiagnostics(projectRoot string) {
+	entry := s.requestFuncs.Lookup(projectRoot)
+	modTime := s.requestFuncs.modTimeFor(projectRoot)
+	if !s.requestFuncs.shouldPublish(projectRoot, modTime) {
+		return
+	}
+	mainPath := filepath.Join(projectRoot, "main.go")
+	mainURI := "file://" + mainPath
+
+	diags := make([]map[string]any, 0, len(entry.nonLiteralBinders))
+	for _, site := range entry.nonLiteralBinders {
+		line := site.Line - 1
+		if line < 0 {
+			line = 0
+		}
+		ch := site.Column - 1
+		if ch < 0 {
+			ch = 0
+		}
+		diags = append(diags, map[string]any{
+			"range": map[string]any{
+				"start": map[string]any{"line": line, "character": ch},
+				"end":   map[string]any{"line": line, "character": ch + len("gastro.WithRequestFuncs")},
+			},
+			"severity": diagnosticSeverityInfo,
+			"message": "gastro: binder returns a non-literal template.FuncMap; " +
+				"its helpers will not appear in template completion or hover. " +
+				"Return a literal `template.FuncMap{...}` for full editor support. " +
+				"(Helpers still resolve at runtime.)",
+			"source": "gastro",
+		})
+	}
+
+	notification := &jsonRPCMessage{
+		JSONRPC: "2.0",
+		Method:  "textDocument/publishDiagnostics",
+	}
+	params := map[string]any{
+		"uri":         mainURI,
+		"diagnostics": diags,
+	}
+	notification.Params, _ = json.Marshal(params)
+	s.writeToClient(notification)
+	s.requestFuncs.markPublished(projectRoot, modTime)
 }
 
 // findDelimiterLine returns the 0-indexed line number of the first --- delimiter
