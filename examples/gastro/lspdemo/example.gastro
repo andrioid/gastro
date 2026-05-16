@@ -5,7 +5,7 @@ type Props struct {
 
 p := gastro.Props()
 Name := p.Name
-Greeting := "Hi, " + p.NAme
+Greeting := "Hi, " + p.Name
 ---
 <section>
 	<h1>{{ .Greeting }}</h1>
