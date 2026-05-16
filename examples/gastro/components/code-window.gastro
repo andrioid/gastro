@@ -1,0 +1,17 @@
+---
+type Props struct {
+    Title string
+}
+
+p := gastro.Props()
+Title := p.Title
+---
+<div class="code-window">
+    <div class="code-window-bar">
+        <span class="code-window-dot code-window-dot-red"></span>
+        <span class="code-window-dot code-window-dot-yellow"></span>
+        <span class="code-window-dot code-window-dot-green"></span>
+        <span class="code-window-title">{{ .Title }}</span>
+    </div>
+    <div class="code-window-body">{{ .Children }}</div>
+</div>

@@ -320,7 +320,12 @@
   /* Hero code window <pre> overrides. The IntroHero markdown is now
      rendered through chroma (via the gastro lexer), so its <pre> carries
      `class="chroma"`. Selecting under .hero-code-window keeps the rules
-     local without leaking into the docs prose styles. */
+     local without leaking into the docs prose styles.
+
+     Note: deprecated in favor of .code-window* (below). The hero is
+     migrated in this commit; the lspdemo renderer still emits its own
+     .lsp-panel* chrome and is migrated in the follow-up commit, after
+     which both .hero-code-window and .lsp-panel* are removed. */
   .hero-code-window pre {
     margin: 0;
     padding: 1.25rem;
@@ -328,6 +333,54 @@
     background: var(--color-code-bg);
   }
   .hero-code-window pre code {
+    font-size: 0.84rem;
+    line-height: 1.65;
+  }
+
+  /* Code window framing. Shared by the hero (via the CodeWindow
+     component, wrapping markdown-rendered .gastro snippets) and — in
+     the follow-up commit — by the live-LSP demo renderer. macOS-style
+     traffic-light bar + filename, dark code background, soft drop
+     shadow. The body's `position: relative` is the positioning parent
+     for the lspdemo squiggle overlays. */
+  .code-window {
+    background: var(--color-code-bg);
+    color: var(--color-code-text);
+    border-radius: var(--radius-lg, 0.5rem);
+    overflow: hidden;
+    box-shadow: 0 20px 40px -12px rgba(44, 36, 24, 0.45),
+                0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+  .code-window-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1rem;
+    background: rgba(0, 0, 0, 0.25);
+  }
+  .code-window-dot { width: 0.625rem; height: 0.625rem; border-radius: 9999px; }
+  .code-window-dot-red    { background: #e85c4a; }
+  .code-window-dot-yellow { background: #e8a73e; }
+  .code-window-dot-green  { background: #5eb86c; }
+  .code-window-title {
+    margin-left: 0.5rem;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.78rem;
+    color: var(--color-text-subtle);
+  }
+  .code-window-body {
+    position: relative;
+    padding: 1.25rem;
+    overflow-x: auto;
+  }
+  /* Embedded <pre> inside the window body. Covers both the hero's
+     markdown-rendered chroma block and — in the follow-up commit —
+     the lspdemo renderer's <pre class="lsp-code chroma">. The body's
+     own padding handles the inset; the <pre> is just the glyph grid. */
+  .code-window-body pre {
+    margin: 0;
+    padding: 0;
+    background: transparent;
     font-size: 0.84rem;
     line-height: 1.65;
   }

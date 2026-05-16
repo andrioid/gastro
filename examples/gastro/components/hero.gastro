@@ -1,5 +1,9 @@
 ---
-import "html/template"
+import (
+	"html/template"
+
+	CodeWindow "components/code-window.gastro"
+)
 
 type Props struct {
 	IntroHero template.HTML
@@ -21,16 +25,9 @@ IntroHero := p.IntroHero
 			</div>
 		</div>
 		<div class="min-w-0 max-lg:max-w-[520px] animate-[fade-up_0.5s_ease-out_0.15s_both]" aria-hidden="true">
-			<div class="hero-code-window bg-code-bg rounded-lg overflow-hidden text-accent-light shadow-code-window">
-				<div class="flex items-center px-4 py-[0.7rem] bg-black/25 gap-2">
-					<span class="w-2.5 h-2.5 rounded-full bg-[#e85c4a]"></span>
-					<span class="w-2.5 h-2.5 rounded-full bg-[#e8a73e]"></span>
-					<span class="w-2.5 h-2.5 rounded-full bg-[#5eb86c]"></span>
-					<span class="ml-2 text-[0.78rem] text-text-subtle font-mono">components/greeting.gastro</span>
-				</div>
+			{{ wrap CodeWindow (dict "Title" "components/greeting.gastro") }}
 				{{ .IntroHero }}
-
-			</div>
+			{{ end }}
 		</div>
 	</section>
 </div>
