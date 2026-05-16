@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.3.3](https://github.com/andrioid/gastro/compare/v0.3.2...v0.3.3) (2026-05-16)
+
+
+### Features
+
+* **chromalexer:** restore gastro chroma lexer as separate sub-module ([ed71ba1](https://github.com/andrioid/gastro/commit/ed71ba1b7883bb89aef4336598de386f5f88d593))
+* **examples/gastro:** add lspclient + embedded demo (Steps 1+2) ([fef0eeb](https://github.com/andrioid/gastro/commit/fef0eeba0fc6fb08f654cb1bd424a06c02c160ab))
+* **examples/gastro:** extract &lt;CodeWindow&gt; component, hero adopts it ([5ca384c](https://github.com/andrioid/gastro/commit/5ca384c24e6b337aea5b17772b9d997cc06eeee6))
+* **examples/gastro:** live LSP demo replaces hero code window, drop standalone section ([ab3a166](https://github.com/andrioid/gastro/commit/ab3a16694de684d9b599989f68c2803f2c7b906f))
+* **examples/gastro:** live-LSP homepage demo (Steps 3-7) ([53f5020](https://github.com/andrioid/gastro/commit/53f5020433c4164ab6f57c9d71d56a1b49f7affe))
+
+
+### Bug Fixes
+
+* **examples/gastro/lspdemo:** align squiggle to glyphs; fall back to diagnostic on empty hover ([6c45744](https://github.com/andrioid/gastro/commit/6c4574459e31e48c8de0d23f91ee1f5179c49fb1))
+* **examples/gastro/lspdemo:** security audit fixes ([001288a](https://github.com/andrioid/gastro/commit/001288addc76796b3eadef322e059af43372fc83))
+* **examples/gastro:** restore minified styles.css to match generator output ([b1c3085](https://github.com/andrioid/gastro/commit/b1c308543321c33f2b3251a65ffadb67b5032f23))
+* **examples/gastro:** stack hero at md, push 2-col to lg ([fd135e9](https://github.com/andrioid/gastro/commit/fd135e9d4d9692b409e859ebde728f3206d96f5b))
+* **examples/gastro:** trim live-LSP runtime image from 662MB to 414MB ([f5b9bd8](https://github.com/andrioid/gastro/commit/f5b9bd89a953a238336ed64e2a512ff7de6d5ad7))
+* **lsp/server:** canonicalise URIs at handler boundary ([f0f28a3](https://github.com/andrioid/gastro/commit/f0f28a3d10aa742057adabb97f0f31df911dffc5))
+
+
+### Refactoring
+
+* **examples/gastro/lspdemo:** render the entire file in a single window ([4c90c77](https://github.com/andrioid/gastro/commit/4c90c7755ae56219e78836695aa8e6e0dcccaead))
+* **examples/gastro/lspdemo:** use shared CodeWindow component, drop dead chrome CSS ([a525352](https://github.com/andrioid/gastro/commit/a525352a26f4593dde5fbb692539b642b7ded42d))
+* **examples/gastro:** drop macOS symlink workarounds, canonicalise in lspclient ([2559add](https://github.com/andrioid/gastro/commit/2559addaad625bab26683e2adf641eaafaf0f709))
+* **examples/gastro:** inline CodeWindow chrome with Tailwind utilities ([98ad84d](https://github.com/andrioid/gastro/commit/98ad84d4a69434a39078e084d8f401eb0f52b7f4))
+* **examples/gastro:** replace Prism with chroma for Quick Start bash blocks ([93fc65a](https://github.com/andrioid/gastro/commit/93fc65a75633b65acf0d69515f955b0b326ebd23))
+
 ## [0.3.2](https://github.com/andrioid/gastro/compare/v0.3.1...v0.3.2) (2026-05-14)
 
 
