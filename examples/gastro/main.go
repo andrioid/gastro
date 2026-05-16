@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	gastro "gastro-website/.gastro"
 	"gastro-website/lspdemo"
+
+	"github.com/google/shlex"
 )
 
 func main() {
@@ -89,7 +90,20 @@ func resolveBootOptions() lspdemo.BootOptions {
 
 	cmd := []string{"gastro", "lsp"}
 	if raw := os.Getenv("GASTRO_LSP_CMD"); raw != "" {
-		cmd = strings.Fields(raw)
+		// Use shlex (not strings.Fields) so operators can use
+		// quoting for paths with spaces, e.g.
+		//   GASTRO_LSP_CMD='"/opt/my tools/gastro" lsp'
+		// strings.Fields would silently mangle that into four
+		// args, then exec.Command would fail with a confusing
+		// "file not found" pointing at the first token.
+		parsed, err := shlex.Split(raw)
+		if err != nil {
+			log.Fatalf("GASTRO_LSP_CMD: invalid shell syntax: %v", err)
+		}
+		if len(parsed) == 0 {
+			log.Fatalf("GASTRO_LSP_CMD: parsed to empty command")
+		}
+		cmd = parsed
 	} else if _, err := os.Stat("go.mod"); err == nil && source != "" {
 		// Dev fallback: no installed `gastro` binary, run from
 		// source. `go run` adds ~500ms of warm-up per invocation

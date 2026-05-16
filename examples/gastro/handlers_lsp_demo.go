@@ -26,12 +26,27 @@ import (
 // patches #lsp-tooltip. An empty patch hides the tooltip (the CSS
 // uses the absence of a child element as the "hidden" signal),
 // which matches the mouseleave behaviour client-side.
+// maxHoverPosition caps the line/column query parameters to a sane
+// upper bound. The embedded demo file is ~12 lines long; anything
+// beyond a few thousand is a probe or a bug. Capping cheaply means
+// the hover cache (in lspdemo.Demo) can't be poisoned with arbitrary
+// (line, char) pairs by a remote attacker spinning through the
+// int32 space.
+const maxHoverPosition = 10_000
+
+// maxHoverMarkdownBytes bounds the markdown body fed to goldmark.
+// gopls normally returns <2 KB; anything larger is almost certainly
+// a doc dump from a transitive dep and not worth shipping over SSE.
+const maxHoverMarkdownBytes = 64 * 1024
+
 func newLSPDemoHoverHandler(demo *lspdemo.Demo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		line, err1 := strconv.Atoi(r.URL.Query().Get("l"))
 		col, err2 := strconv.Atoi(r.URL.Query().Get("c"))
-		if err1 != nil || err2 != nil || line < 0 || col < 0 {
-			http.Error(w, "l and c must be non-negative integers", http.StatusBadRequest)
+		if err1 != nil || err2 != nil ||
+			line < 0 || col < 0 ||
+			line > maxHoverPosition || col > maxHoverPosition {
+			http.Error(w, "l and c must be integers in [0, 10000]", http.StatusBadRequest)
 			return
 		}
 
@@ -48,6 +63,14 @@ func newLSPDemoHoverHandler(demo *lspdemo.Demo) http.HandlerFunc {
 			// contents, so this clears whatever was last shown.
 			sse.PatchElements(emptyTooltip())
 			return
+		}
+
+		// Defensive cap: a pathologically large hover body would
+		// still be safely escaped by goldmark, but capping here
+		// avoids spending CPU on a megabyte of doc text and keeps
+		// the SSE frame small.
+		if len(markdown) > maxHoverMarkdownBytes {
+			markdown = markdown[:maxHoverMarkdownBytes] + "\n\n... (truncated)"
 		}
 
 		rendered, mdErr := md.Render(markdown)

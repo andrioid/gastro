@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,14 +69,34 @@ func fallbackDemo() *Demo {
 // but Hover() returns "" and the spans' tooltips will be empty. This
 // is the fail-soft path called out in the plan.
 type Demo struct {
-	client   *lspclient.Client // nil if degraded
-	uri      string            // file:// URI for the demo file
-	renderer *Renderer
-	degraded bool
+	// client is loaded on every Hover and swapped to nil by Close.
+	// It's atomic because public-internet HTTP goroutines call Hover
+	// while a shutdown goroutine may call Close concurrently — a
+	// plain pointer would race under -race and risk an NPE between
+	// the nil-check and the deref.
+	client         atomic.Pointer[lspclient.Client]
+	uri            string // file:// URI for the demo file
+	projectDir     string // temp project root, removed on Close
+	renderer       *Renderer
+	degraded       bool
 	degradedReason string
+
+	// hoverCache memoises HoverOrDiagnostic results keyed by
+	// (line, char). The embedded source is fixed for the lifetime
+	// of the Demo, so the response set is a finite map of identifier
+	// positions (~30 entries for greeting.gastro). This is the rate-
+	// limit story for the public /api/lsp-demo/hover endpoint:
+	// without it, an attacker can spin gopls by spamming requests;
+	// with it, every request after the first for a given position
+	// is a memory hit.
+	hoverCache sync.Map // hoverKey -> string
 
 	mu sync.Mutex // serialises Close
 }
+
+// hoverKey is the cache key for hoverCache. The URI is fixed per
+// Demo so it isn't part of the key.
+type hoverKey struct{ line, char int }
 
 // Render delegates to the snapshotted renderer, returning the entire
 // .gastro file's HTML in a single macOS-style window.
@@ -95,10 +116,11 @@ func (d *Demo) DegradedReason() string { return d.degradedReason }
 // Returns "" if the demo is degraded or the LSP has no hover for
 // that position.
 func (d *Demo) Hover(ctx context.Context, line, char int) (string, error) {
-	if d.degraded || d.client == nil {
+	client := d.client.Load()
+	if d.degraded || client == nil {
 		return "", nil
 	}
-	h, err := d.client.Hover(ctx, d.uri, line, char)
+	h, err := client.Hover(ctx, d.uri, line, char)
 	if err != nil {
 		return "", err
 	}
@@ -119,29 +141,51 @@ func (d *Demo) Hover(ctx context.Context, line, char int) (string, error) {
 // handles plain text the same as markdown (it's all goldmark input),
 // so the handler doesn't need to switch on which path produced the
 // string.
+//
+// Results are memoised in d.hoverCache keyed by (line, char). The
+// embedded source is fixed for the Demo's lifetime so caching is
+// safe and bounds the per-request gopls work to one roundtrip per
+// distinct position. Errors are NOT cached so a transient LSP
+// failure (timeout, gopls restart) can be retried on the next
+// request.
 func (d *Demo) HoverOrDiagnostic(ctx context.Context, line, char int) (string, error) {
+	key := hoverKey{line: line, char: char}
+	if v, ok := d.hoverCache.Load(key); ok {
+		return v.(string), nil
+	}
 	hover, err := d.Hover(ctx, line, char)
 	if err != nil {
 		return "", err
 	}
-	if hover != "" {
-		return hover, nil
+	result := hover
+	if result == "" {
+		if msg := d.renderer.diagnosticAt(line, char); msg != "" {
+			result = msg
+		}
 	}
-	if msg := d.renderer.diagnosticAt(line, char); msg != "" {
-		return msg, nil
-	}
-	return "", nil
+	d.hoverCache.Store(key, result)
+	return result, nil
 }
 
-// Close shuts the LSP subprocess down. Idempotent.
+// Close shuts the LSP subprocess down and removes the temp project
+// directory. Idempotent.
 func (d *Demo) Close() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.client == nil {
+
+	// Clean up the temp project even on a degraded Demo (where
+	// projectDir was created but the LSP never came up). Doing this
+	// before swapping the client means we still RemoveAll on
+	// double-close (no-op the second time).
+	if d.projectDir != "" {
+		_ = os.RemoveAll(d.projectDir)
+		d.projectDir = ""
+	}
+
+	c := d.client.Swap(nil)
+	if c == nil {
 		return nil
 	}
-	c := d.client
-	d.client = nil
 	return c.Close()
 }
 
@@ -221,19 +265,40 @@ func Boot(ctx context.Context, opts BootOptions) (*Demo, error) {
 	// canonicalises URIs at every handler boundary, so /var vs
 	// /private/var (and other symlinked-path variations) round-trip
 	// correctly. See canonicalizeURI in internal/lsp/server/util.go.
+	// Reject obviously-bogus GastroSourceRoot values before we splice
+	// them into the temp go.mod. A path containing newlines or quotes
+	// would let an operator (or a misconfigured Dockerfile) inject
+	// arbitrary go.mod directives that gopls would then honour. This
+	// is a misconfiguration check, not an attack mitigation — the
+	// env var is operator-controlled — but it's free defence in depth.
+	if err := validateGastroRoot(opts.GastroSourceRoot); err != nil {
+		degrade(demo, logf, "GastroSourceRoot: %v", err)
+		return demo, nil
+	}
+
 	projectDir, err := os.MkdirTemp("", "gastro-lspdemo-")
 	if err != nil {
 		degrade(demo, logf, "MkdirTemp failed: %v", err)
 		return demo, nil
 	}
+	// Tighten perms: MkdirTemp creates 0o700 already, but we re-chmod
+	// for clarity and so a future change to the helper can't loosen
+	// it silently. The temp project is a single-process artefact;
+	// nothing else needs to read it.
+	_ = os.Chmod(projectDir, 0o700)
+	demo.projectDir = projectDir
 
 	if err := writeTempProject(projectDir, opts.GastroSourceRoot); err != nil {
 		degrade(demo, logf, "writeTempProject: %v", err)
+		_ = os.RemoveAll(projectDir)
+		demo.projectDir = ""
 		return demo, nil
 	}
 	demoPath := filepath.Join(projectDir, "components", Filename)
-	if err := os.WriteFile(demoPath, []byte(source), 0o644); err != nil {
+	if err := os.WriteFile(demoPath, []byte(source), 0o600); err != nil {
 		degrade(demo, logf, "writing demo file: %v", err)
+		_ = os.RemoveAll(projectDir)
+		demo.projectDir = ""
 		return demo, nil
 	}
 
@@ -248,6 +313,8 @@ func Boot(ctx context.Context, opts BootOptions) (*Demo, error) {
 	client, err := lspclient.Start(bootCtx, cmd, "file://"+projectDir)
 	if err != nil {
 		degrade(demo, logf, "starting LSP: %v", err)
+		_ = os.RemoveAll(projectDir)
+		demo.projectDir = ""
 		return demo, nil
 	}
 
@@ -255,6 +322,8 @@ func Boot(ctx context.Context, opts BootOptions) (*Demo, error) {
 	if err := client.OpenFile(uri, "gastro", source); err != nil {
 		_ = client.Close()
 		degrade(demo, logf, "OpenFile: %v", err)
+		_ = os.RemoveAll(projectDir)
+		demo.projectDir = ""
 		return demo, nil
 	}
 
@@ -268,6 +337,8 @@ func Boot(ctx context.Context, opts BootOptions) (*Demo, error) {
 	if _, err := client.WaitForDiagnostics(bootCtx, uri); err != nil {
 		_ = client.Close()
 		degrade(demo, logf, "WaitForDiagnostics: %v", err)
+		_ = os.RemoveAll(projectDir)
+		demo.projectDir = ""
 		return demo, nil
 	}
 	settleDeadline := time.Now().Add(2 * time.Second)
@@ -277,6 +348,8 @@ func Boot(ctx context.Context, opts BootOptions) (*Demo, error) {
 		case <-bootCtx.Done():
 			_ = client.Close()
 			degrade(demo, logf, "boot context cancelled during settle: %v", bootCtx.Err())
+			_ = os.RemoveAll(projectDir)
+			demo.projectDir = ""
 			return demo, nil
 		case <-time.After(150 * time.Millisecond):
 		}
@@ -291,13 +364,32 @@ func Boot(ctx context.Context, opts BootOptions) (*Demo, error) {
 	if err != nil {
 		_ = client.Close()
 		degrade(demo, logf, "rendering with diagnostics: %v", err)
+		_ = os.RemoveAll(projectDir)
+		demo.projectDir = ""
 		return demo, nil
 	}
 	demo.renderer = rendered
-	demo.client = client
+	demo.client.Store(client)
 	demo.uri = uri
 	logf("lspdemo: ready (project=%s, %d diagnostic(s))", projectDir, len(diags))
 	return demo, nil
+}
+
+// validateGastroRoot rejects values that would corrupt the temp
+// go.mod when interpolated into a `replace` directive. We require
+// an absolute, clean path with no characters that could break out
+// of the directive (newline, carriage return, quote).
+func validateGastroRoot(root string) error {
+	if root == "" {
+		return errors.New("empty")
+	}
+	if !filepath.IsAbs(root) {
+		return fmt.Errorf("must be absolute, got %q", root)
+	}
+	if strings.ContainsAny(root, "\n\r\"") {
+		return fmt.Errorf("contains forbidden characters: %q", root)
+	}
+	return nil
 }
 
 // degrade marks the demo as fallback-only and logs the reason. The
