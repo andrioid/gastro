@@ -305,8 +305,7 @@
     overflow: hidden;
     border: 1px solid rgba(42, 37, 32, 0.08);
   }
-  .code-block pre,
-  .code-block pre[class*="language-"] {
+  .code-block pre {
     margin: 0;
     padding: 1.2rem;
     overflow-x: auto;
@@ -317,15 +316,12 @@
     line-height: 1.65;
     color: var(--color-code-text);
   }
-  .code-block code[class*="language-"] {
-    background: transparent;
-  }
 
-  /* Hero code window <pre> overrides — the IntroHero markdown render
-     injects PrismJS-classed elements we don't control. Selecting them
-     under .hero-code-window keeps the rules local. */
-  .hero-code-window pre,
-  .hero-code-window pre[class*="language-"] {
+  /* Hero code window <pre> overrides. The IntroHero markdown is now
+     rendered through chroma (via the gastro lexer), so its <pre> carries
+     `class="chroma"`. Selecting under .hero-code-window keeps the rules
+     local without leaking into the docs prose styles. */
+  .hero-code-window pre {
     margin: 0;
     padding: 1.25rem;
     overflow-x: auto;
@@ -334,9 +330,6 @@
   .hero-code-window pre code {
     font-size: 0.84rem;
     line-height: 1.65;
-  }
-  .hero-code-window code[class*="language-"] {
-    background: transparent;
   }
 
   /* Guestbook alerts -------------------------------------------------

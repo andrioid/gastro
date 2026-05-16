@@ -14,6 +14,14 @@ var IntroHero = md.MustRender(IntroHeroRaw)
 var IntroComponentRaw string
 var IntroComponent = md.MustRender(IntroComponentRaw)
 
+//gastro:embed intro-develop.md
+var IntroDevelopRaw string
+var IntroDevelop = md.MustRender(IntroDevelopRaw)
+
+//gastro:embed intro-deploy.md
+var IntroDeployRaw string
+var IntroDeploy = md.MustRender(IntroDeployRaw)
+
 Title := "Home"
 
 // Pull the currently-registered live-LSP demo. main.go calls
@@ -112,24 +120,13 @@ LSPDemoBody := LSPDemo.Body()
 					<div class="bg-bg border border-border rounded-lg p-6">
 						<h3 class="font-mono text-[0.78rem] font-medium text-accent tracking-[0.02em] mb-4">Develop</h3>
 						<div class="code-block">
-							<pre><code class="language-bash"># Start the dev server
-gastro dev
-
-# Watches for changes, rebuilds,
-# and restarts automatically.
-# Template changes are hot-reloaded.
-                        </code></pre>
+							{{ .IntroDevelop }}
 						</div>
 					</div>
 					<div class="bg-bg border border-border rounded-lg p-6">
 						<h3 class="font-mono text-[0.78rem] font-medium text-accent tracking-[0.02em] mb-4">Deploy</h3>
 						<div class="code-block">
-							<pre><code class="language-bash"># Build a single binary
-gastro build
-
-# Templates and static assets are
-# embedded. Ship one file anywhere.
-./app</code></pre>
+							{{ .IntroDeploy }}
 						</div>
 					</div>
 				</div>
