@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -290,29 +289,44 @@ func degrade(d *Demo, logf func(string, ...any), format string, args ...any) {
 	logf("lspdemo: degraded \u2014 "+format, args...)
 }
 
-// writeTempProject sets up go.mod (and go.sum if present) for a temp
-// project rooted at dir, with `replace github.com/andrioid/gastro =>
-// <gastroRoot>` so the shadow generator can resolve gastro types.
+// writeTempProject sets up a minimal go.mod for the temp project so
+// gopls can resolve the embedded demo file's only non-stdlib import
+// (github.com/andrioid/gastro, used by `gastro.Props()` in the
+// shadow generator's rewrite).
 //
-// We copy the gastro example's go.mod (it already declares the
-// dependency at the right version) and rewrite its relative `=> ../..`
-// directive to an absolute path. If we ever drift from the example's
-// dep set, the shadow may stop type-checking with a "module not in
-// dependency requirements" error; sync this with the example's
-// go.mod when that happens.
+// We deliberately do NOT copy the example's go.mod. The example
+// pulls in chroma + goldmark + their transitive deps to render its
+// pages — the demo file imports none of that. Bundling all those
+// deps' module sources into the production image costs ~150MB for
+// no analysis benefit. Keeping the temp project's go.mod minimal
+// means the runtime module cache only needs what gastro itself
+// transitively requires (gastro.go.mod → github.com/google/shlex,
+// a few hundred KB).
+//
+// We DO copy the example's go.sum verbatim. A minimal go.mod with
+// no go.sum makes `go run` (dev mode) reject the build with
+// "missing go.sum entry" — having extra hashes for unused modules
+// is harmless, but missing hashes for required ones is fatal. The
+// example's go.sum is a comfortable superset.
+//
+// The replace directive resolves the gastro module to gastroRoot on
+// disk. gastroRoot's own go.mod is used by gopls to walk gastro's
+// own dependency graph from there.
 func writeTempProject(dir, gastroRoot string) error {
-	exampleGoMod := filepath.Join(gastroRoot, "examples", "gastro", "go.mod")
-	src, err := os.ReadFile(exampleGoMod)
-	if err != nil {
-		return fmt.Errorf("reading %s: %w", exampleGoMod, err)
-	}
-	patched := strings.Replace(string(src), "=> ../..", "=> "+gastroRoot, 1)
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(patched), 0o644); err != nil {
+	goMod := "module gastro-lspdemo\n\n" +
+		"go 1.26.1\n\n" +
+		"require github.com/andrioid/gastro v0.0.0\n\n" +
+		"replace github.com/andrioid/gastro => " + gastroRoot + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {
 		return err
 	}
 
-	// go.sum is optional but lets gopls skip a `go mod download` on
-	// first analysis. Best-effort copy.
+	// Best-effort: copy the example's go.sum so `go run` doesn't bail
+	// on missing hashes for shlex (the one transitive dep). If the
+	// example's go.sum isn't where we expect (e.g. an unusual
+	// GASTRO_SOURCE_ROOT layout), continue without it — gopls will
+	// still work for hover/diagnostics, only `go run`-based dev
+	// fallback will complain.
 	if sum, err := os.ReadFile(filepath.Join(gastroRoot, "examples", "gastro", "go.sum")); err == nil {
 		_ = os.WriteFile(filepath.Join(dir, "go.sum"), sum, 0o644)
 	}
