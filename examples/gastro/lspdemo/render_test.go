@@ -33,7 +33,7 @@ func TestRenderer_FileContainsExpectedIdents(t *testing.T) {
 	}
 
 	// Frontmatter Name-tokens become hoverable spans.
-	for _, want := range []string{">Props<", ">Greeting<", ">gastro<", ">NAme<"} {
+	for _, want := range []string{">Props<", ">Greeting<", ">gastro<", ">Name<"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing token %q in span output", want)
 		}

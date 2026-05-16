@@ -34,13 +34,34 @@ func (s *safeBuf) String() string {
 	return s.buf.String()
 }
 
+// typoSource is a deliberately-broken .gastro source used by
+// TestSmoke to exercise the diagnostic round-trip. It mirrors the
+// shape of lspdemo.Source() but reintroduces a `p.NAme` typo on
+// line 7 (0-indexed) so gopls has something to complain about. We
+// keep this inline rather than reading the demo file so the demo
+// source can stay clean (it's rendered on the public landing page).
+const typoSource = `---
+type Props struct {
+	Name string
+}
+
+p := gastro.Props()
+Name := p.Name
+Greeting := "Hi, " + p.NAme
+---
+<section>
+	<h1>{{ .Greeting }}</h1>
+	<p>Hello {{ .Name }}, nice to see you.</p>
+</section>
+`
+
 // TestSmoke spins up a real `gastro lsp` subprocess against a temp
-// project that contains the embedded demo .gastro file, then exercises
-// the three things main.go will rely on at app boot:
+// project that contains a typo'd .gastro file, then exercises the
+// three things main.go will rely on at app boot:
 //
 //  1. Start performs the initialize/initialized handshake.
 //  2. OpenFile + WaitForDiagnostics surfaces gopls's complaint about
-//     the deliberate `p.NAme` typo in the demo file.
+//     the deliberate `p.NAme` typo (see typoSource above).
 //  3. Hover at a known identifier returns non-empty markdown.
 //
 // The test is intentionally one big round-trip rather than three
@@ -93,7 +114,7 @@ func TestSmoke(t *testing.T) {
 		t.Fatal(err)
 	}
 	demoPath := filepath.Join(componentsDir, lspdemo.Filename)
-	if err := os.WriteFile(demoPath, []byte(lspdemo.Source()), 0o644); err != nil {
+	if err := os.WriteFile(demoPath, []byte(typoSource), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -133,7 +154,7 @@ func TestSmoke(t *testing.T) {
 		}
 	})
 
-	if err := client.OpenFile(uri, "gastro", lspdemo.Source()); err != nil {
+	if err := client.OpenFile(uri, "gastro", typoSource); err != nil {
 		t.Fatalf("OpenFile: %v", err)
 	}
 
@@ -167,8 +188,8 @@ func TestSmoke(t *testing.T) {
 		t.Fatalf("expected a diagnostic mentioning NAme, got %d diagnostics: %+v", len(diags), diags)
 	}
 
-	// Hover on the `Greeting` identifier in the frontmatter. In the
-	// embedded source, line 7 (0-indexed) is:
+	// Hover on the `Greeting` identifier in the frontmatter. In
+	// typoSource, line 7 (0-indexed) is:
 	//   Greeting := "Hi, " + p.NAme
 	// Column 0 is 'G'. Hovering at character 0 lands on the variable
 	// declaration.
