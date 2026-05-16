@@ -41,6 +41,19 @@ for mod_file in "${modules[@]}"; do
   rel="${dir#"${ROOT}/"}"
   echo
   echo "=== ${rel} ==="
+  # Sub-modules that embed gastro (every examples/* app) need their
+  # .gastro/ package tree generated before `go test` can compile them.
+  # .gastro/ is gitignored, so on a fresh checkout (CI, or local after
+  # `mise run clean`) the import `<module>/.gastro` doesn't resolve and
+  # tests fail at setup. Detect the gastro tool directive in go.mod and
+  # run codegen first. pkg/chromalexer/gastro has no such directive and
+  # is skipped naturally.
+  if grep -q '^tool github.com/andrioid/gastro/cmd/gastro' "$mod_file"; then
+    if ! (cd "$dir" && go tool gastro generate); then
+      failed+=("$rel")
+      continue
+    fi
+  fi
   if ! (cd "$dir" && go test -race -count=1 -timeout 120s ./... "$@"); then
     failed+=("$rel")
   fi
