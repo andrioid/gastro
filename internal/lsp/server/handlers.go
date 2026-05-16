@@ -27,13 +27,19 @@ func (s *server) handleInitialize(msg *jsonRPCMessage) *jsonRPCMessage {
 
 	s.snippetSupport = params.Capabilities.TextDocument.Completion.CompletionItem.SnippetSupport
 
-	// Determine project root
+	// Determine project root. We canonicalise via EvalSymlinks so the
+	// projectDir agrees with whatever findProjectRoot computes per-URI
+	// (it canonicalises too) — see canonicalizeURI for the full
+	// rationale on why this matters on macOS.
 	s.projectDir = uriToPath(params.RootURI)
 	if s.projectDir == "" {
 		s.projectDir = params.RootPath
 	}
 	if s.projectDir == "" {
 		s.projectDir, _ = os.Getwd()
+	}
+	if resolved, err := filepath.EvalSymlinks(s.projectDir); err == nil {
+		s.projectDir = resolved
 	}
 	log.Printf("project dir (fallback root): %s", s.projectDir)
 
@@ -97,7 +103,7 @@ func (s *server) handleDidOpen(msg *jsonRPCMessage) {
 	var params didOpenParams
 	json.Unmarshal(msg.Params, &params)
 
-	uri := params.TextDocument.URI
+	uri := canonicalizeURI(params.TextDocument.URI)
 
 	s.dataMu.Lock()
 	s.documents[uri] = params.TextDocument.Text
@@ -138,7 +144,7 @@ func (s *server) handleDidChange(msg *jsonRPCMessage) {
 	json.Unmarshal(msg.Params, &params)
 
 	if len(params.ContentChanges) > 0 {
-		uri := params.TextDocument.URI
+		uri := canonicalizeURI(params.TextDocument.URI)
 		content := params.ContentChanges[0].Text
 
 		s.dataMu.Lock()
@@ -177,7 +183,7 @@ type didCloseParams struct {
 func (s *server) handleDidClose(msg *jsonRPCMessage) {
 	var params didCloseParams
 	json.Unmarshal(msg.Params, &params)
-	uri := params.TextDocument.URI
+	uri := canonicalizeURI(params.TextDocument.URI)
 
 	s.dataMu.Lock()
 	delete(s.documents, uri)

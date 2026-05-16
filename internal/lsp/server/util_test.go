@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -266,4 +267,159 @@ func TestFindProjectRoot_SymlinkResolution(t *testing.T) {
 	if !pathEqual(got, want) {
 		t.Errorf("got %q, want %q (symlink should resolve to real file's project)", got, want)
 	}
+}
+
+// TestCanonicalizeURI_ResolvesSymlinkedDirectory is the regression test
+// for the macOS /var ↔ /private/var bug described on canonicalizeURI.
+// We simulate it via an explicit symlink so the test runs the same way
+// on every OS. Before the fix, a URI under linkDir/... and findProjectRoot's
+// resolved path under realDir/... would disagree and findGastroURIForVirtualURI
+// would silently fail every shadow↔source mapping.
+func TestCanonicalizeURI_ResolvesSymlinkedDirectory(t *testing.T) {
+	// t.TempDir() itself returns symlinked paths on macOS (/var →
+	// /private/var), so resolve it up-front to get the fully canonical
+	// real directory. Without this the "want" expectation below would
+	// still contain unresolved /var components, even though the symlink
+	// we explicitly created points correctly.
+	realDirRaw := t.TempDir()
+	realDir, err := filepath.EvalSymlinks(realDirRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	realFile := touch(t, realDir, "pages/index.gastro")
+
+	linkParentRaw := t.TempDir()
+	linkParent, err := filepath.EvalSymlinks(linkParentRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(linkParent, "projlink")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	linkedFile := filepath.Join(linkDir, "pages", "index.gastro")
+
+	// Sanity check the symlink actually points where we think.
+	if _, err := os.Stat(linkedFile); err != nil {
+		t.Fatalf("symlinked file not reachable: %v", err)
+	}
+
+	linkURI := "file://" + linkedFile
+	got := canonicalizeURI(linkURI)
+	want := "file://" + realFile
+	if got != want {
+		t.Errorf("canonicalizeURI(%q):\n  got  %q\n  want %q", linkURI, got, want)
+	}
+}
+
+// TestCanonicalizeURI_PreservesAlreadyCanonical: when the path has no
+// symlinks to resolve, the input URI is returned verbatim (no allocation
+// for re-prefixing "file://").
+func TestCanonicalizeURI_PreservesAlreadyCanonical(t *testing.T) {
+	root := t.TempDir()
+	// t.TempDir() returns symlinked /var/folders/... on macOS; resolve
+	// up-front so the test exercises the no-op branch on every OS.
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := touch(t, resolved, "pages/index.gastro")
+
+	uri := "file://" + file
+	got := canonicalizeURI(uri)
+	if got != uri {
+		t.Errorf("canonicalizeURI should be a no-op for already-canonical URI:\n  got  %q\n  want %q", got, uri)
+	}
+}
+
+// TestCanonicalizeURI_PreservesNonexistentPath: documents that exist
+// only as didOpen text payloads (unsaved buffers, the test pattern in
+// cmd/gastro/lsp_integration_test.go) have no on-disk file to
+// EvalSymlinks. canonicalizeURI must pass those through unchanged so
+// the existing tests — which never write the .gastro file to disk —
+// keep matching s.documents keys against handler params.
+func TestCanonicalizeURI_PreservesNonexistentPath(t *testing.T) {
+	root := t.TempDir()
+	nonexistent := filepath.Join(root, "never-written.gastro")
+	uri := "file://" + nonexistent
+
+	got := canonicalizeURI(uri)
+	if got != uri {
+		t.Errorf("canonicalizeURI should pass nonexistent paths through:\n  got  %q\n  want %q", got, uri)
+	}
+}
+
+// TestCanonicalizeURI_EmptyAndMalformed: defensive coverage for the
+// degenerate inputs that show up in handler error paths (e.g. a
+// malformed initialize message with no rootUri).
+func TestCanonicalizeURI_EmptyAndMalformed(t *testing.T) {
+	for _, uri := range []string{"", "not-a-uri", "https://example.com"} {
+		if got := canonicalizeURI(uri); got != uri {
+			t.Errorf("canonicalizeURI(%q) = %q, want %q (no-op fallback)", uri, got, uri)
+		}
+	}
+}
+
+// TestHandleDidOpen_CanonicalizesURIForLookup: the end-to-end fix.
+// Editor opens via a symlinked path; subsequent handlers find the
+// document regardless of which URI form they pass. Before the fix,
+// only the exact URI used in didOpen would match — a later handler
+// querying the canonical form would miss.
+func TestHandleDidOpen_CanonicalizesURIForLookup(t *testing.T) {
+	realDirRaw := t.TempDir()
+	realDir, err := filepath.EvalSymlinks(realDirRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkParentRaw := t.TempDir()
+	linkParent, err := filepath.EvalSymlinks(linkParentRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(linkParent, "projlink")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	goMod(t, realDir, ".")
+	realFile := touch(t, realDir, "pages/index.gastro")
+	linkedFile := filepath.Join(linkDir, "pages", "index.gastro")
+
+	s := newServer("test")
+	s.projectDir = realDir
+
+	// didOpen with the symlinked URI — simulates an editor that
+	// hasn't canonicalised the path.
+	linkedURI := "file://" + linkedFile
+	open := &jsonRPCMessage{Method: "textDocument/didOpen"}
+	open.Params, _ = json.Marshal(map[string]any{
+		"textDocument": map[string]any{
+			"uri":        linkedURI,
+			"languageId": "gastro",
+			"version":    1,
+			"text":       "---\nTitle := \"Hi\"\n---\n<h1>{{ .Title }}</h1>",
+		},
+	})
+	s.handleDidOpen(open)
+
+	// The stored key must be the canonical URI (built from realFile).
+	canonicalURI := "file://" + realFile
+	s.dataMu.RLock()
+	_, hasCanonical := s.documents[canonicalURI]
+	_, hasLinked := s.documents[linkedURI]
+	s.dataMu.RUnlock()
+
+	if !hasCanonical {
+		t.Errorf("expected canonical URI %q in s.documents (keys: %v)", canonicalURI, mapKeys(s.documents))
+	}
+	if hasLinked && linkedURI != canonicalURI {
+		t.Errorf("non-canonical URI %q should NOT be a key when a symlink resolved", linkedURI)
+	}
+}
+
+func mapKeys[K comparable, V any](m map[K]V) []K {
+	out := make([]K, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

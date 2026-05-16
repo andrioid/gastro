@@ -50,6 +50,7 @@ func (s *server) handleCodeAction(msg *jsonRPCMessage) *jsonRPCMessage {
 		// a hard error. Editors recover by retrying on the next edit.
 		return &jsonRPCMessage{JSONRPC: "2.0", ID: msg.ID, Result: []map[string]any{}}
 	}
+	params.TextDocument.URI = canonicalizeURI(params.TextDocument.URI)
 
 	// If the client filtered to a specific Only set, honour it. Our
 	// only category is "quickfix"; if that's not in the filter,

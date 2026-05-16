@@ -19,7 +19,7 @@ func (s *server) handleFormatting(msg *jsonRPCMessage) *jsonRPCMessage {
 	var params formattingParams
 	json.Unmarshal(msg.Params, &params)
 
-	uri := params.TextDocument.URI
+	uri := canonicalizeURI(params.TextDocument.URI)
 
 	s.dataMu.RLock()
 	content, ok := s.documents[uri]

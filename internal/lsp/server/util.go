@@ -25,6 +25,52 @@ func uriToPath(uri string) string {
 	return parsed.Path
 }
 
+// canonicalizeURI returns uri with its path component resolved through
+// filepath.EvalSymlinks. Used at every LSP handler boundary so that all
+// internal state (s.documents keys, downstream s.instances[] lookups via
+// findProjectRoot, etc.) refers to files by a single canonical form.
+//
+// The bug this exists to fix: on macOS, t.TempDir() and many editor
+// configurations produce file URIs under /var/folders/... or /tmp/...,
+// which are symlinks to /private/var/folders/... and /private/tmp/...
+// respectively. findProjectRoot runs EvalSymlinks internally on the file
+// path it receives, so inst.root ends up as the /private/var form. If we
+// then stored the original /var URI in s.documents, every subsequent
+// filepath.Rel(inst.root, uriToPath(documentURI)) call produced a
+// leading-`..` path and the shadow↔source lookup
+// (findGastroURIForVirtualURI) silently returned "". Symptom for the
+// editor: gopls publishes diagnostics for the shadow file, but the
+// gastro LSP can't map them back to the .gastro source, so the editor
+// shows nothing.
+//
+// Falls back to the original URI if EvalSymlinks fails (which happens
+// for documents that exist only as a didOpen text payload with no
+// on-disk counterpart, e.g. unsaved buffers and the existing
+// integration tests in cmd/gastro/lsp_integration_test.go). That
+// fallback is correct: if no symlink can be resolved, the original
+// path IS the canonical path — nothing to normalise against.
+//
+// Round-trip back to the editor: publishMergedDiagnostics and friends
+// already key off the canonical URI we store, so editor-bound
+// notifications use the canonical form. Smart clients (VS Code, Zed,
+// recent Neovim LSP) normalise URIs internally and match diagnostics
+// to their open document regardless of /var vs /private/var. This is
+// the same approach gopls takes; clients in the wild handle it.
+func canonicalizeURI(uri string) string {
+	path := uriToPath(uri)
+	if path == "" {
+		return uri
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return uri
+	}
+	if resolved == path {
+		return uri
+	}
+	return "file://" + resolved
+}
+
 // findDotStart scans backward from the cursor on the current line to find
 // the position of the '.' that starts a variable reference (e.g. in "{{ .T").
 // Returns the character offset of the dot, or -1 if no dot is found.

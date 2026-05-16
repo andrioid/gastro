@@ -16,6 +16,7 @@ import (
 func (s *server) handleDefinition(msg *jsonRPCMessage) *jsonRPCMessage {
 	var params positionParams
 	json.Unmarshal(msg.Params, &params)
+	params.TextDocument.URI = canonicalizeURI(params.TextDocument.URI)
 
 	content, ok := s.documents[params.TextDocument.URI]
 	if !ok {

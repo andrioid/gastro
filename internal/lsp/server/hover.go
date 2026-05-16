@@ -19,6 +19,7 @@ var componentNameRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a-zA-Z0-9
 func (s *server) handleHover(msg *jsonRPCMessage) *jsonRPCMessage {
 	var params positionParams
 	json.Unmarshal(msg.Params, &params)
+	params.TextDocument.URI = canonicalizeURI(params.TextDocument.URI)
 
 	content, ok := s.documents[params.TextDocument.URI]
 	if !ok {
