@@ -6,12 +6,16 @@ type Props struct {
 p := gastro.Props()
 Title := p.Title
 ---
-<div class="code-window">
-    <div class="code-window-bar">
-        <span class="code-window-dot code-window-dot-red"></span>
-        <span class="code-window-dot code-window-dot-yellow"></span>
-        <span class="code-window-dot code-window-dot-green"></span>
-        <span class="code-window-title">{{ .Title }}</span>
+<div class="bg-code-bg text-code-text rounded-lg overflow-hidden shadow-code-window">
+    <div class="flex items-center gap-2 px-4 py-[0.7rem] bg-black/25">
+        <span class="w-2.5 h-2.5 rounded-full bg-[#e85c4a]"></span>
+        <span class="w-2.5 h-2.5 rounded-full bg-[#e8a73e]"></span>
+        <span class="w-2.5 h-2.5 rounded-full bg-[#5eb86c]"></span>
+        <span class="ml-2 font-mono text-[0.78rem] text-text-subtle">{{ .Title }}</span>
     </div>
-    <div class="code-window-body">{{ .Children }}</div>
+    {{- /* `code-window-body` is the squiggle overlay's positioning
+           parent (the only piece of the chrome that needs a class
+           name beyond utilities — pre/pre-code descendant rules in
+           tailwind.css hang off it). */ -}}
+    <div class="code-window-body relative p-5 overflow-x-auto">{{ .Children }}</div>
 </div>

@@ -317,46 +317,17 @@
     color: var(--color-code-text);
   }
 
-  /* Code window framing. Shared by the hero (via the CodeWindow
-     component, wrapping markdown-rendered .gastro snippets) and — in
-     the follow-up commit — by the live-LSP demo renderer. macOS-style
-     traffic-light bar + filename, dark code background, soft drop
-     shadow. The body's `position: relative` is the positioning parent
-     for the lspdemo squiggle overlays. */
-  .code-window {
-    background: var(--color-code-bg);
-    color: var(--color-code-text);
-    border-radius: var(--radius-lg, 0.5rem);
-    overflow: hidden;
-    box-shadow: 0 20px 40px -12px rgba(44, 36, 24, 0.45),
-                0 0 0 1px rgba(255, 255, 255, 0.04);
-  }
-  .code-window-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.7rem 1rem;
-    background: rgba(0, 0, 0, 0.25);
-  }
-  .code-window-dot { width: 0.625rem; height: 0.625rem; border-radius: 9999px; }
-  .code-window-dot-red    { background: #e85c4a; }
-  .code-window-dot-yellow { background: #e8a73e; }
-  .code-window-dot-green  { background: #5eb86c; }
-  .code-window-title {
-    margin-left: 0.5rem;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.78rem;
-    color: var(--color-text-subtle);
-  }
-  .code-window-body {
-    position: relative;
-    padding: 1.25rem;
-    overflow-x: auto;
-  }
-  /* Embedded <pre> inside the window body. Covers both the hero's
-     markdown-rendered chroma block and the lspdemo renderer's
-     <pre class="lsp-code chroma">. The body's own padding handles
-     the inset; the <pre> is just the glyph grid. */
+  /* CodeWindow component (components/code-window.gastro). The window
+     chrome (background, rounded corners, traffic-light bar, title)
+     is built with Tailwind utilities directly in the .gastro template
+     — the only rules that need to live here are the descendant
+     selectors for the embedded <pre> / <code> (children content the
+     parent has no control over).
+
+     `.code-window-body` is the squiggle overlay's positioning parent
+     in the lspdemo. The class name itself is needed as a selector
+     hook; its layout properties (relative, padding, overflow-x) live
+     on the template as utilities. */
   .code-window-body pre {
     margin: 0;
     padding: 0;
@@ -698,6 +669,14 @@
    single class name than as a long utility chain repeated everywhere.
    ------------------------------------------------------------------- */
 @layer utilities {
+  /* CodeWindow soft drop-shadow. Bespoke depth + 1px inset border
+     don't decompose into Tailwind's standard `shadow-*` scale, so
+     this earns its keep as a single utility. */
+  .shadow-code-window {
+    box-shadow: 0 20px 40px -12px rgba(44, 36, 24, 0.45),
+                0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
   /* Accent focus ring used on guestbook inputs. */
   .ring-accent-soft {
     box-shadow: 0 0 0 3px rgba(232, 114, 42, 0.1);
