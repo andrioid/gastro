@@ -1,6 +1,6 @@
 ---
 type Props struct {
-    Title string
+	Title string
 }
 
 p := gastro.Props()
@@ -9,33 +9,34 @@ Title := p.Title
 ---
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Gastro is a file-based component framework for Go. Combine Go frontmatter with html/template markup, compiled to type-safe code with automatic routing.">
-    <title>{{ .Title }} - Gastro</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap">
-    <link rel="stylesheet" href="/static/styles.css">
-    <script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"></script>
-    <script defer src="https://umami.andri.dk/script.js" data-website-id="db15b36b-eea8-4e25-b7f7-318a0c82c31e"></script>
-</head>
-<body>
-    <a href="#main-content" class="skip-link">Skip to content</a>
-    <header class="sticky top-0 z-[100] bg-header-bg">
-        <div class="max-w-site mx-auto px-8 h-14 flex items-center justify-between">
-            <a href="/" class="flex items-center text-header-text" aria-label="Gastro home">
-                <img src="/static/logo.svg" alt="Gastro" height="26" width="120" class="h-[26px]">
-            </a>
-            <nav class="flex items-center gap-7 text-sm font-medium tracking-[0.01em] [&_a]:text-text-subtle [&_a:hover]:text-header-text [&_a]:transition-colors" aria-label="Main">
-                <a href="/docs/getting-started">Docs</a>
-                <a href="https://github.com/andrioid/gastro" target="_blank" rel="noopener">GitHub<span class="sr-only"> (opens in new tab)</span></a>
-            </nav>
-        </div>
-    </header>
-    {{ .Children }}
-    <script>
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<meta name="description" content="Gastro is a file-based component framework for Go. Combine Go frontmatter with html/template markup, compiled to type-safe code with automatic routing.">
+		<title>{{ .Title }} - Gastro</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com">
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+		<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap">
+		<link rel="stylesheet" href="/static/styles.css">
+		<script type="module" src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js"></script>
+		<script defer src="https://umami.andri.dk/script.js" data-website-id="db15b36b-eea8-4e25-b7f7-318a0c82c31e"></script>
+	</head>
+	<body>
+		<a href="#main-content" class="skip-link">Skip to content</a>
+		<header class="sticky top-0 z-[100] bg-header-bg">
+			<div class="max-w-site mx-auto px-8 h-14 flex items-center justify-between">
+				<a href="/" class="gap-2 flex font-display text-xl font-medium items-center text-header-text" aria-label="Gastro home">
+					<img src="/static/logo2.svg" alt="Gastro" class="max-h-8 stroke-white inline">
+					Gastro
+				</a>
+				<nav class="flex items-center gap-7 text-sm font-medium tracking-[0.01em] [&_a]:text-text-subtle [&_a:hover]:text-header-text [&_a]:transition-colors" aria-label="Main">
+					<a href="/docs/getting-started">Docs</a>
+					<a href="https://github.com/andrioid/gastro" target="_blank" rel="noopener">GitHub<span class="sr-only"> (opens in new tab)</span></a>
+				</nav>
+			</div>
+		</header>
+		{{ .Children }}
+		<script>
         // Lazy-load mermaid.js only when the page actually contains a
         // diagram. Pages without ```mermaid blocks pay zero bytes for
         // mermaid (the library is ~600KB gzipped).
@@ -92,11 +93,11 @@ Title := p.Title
                 .catch((err) => console.error('mermaid load failed', err));
         }
     </script>
-    <footer class="border-t border-border bg-surface px-8 py-8 [&_a]:text-text-muted [&_a]:font-medium [&_a:hover]:text-accent">
-        <div class="max-w-site mx-auto text-center">
-            <p class="text-text-muted text-[0.85rem] mb-[0.2rem]">Built with Gastro &mdash; a file-based component framework for Go.</p>
-            <p class="text-text-muted text-[0.85rem] mb-[0.2rem]"><a href="https://github.com/andrioid/gastro">Source on GitHub</a></p>
-        </div>
-    </footer>
-</body>
+		<footer class="border-t border-border bg-surface px-8 py-8 [&_a]:text-text-muted [&_a]:font-medium [&_a:hover]:text-accent">
+			<div class="max-w-site mx-auto text-center">
+				<p class="text-text-muted text-[0.85rem] mb-[0.2rem]">Built with Gastro &mdash; a file-based component framework for Go.</p>
+				<p class="text-text-muted text-[0.85rem] mb-[0.2rem]"><a href="https://github.com/andrioid/gastro">Source on GitHub</a></p>
+			</div>
+		</footer>
+	</body>
 </html>
