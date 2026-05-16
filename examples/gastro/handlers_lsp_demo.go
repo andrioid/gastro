@@ -1,0 +1,80 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"html/template"
+	"net/http"
+	"strconv"
+	"time"
+
+	"gastro-website/lspdemo"
+	"gastro-website/md"
+
+	"github.com/andrioid/gastro/pkg/gastro/datastar"
+)
+
+// handleLSPDemoHover serves the live-LSP demo's hover tooltip.
+//
+// The handler is wired up only when lspdemo.Boot returned a
+// non-degraded Demo (see main.go). It accepts LSP-style 0-indexed
+// coordinates via ?l= and ?c=, queries the LSP, renders the
+// returned markdown via md.Render, and patches the tooltip element
+// via Datastar SSE.
+//
+// On every code path \u2014 success, no-hover, error \u2014 the response
+// patches #lsp-tooltip. An empty patch hides the tooltip (the CSS
+// uses the absence of a child element as the "hidden" signal),
+// which matches the mouseleave behaviour client-side.
+func newLSPDemoHoverHandler(demo *lspdemo.Demo) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		line, err1 := strconv.Atoi(r.URL.Query().Get("l"))
+		col, err2 := strconv.Atoi(r.URL.Query().Get("c"))
+		if err1 != nil || err2 != nil || line < 0 || col < 0 {
+			http.Error(w, "l and c must be non-negative integers", http.StatusBadRequest)
+			return
+		}
+
+		// Bound LSP calls so a stuck gopls can't tie up an HTTP
+		// goroutine forever. 2s is generous \u2014 typical hover
+		// roundtrips are 5-50ms.
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+
+		markdown, err := demo.Hover(ctx, line, col)
+		sse := datastar.NewSSE(w, r)
+		if err != nil || markdown == "" {
+			// Empty tooltip. Datastar replaces the element's
+			// contents, so this clears whatever was last shown.
+			sse.PatchElements(emptyTooltip())
+			return
+		}
+
+		rendered, mdErr := md.Render(markdown)
+		if mdErr != nil {
+			// Fall back to plain-text so the visitor at least sees
+			// the LSP's response. md.Render only errors on
+			// pathological input.
+			rendered = template.HTML("<pre>" + template.HTMLEscapeString(markdown) + "</pre>")
+		}
+		sse.PatchElements(tooltipHTML(rendered))
+	}
+}
+
+// tooltipShell renders the always-the-same outer <div> with the
+// Datastar bindings. Both the populated and empty tooltip patches
+// share the same shell so the bindings stay attached across SSE
+// replacements.
+const tooltipShell = `<div id="lsp-tooltip" class="lsp-hover" ` +
+	`data-class:visible="$hover.show" ` +
+	`data-style:--lsp-x="$hover.x + 'px'" ` +
+	`data-style:--lsp-y="$hover.y + 'px'" ` +
+	`data-style:--lsp-panel="$hover.panel">%s</div>`
+
+func tooltipHTML(body template.HTML) string {
+	return fmt.Sprintf(tooltipShell, fmt.Sprintf(`<div class="lsp-hover-body">%s</div>`, body))
+}
+
+func emptyTooltip() string {
+	return fmt.Sprintf(tooltipShell, "")
+}

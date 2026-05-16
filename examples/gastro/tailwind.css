@@ -529,6 +529,171 @@
 }
 
 /* -------------------------------------------------------------------
+   Live-LSP demo (homepage section between Hero and Why Gastro?)
+
+   Two-panel layout: one .lsp-panel for the frontmatter, one for the
+   body of the same .gastro file. A single floating #lsp-tooltip is
+   absolutely-positioned within .lsp-demo-wrap by Datastar signals
+   (--lsp-x / --lsp-y / --lsp-panel) that are set on identifier
+   mouseenter. Squiggles (.lsp-squiggle) overlay each panel using
+   per-element --lsp-line / --lsp-col / --lsp-width vars so the
+   wavy underline lands on the diagnostic's exact span.
+   ------------------------------------------------------------------- */
+@layer components {
+  /* The grid wrapper is `position: relative` so the tooltip's
+     absolute positioning is measured from the wrapper's edge. The
+     grid itself is set with Tailwind utility classes in the markup
+     (1 col mobile, 2 col md+); only the relative is unavoidable. */
+  .lsp-demo-wrap { position: relative; }
+
+  .lsp-panel {
+    background: var(--color-code-bg);
+    border-radius: var(--radius-lg, 0.5rem);
+    overflow: hidden;
+    box-shadow: 0 10px 30px -10px rgba(44, 36, 24, 0.35),
+                0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  .lsp-panel-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.7rem 1rem;
+    background: rgba(0, 0, 0, 0.25);
+  }
+  .lsp-dot { width: 0.625rem; height: 0.625rem; border-radius: 9999px; }
+  .lsp-dot-red    { background: #e85c4a; }
+  .lsp-dot-yellow { background: #e8a73e; }
+  .lsp-dot-green  { background: #5eb86c; }
+  .lsp-panel-title {
+    margin-left: 0.5rem;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.78rem;
+    color: var(--color-text-subtle);
+  }
+  .lsp-panel-suffix { color: var(--color-text-muted); }
+
+  /* The code container. `position: relative` so squiggles can be
+     placed in panel-local coords; `overflow-x: auto` so long lines
+     scroll horizontally instead of breaking the squiggle alignment. */
+  .lsp-panel-code {
+    position: relative;
+    padding: 1rem 1.25rem;
+    overflow-x: auto;
+  }
+
+  .lsp-code {
+    margin: 0;
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.85rem;
+    line-height: 1.55;
+    color: var(--color-code-text);
+    /* Pre wraps off so (line, col)-positioned squiggles stay aligned
+       with the actual rendered glyphs. */
+    white-space: pre;
+  }
+
+  /* Hoverable identifier span. `display: inline` keeps the span
+     part of the prose flow (so `p.NAme` lays out as one word visually
+     even though the dot is a separate non-hover element). The faint
+     hover background is the only visible affordance — cursor: help
+     plus the eventual tooltip are the other two signals. */
+  .lsp-ident {
+    cursor: help;
+    border-radius: 2px;
+    transition: background-color 80ms ease-out;
+  }
+  .lsp-ident:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  /* Squiggle overlay. Positioned absolutely within .lsp-panel-code
+     using line/col CSS vars set per element. The squiggle occupies
+     one full line-height box and the wave is painted at the bottom
+     of that box (background-position: 0 bottom), so it always sits
+     under the glyph baseline without overflowing into the next line
+     or below the panel. 1ch tracks the monospace cell width, 1lh the
+     code's line-height — both inherited from the .lsp-code element
+     they're laid out over. The 0.85rem font-size + 1.55 line-height
+     match .lsp-code so 1lh/1ch resolve to the right cell. */
+  .lsp-squiggle {
+    position: absolute;
+    /* font-family + size + line-height MUST match .lsp-code: 1ch /
+       1lh resolve against this element's own font metrics, and we
+       use them to align with the monospace code grid. Without the
+       explicit font-family the squiggle inherits the body's
+       proportional font and 1ch overshoots horizontally. */
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.85rem;
+    line-height: 1.55;
+    /* +1rem matches .lsp-panel-code padding-top so line 0 lines up
+       with the first rendered glyph. */
+    top: calc(1rem + var(--lsp-line) * 1lh);
+    /* +1.25rem matches .lsp-panel-code padding-left. */
+    left: calc(1.25rem + var(--lsp-col) * 1ch);
+    width: calc(var(--lsp-width) * 1ch);
+    height: 1lh;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 3' preserveAspectRatio='none'><path d='M0 2 Q1.5 0 3 2 T6 2' stroke='%23ff7159' stroke-width='1' fill='none' /></svg>");
+    background-repeat: repeat-x;
+    background-position: 0 bottom;
+    background-size: 6px 3px;
+  }
+
+  /* Floating hover tooltip. The `visible` class is toggled by
+     Datastar via `data-class:visible="$hover.show"`. We can't use
+     `data-show` for the transition because it just toggles
+     display:none and doesn't update an attribute selector — the
+     opacity fade needs the class hook to drive the transition. */
+  .lsp-hover {
+    position: absolute;
+    /* --lsp-x / --lsp-y are wrap-relative (the mouseenter handler
+       subtracts the wrap's getBoundingClientRect). translateX(-50%)
+       does the centering on the tooltip's OWN width since CSS
+       percentages in `left` resolve against the containing block,
+       not the element. The 0.5rem Y nudge sits the tooltip just
+       below the hovered identifier so it doesn't overlap the
+       squiggle on diagnostic targets. */
+    left: var(--lsp-x, 0px);
+    top: calc(var(--lsp-y, 0px) + 0.5rem);
+    max-width: min(28rem, calc(100% - 2rem));
+    z-index: 10;
+    background: var(--color-code-bg);
+    color: var(--color-code-text);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md, 0.375rem);
+    padding: 0.6rem 0.8rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    box-shadow: 0 12px 28px -10px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, -4px);
+    transition: opacity 120ms ease-out, transform 120ms ease-out;
+  }
+  .lsp-hover.visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  /* Markdown rendered inside the tooltip body. Inherits chroma
+     classes for any fenced code blocks. */
+  .lsp-hover-body :is(p, pre, code) { margin: 0; }
+  .lsp-hover-body pre {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 4px;
+    padding: 0.4rem 0.55rem;
+    margin-top: 0.4rem;
+    font-size: 0.78rem;
+    overflow-x: auto;
+  }
+  .lsp-hover-body code {
+    font-family: var(--font-mono, ui-monospace, monospace);
+    font-size: 0.82rem;
+  }
+}
+
+/* -------------------------------------------------------------------
    Utilities layer — small helpers that are easier to express as a
    single class name than as a long utility chain repeated everywhere.
    ------------------------------------------------------------------- */

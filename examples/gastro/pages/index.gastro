@@ -2,6 +2,7 @@
 import (
 	Hero "components/hero.gastro"
 	Layout "components/layout.gastro"
+	"gastro-website/lspdemo"
 	"gastro-website/md"
 )
 
@@ -14,9 +15,44 @@ var IntroComponentRaw string
 var IntroComponent = md.MustRender(IntroComponentRaw)
 
 Title := "Home"
+
+// Pull the currently-registered live-LSP demo. main.go calls
+// lspdemo.Register after Boot, before the HTTP server starts
+// accepting requests, so by the time this frontmatter runs we have
+// the booted (or fail-soft) Demo. Both panels are pre-rendered HTML;
+// only the hover endpoint goes through the LSP at request time.
+LSPDemo := lspdemo.Live()
+LSPDemoFrontmatter := LSPDemo.Frontmatter()
+LSPDemoBody := LSPDemo.Body()
 ---
 {{ wrap Layout (dict "Title" .Title) }}
 	{{ Hero (dict "IntroHero" .IntroHero) }}
+
+	{{- /* Live-LSP hero demo. The two panels are the same .gastro file
+	       seen from two angles (frontmatter / body); the floating
+	       tooltip element below is patched by the hover SSE handler
+	       and positioned via Datastar signals set on identifier
+	       hover. See examples/gastro/lspdemo for the wiring. */ -}}
+	<section class="bg-surface border-y border-border-light px-6 py-12 md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]"
+		data-signals="{hover: {show: false, x: 0, y: 0, panel: 'left'}}">
+		<div class="max-w-site mx-auto">
+			<div class="mb-8 max-w-[640px]">
+				<h2 class="font-display font-bold tracking-[-0.02em] mb-2 leading-[1.2] text-[clamp(1.6rem,3vw,2.2rem)]">See the LSP in action</h2>
+				<p class="text-text-muted text-[1.05rem]">Hover any identifier below — both sides of the file are wired up to the actual gastro LSP, the same one your editor uses.</p>
+			</div>
+
+			<div class="lsp-demo-wrap relative grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-8">
+				{{ .LSPDemoFrontmatter }}
+				{{ .LSPDemoBody }}
+				<div id="lsp-tooltip"
+					class="lsp-hover"
+					data-class:visible="$hover.show"
+					data-style:--lsp-x="$hover.x + 'px'"
+					data-style:--lsp-y="$hover.y + 'px'"
+					data-style:--lsp-panel="$hover.panel"></div>
+			</div>
+		</div>
+	</section>
 
 	<main id="main-content">
 		<section class="px-6 py-12 max-w-site mx-auto md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]">
