@@ -354,15 +354,24 @@
     overflow-x: auto;
   }
   /* Embedded <pre> inside the window body. Covers both the hero's
-     markdown-rendered chroma block and — in the follow-up commit —
-     the lspdemo renderer's <pre class="lsp-code chroma">. The body's
-     own padding handles the inset; the <pre> is just the glyph grid. */
+     markdown-rendered chroma block and the lspdemo renderer's
+     <pre class="lsp-code chroma">. The body's own padding handles
+     the inset; the <pre> is just the glyph grid. */
   .code-window-body pre {
     margin: 0;
     padding: 0;
     background: transparent;
     font-size: 0.84rem;
     line-height: 1.65;
+  }
+  /* The base layer's `code { font-size: 0.875em }` rule shrinks
+     <code> inside <pre> by another 12.5%, which throws off the
+     lspdemo squiggle alignment (the squiggle's 1ch math uses the
+     <pre>'s 0.84rem metrics, but the actual glyphs render smaller).
+     Reset to inherit so <code> matches the <pre>'s metrics. */
+  .code-window-body pre code {
+    font-size: inherit;
+    line-height: inherit;
   }
 
   /* Guestbook alerts -------------------------------------------------

@@ -41,7 +41,7 @@ func newLSPDemoHoverHandler(demo *lspdemo.Demo) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
-		markdown, err := demo.Hover(ctx, line, col)
+		markdown, err := demo.HoverOrDiagnostic(ctx, line, col)
 		sse := datastar.NewSSE(w, r)
 		if err != nil || markdown == "" {
 			// Empty tooltip. Datastar replaces the element's

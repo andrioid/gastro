@@ -108,6 +108,31 @@ func (d *Demo) Hover(ctx context.Context, line, char int) (string, error) {
 	return h.Contents.Value, nil
 }
 
+// HoverOrDiagnostic is Hover with a fallback: when the LSP returns
+// no hover content but a snapshotted diagnostic's range covers the
+// position, return the diagnostic message instead. This surfaces
+// useful info on identifiers gopls can't hover (typically the
+// undefined-reference case, e.g. `p.NAme`), where the diagnostic
+// is the only thing the LSP has to say about that span.
+//
+// The returned string is plain text in that fallback path; md.Render
+// handles plain text the same as markdown (it's all goldmark input),
+// so the handler doesn't need to switch on which path produced the
+// string.
+func (d *Demo) HoverOrDiagnostic(ctx context.Context, line, char int) (string, error) {
+	hover, err := d.Hover(ctx, line, char)
+	if err != nil {
+		return "", err
+	}
+	if hover != "" {
+		return hover, nil
+	}
+	if msg := d.renderer.diagnosticAt(line, char); msg != "" {
+		return msg, nil
+	}
+	return "", nil
+}
+
 // Close shuts the LSP subprocess down. Idempotent.
 func (d *Demo) Close() error {
 	d.mu.Lock()

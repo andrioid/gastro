@@ -108,6 +108,42 @@ func TestRenderer_SquiggleOverlay(t *testing.T) {
 	}
 }
 
+func TestRenderer_DiagnosticAt(t *testing.T) {
+	// `NAme` typo: file line 7, chars 23-27.
+	diags := []lspclient.Diagnostic{{
+		Range: lspclient.Range{
+			Start: lspclient.Position{Line: 7, Character: 23},
+			End:   lspclient.Position{Line: 7, Character: 27},
+		},
+		Message: "p.NAme undefined (type Props has no field or method NAme, but does have field Name)",
+	}}
+	r, err := NewRenderer(Source(), diags)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Inside the range — returns the message.
+	for _, c := range []int{23, 24, 26} {
+		if got := r.diagnosticAt(7, c); got == "" {
+			t.Errorf("diagnosticAt(7, %d) returned empty; expected the typo message", c)
+		}
+	}
+
+	// At the end column (exclusive) — returns nothing.
+	if got := r.diagnosticAt(7, 27); got != "" {
+		t.Errorf("diagnosticAt(7, 27) should be empty (end is exclusive); got: %q", got)
+	}
+	// Wrong line — returns nothing.
+	if got := r.diagnosticAt(6, 23); got != "" {
+		t.Errorf("diagnosticAt(6, 23) should be empty; got: %q", got)
+	}
+	// No diagnostics at all — returns nothing.
+	rEmpty, _ := NewRenderer(Source(), nil)
+	if got := rEmpty.diagnosticAt(7, 23); got != "" {
+		t.Errorf("diagnosticAt with no diagnostics should be empty; got: %q", got)
+	}
+}
+
 // containsCoord verifies both substrings appear AND the data-l one
 // comes before the identifier text within ~1200 chars (i.e. they're
 // part of the same span tag — the inline mouseenter handler is ~330

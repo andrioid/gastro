@@ -66,6 +66,36 @@ func NewRenderer(source string, diagnostics []lspclient.Diagnostic) (*Renderer, 
 	}, nil
 }
 
+// diagnosticAt returns the message of the first diagnostic whose
+// range covers (line, char), or "" if no diagnostic does. Used by
+// HoverOrDiagnostic to surface diagnostic text on identifiers gopls
+// can't hover. LSP positions are 0-indexed; the range comparison
+// treats end as exclusive (the LSP convention).
+func (r *Renderer) diagnosticAt(line, char int) string {
+	for _, d := range r.diagnostics {
+		if positionInRange(d.Range, line, char) {
+			return d.Message
+		}
+	}
+	return ""
+}
+
+// positionInRange reports whether (line, char) falls inside the
+// half-open range [Start, End). Multi-line ranges treat the start
+// and end lines specially; intermediate lines are fully inside.
+func positionInRange(rng lspclient.Range, line, char int) bool {
+	if line < rng.Start.Line || line > rng.End.Line {
+		return false
+	}
+	if line == rng.Start.Line && char < rng.Start.Character {
+		return false
+	}
+	if line == rng.End.Line && char >= rng.End.Character {
+		return false
+	}
+	return true
+}
+
 // Render returns the highlighted code + squiggle overlays for the
 // entire .gastro file. The macOS-style window chrome (traffic-light
 // bar, filename, dark background) is supplied by the shared
