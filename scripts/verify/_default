@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#MISE description="Run go test -race in every sub-module (examples/* and pkg/chromalexer/*)"
+
+# `mise run test` runs `go test ./... -race` from the repo root, which
+# does not cross module boundaries. Every example app and the
+# pkg/chromalexer/gastro sub-module has its own go.mod and is invisible
+# to that command. This task discovers all such sub-modules and runs
+# their tests, complementing `mise run test` to cover the full
+# repository.
+#
+# Extra args after `--` are forwarded to each `go test` invocation, e.g.
+#
+#     mise run verify -- -run TestSomething -v
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# Discover all go.mod files outside the root module. The grep filter
+# strips the root's own go.mod. We avoid `mapfile` so this works on
+# macOS's bundled bash 3.2 in addition to bash 4+.
+modules=()
+while IFS= read -r mod_file; do
+  modules+=("$mod_file")
+done < <(
+  find "$ROOT" \
+    -type d \( -name node_modules -o -name .gastro -o -name vendor -o -name tmp \) -prune \
+    -o -name go.mod -print \
+  | grep -v "^${ROOT}/go.mod$" \
+  | sort
+)
+
+if [ "${#modules[@]}" -eq 0 ]; then
+  echo "verify: no sub-modules discovered under ${ROOT}"
+  exit 0
+fi
+
+failed=()
+for mod_file in "${modules[@]}"; do
+  dir="$(dirname "$mod_file")"
+  rel="${dir#"${ROOT}/"}"
+  echo
+  echo "=== ${rel} ==="
+  if ! (cd "$dir" && go test -race -count=1 -timeout 120s ./... "$@"); then
+    failed+=("$rel")
+  fi
+done
+
+echo
+if [ "${#failed[@]}" -gt 0 ]; then
+  echo "verify: FAILED in ${#failed[@]} sub-module(s):"
+  printf '  - %s\n' "${failed[@]}"
+  exit 1
+fi
+echo "verify: all ${#modules[@]} sub-module(s) clean"
