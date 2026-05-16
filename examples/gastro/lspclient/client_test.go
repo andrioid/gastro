@@ -66,32 +66,16 @@ func TestSmoke(t *testing.T) {
 
 	// Materialise a throwaway Go project the LSP can root itself in.
 	//
-	// Two non-obvious requirements:
-	//
-	// 1. The project must have github.com/andrioid/gastro available as
-	//    a dependency so the shadow generator's `gastro.Props()`
-	//    rewrite type-checks. We copy examples/gastro/go.mod (with the
-	//    relative replace directive patched to an absolute path), same
-	//    pattern as createGastroLinkedProject in
-	//    internal/lsp/shadow/workspace_test.go.
-	//
-	// 2. EvalSymlinks on the project dir is required on macOS:
-	//    t.TempDir() returns paths under /var/folders/... which is a
-	//    symlink to /private/var/folders/.... The LSP's
-	//    findProjectRoot does EvalSymlinks on the file path
-	//    internally, so it'll compute inst.root as the /private/var/
-	//    ... form. If we send the didOpen URI in the unresolved
-	//    /var/... form, findGastroURIForVirtualURI can't map shadow
-	//    diagnostics back to the source URI. See the 'Pre-existing
-	//    issues' section in tmp/lsp-demo-plan.md.
+	// The project must have github.com/andrioid/gastro available as a
+	// dependency so the shadow generator's `gastro.Props()` rewrite
+	// type-checks. We copy examples/gastro/go.mod (with the relative
+	// replace directive patched to an absolute path), same pattern as
+	// createGastroLinkedProject in
+	// internal/lsp/shadow/workspace_test.go.
 	//
 	// The demo file lives under components/ (not pages/) because the
 	// shadow generator only synthesises __props for components.
-	rawProjectDir := t.TempDir()
-	projectDir, err := filepath.EvalSymlinks(rawProjectDir)
-	if err != nil {
-		t.Fatalf("EvalSymlinks(%q): %v", rawProjectDir, err)
-	}
+	projectDir := t.TempDir()
 	repo := repoRoot(t)
 	exampleGoMod, err := os.ReadFile(filepath.Join(repo, "examples", "gastro", "go.mod"))
 	if err != nil {

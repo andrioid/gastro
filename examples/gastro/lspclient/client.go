@@ -35,11 +35,44 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 )
+
+// canonicalizeURI mirrors the server-side helper of the same name in
+// internal/lsp/server/util.go: it resolves a file:// URI's path through
+// filepath.EvalSymlinks so the client's per-URI maps (pending diagnostic
+// waiters, cached diagnostics) match whatever URI form the server emits.
+//
+// Without this, a caller that passes `file:///var/...` (the path the
+// editor or test sees) wouldn't match the server's published
+// `file:///private/var/...` notification on macOS — and the OpenFile
+// → WaitForDiagnostics handshake would hang until timeout. The fix is
+// symmetric to the server's: canonicalise at every entry where a URI
+// crosses the client API surface, and rely on the server to do the
+// same so the two ends always agree.
+//
+// Falls back to the original URI for paths that don't exist on disk
+// (in-memory documents, malformed URIs).
+func canonicalizeURI(uri string) string {
+	parsed, err := url.Parse(uri)
+	if err != nil {
+		return uri
+	}
+	path := parsed.Path
+	if path == "" {
+		return uri
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || resolved == path {
+		return uri
+	}
+	return "file://" + resolved
+}
 
 // -----------------------------------------------------------------------------
 // LSP wire types (minimal subset used by gastro's server)
@@ -233,7 +266,14 @@ func (c *Client) handshake(ctx context.Context, rootURI string) error {
 //
 // uri must be a file:// URI; the LSP server treats other schemes as
 // virtual documents and won't run gopls against them.
+//
+// The URI is canonicalised (symlinks resolved) before being stored or
+// sent on the wire — see canonicalizeURI. Callers can pass either the
+// symlinked or resolved form and the client's internal maps will
+// match whatever the server publishes back.
 func (c *Client) OpenFile(uri, languageID, text string) error {
+	uri = canonicalizeURI(uri)
+
 	c.mu.Lock()
 	if _, exists := c.diagsCh[uri]; !exists {
 		c.diagsCh[uri] = make(chan struct{})
@@ -259,6 +299,7 @@ func (c *Client) OpenFile(uri, languageID, text string) error {
 // OpenFile MUST have been called for uri before this; otherwise the
 // returned channel never fires.
 func (c *Client) WaitForDiagnostics(ctx context.Context, uri string) ([]Diagnostic, error) {
+	uri = canonicalizeURI(uri)
 	c.mu.Lock()
 	ch, ok := c.diagsCh[uri]
 	c.mu.Unlock()
@@ -280,6 +321,7 @@ func (c *Client) WaitForDiagnostics(ctx context.Context, uri string) ([]Diagnost
 // nil if none has arrived yet. The returned slice is a snapshot;
 // callers may keep it without holding any client lock.
 func (c *Client) Diagnostics(uri string) []Diagnostic {
+	uri = canonicalizeURI(uri)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	src := c.diags[uri]
@@ -296,6 +338,7 @@ func (c *Client) Diagnostics(uri string) []Diagnostic {
 // (no hover available at that position) — this is the common case for
 // whitespace, comments, and keywords.
 func (c *Client) Hover(ctx context.Context, uri string, line, character int) (*Hover, error) {
+	uri = canonicalizeURI(uri)
 	raw, err := c.request(ctx, "textDocument/hover", map[string]any{
 		"textDocument": map[string]any{"uri": uri},
 		"position":     map[string]any{"line": line, "character": character},

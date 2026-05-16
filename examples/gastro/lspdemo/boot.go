@@ -192,18 +192,13 @@ func Boot(ctx context.Context, opts BootOptions) (*Demo, error) {
 	//   <tmp>/go.mod    (linked to opts.GastroSourceRoot via `replace`)
 	//   <tmp>/components/greeting.gastro
 	//
-	// Path canonicalisation (EvalSymlinks) is required so the URI we
-	// send via didOpen matches the path the LSP server stores
-	// internally — see tmp/lsp-demo-plan.md 'Pre-existing issues'
-	// for the underlying macOS /var vs /private/var bug.
-	rawDir, err := os.MkdirTemp("", "gastro-lspdemo-")
+	// We don't pre-canonicalise the temp dir path: the LSP server
+	// canonicalises URIs at every handler boundary, so /var vs
+	// /private/var (and other symlinked-path variations) round-trip
+	// correctly. See canonicalizeURI in internal/lsp/server/util.go.
+	projectDir, err := os.MkdirTemp("", "gastro-lspdemo-")
 	if err != nil {
 		degrade(demo, logf, "MkdirTemp failed: %v", err)
-		return demo, nil
-	}
-	projectDir, err := filepath.EvalSymlinks(rawDir)
-	if err != nil {
-		degrade(demo, logf, "EvalSymlinks(%q): %v", rawDir, err)
 		return demo, nil
 	}
 
