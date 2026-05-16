@@ -7,69 +7,69 @@ import (
 	"gastro-website/lspclient"
 )
 
-func TestRenderer_BothPanelsContainExpectedIdents(t *testing.T) {
+func TestRenderer_FileContainsExpectedIdents(t *testing.T) {
 	r, err := NewRenderer(Source(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fm := string(r.Frontmatter())
-	if !strings.Contains(fm, "greeting.gastro") {
-		t.Errorf("frontmatter panel missing title; got: %s", fm)
-	}
-	if !strings.Contains(fm, "— frontmatter") {
-		t.Errorf("frontmatter panel missing suffix; got: %s", fm)
-	}
-	// Every Name-category token in the frontmatter should be wrapped
-	// in an lsp-ident span. `Props`, `Name`, `Greeting`, `gastro`,
-	// `p`, `NAme` are all good candidates.
-	for _, want := range []string{">Props<", ">Greeting<", ">gastro<", ">NAme<"} {
-		if !strings.Contains(fm, want) {
-			t.Errorf("frontmatter panel missing token %q in span output", want)
-		}
-	}
-	// And those tokens should appear inside lsp-ident spans.
-	if !strings.Contains(fm, `class="lsp-ident`) {
-		t.Errorf("frontmatter panel has no lsp-ident wrapping; got: %s", fm)
+	out := string(r.Render())
+
+	// Title bar appears exactly once (single-window layout).
+	if got := strings.Count(out, "greeting.gastro"); got != 1 {
+		t.Errorf("filename should appear exactly once, got %d occurrences in: %s", got, out)
 	}
 
-	body := string(r.Body())
-	if !strings.Contains(body, "— body") {
-		t.Errorf("body panel missing suffix; got: %s", body)
+	// Both `---` delimiters made it into the rendered window.
+	if got := strings.Count(out, `<span class="cp">---</span>`); got != 2 {
+		t.Errorf("expected exactly 2 `---` delimiter spans, got %d in: %s", got, out)
 	}
-	// .Greeting and .Name inside `{{ }}` should be hoverable.
-	if !strings.Contains(body, `>.Greeting<`) {
-		t.Errorf("body panel should render `.Greeting` literally inside a span; got: %s", body)
+
+	// Frontmatter Name-tokens become hoverable spans.
+	for _, want := range []string{">Props<", ">Greeting<", ">gastro<", ">NAme<"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing token %q in span output", want)
+		}
 	}
-	if !strings.Contains(body, `>.Name<`) {
-		t.Errorf("body panel should render `.Name` literally inside a span; got: %s", body)
+	if !strings.Contains(out, `class="lsp-ident`) {
+		t.Errorf("output has no lsp-ident wrapping; got: %s", out)
+	}
+
+	// Body `.Greeting` and `.Name` inside `{{ }}` are hoverable.
+	if !strings.Contains(out, `>.Greeting<`) {
+		t.Errorf("body should render `.Greeting` literally inside a span; got: %s", out)
+	}
+	if !strings.Contains(out, `>.Name<`) {
+		t.Errorf("body should render `.Name` literally inside a span; got: %s", out)
 	}
 }
 
-func TestRenderer_CoordsArePerOriginalFile(t *testing.T) {
+func TestRenderer_CoordsAreFileAbsolute(t *testing.T) {
 	r, err := NewRenderer(Source(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	fm := string(r.Frontmatter())
-	// `Greeting` (the frontmatter assignment LHS) is on original line
-	// 7 (0-indexed: line 1 = `type Props struct {`, line 7 =
-	// `Greeting := "Hi, " + p.NAme`).
-	if !containsCoord(fm, `data-l="7"`, `>Greeting<`) {
-		t.Errorf("Greeting in frontmatter should carry data-l=\"7\"; got: %s", fm)
+	out := string(r.Render())
+
+	// `Greeting` (the frontmatter assignment LHS, RHS use of the same
+	// name from `Greeting := "Hi, " + p.NAme`) is on file line 7
+	// (0-indexed: line 0 = `---`, line 1 = `type Props struct {`,
+	// line 7 = `Greeting := "Hi, " + p.NAme`).
+	if !containsCoord(out, `data-l="7"`, `>Greeting<`) {
+		t.Errorf("Greeting should carry data-l=\"7\"; got: %s", out)
 	}
 
-	body := string(r.Body())
-	// .Greeting in the body: source line 10 (0-indexed: line 10) =
-	// `\t<h1>{{ .Greeting }}</h1>`. So data-l should be 10.
-	if !containsCoord(body, `data-l="10"`, `>.Greeting<`) {
-		t.Errorf("body .Greeting should carry data-l=\"10\"; got: %s", body)
+	// `.Greeting` in the body lives on file line 10
+	// (`\t<h1>{{ .Greeting }}</h1>`), unchanged from the panel layout
+	// because the body chunk's origin line was already file-absolute.
+	if !containsCoord(out, `data-l="10"`, `>.Greeting<`) {
+		t.Errorf("body .Greeting should carry data-l=\"10\"; got: %s", out)
 	}
 }
 
 func TestRenderer_SquiggleOverlay(t *testing.T) {
-	// Diagnostic on the `NAme` identifier: 0-indexed line 7, char 23-27.
+	// Diagnostic on the `NAme` identifier: file line 7, char 23-27.
 	diags := []lspclient.Diagnostic{{
 		Range: lspclient.Range{
 			Start: lspclient.Position{Line: 7, Character: 23},
@@ -84,31 +84,26 @@ func TestRenderer_SquiggleOverlay(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fm := string(r.Frontmatter())
-	if !strings.Contains(fm, `class="lsp-squiggle"`) {
-		t.Errorf("expected squiggle overlay in frontmatter panel; got: %s", fm)
+	out := string(r.Render())
+	if !strings.Contains(out, `class="lsp-squiggle"`) {
+		t.Errorf("expected squiggle overlay; got: %s", out)
 	}
-	// Frontmatter starts at file line 1 (0-indexed). The diagnostic
-	// is at file line 7. Panel-local line = 7 - 1 = 6.
-	if !strings.Contains(fm, `--lsp-line:6`) {
-		t.Errorf("squiggle --lsp-line should be 6 (panel-local); got: %s", fm)
+	// Coordinates are now file-absolute. The pre starts at file
+	// line 0 (the opening `---`) so --lsp-line equals d.Range.Start.Line.
+	if !strings.Contains(out, `--lsp-line:7`) {
+		t.Errorf("squiggle --lsp-line should be 7 (file-absolute); got: %s", out)
 	}
-	if !strings.Contains(fm, `--lsp-col:23`) {
-		t.Errorf("squiggle --lsp-col should be 23; got: %s", fm)
+	if !strings.Contains(out, `--lsp-col:23`) {
+		t.Errorf("squiggle --lsp-col should be 23; got: %s", out)
 	}
-	if !strings.Contains(fm, `--lsp-width:4`) {
-		t.Errorf("squiggle --lsp-width should be 4; got: %s", fm)
-	}
-
-	body := string(r.Body())
-	if strings.Contains(body, `class="lsp-squiggle"`) {
-		t.Errorf("body panel should have no squiggle (diagnostic is in frontmatter); got: %s", body)
+	if !strings.Contains(out, `--lsp-width:4`) {
+		t.Errorf("squiggle --lsp-width should be 4; got: %s", out)
 	}
 }
 
 // containsCoord verifies both substrings appear AND the data-l one
 // comes before the identifier text within ~1200 chars (i.e. they're
-// part of the same span tag — the inline mouseenter handler is ~400
+// part of the same span tag — the inline mouseenter handler is ~330
 // chars on its own, so the window has to be generous). Cheap check,
 // avoids parsing HTML.
 func containsCoord(haystack, dataAttr, identText string) bool {

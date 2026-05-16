@@ -12,26 +12,26 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 )
 
-// Renderer turns the embedded demo .gastro source into the two
-// side-by-side panels (frontmatter / body) for the homepage live-LSP
-// demo. It does NOT talk to the LSP itself — the diagnostics are
-// snapshotted at app boot, passed in here, and baked into the SSR
-// output as absolute-positioned squiggle overlays.
+// Renderer turns the embedded demo .gastro source into the homepage
+// live-LSP window: a single macOS-style code window showing the entire
+// .gastro file, with hoverable identifier spans and absolute-positioned
+// squiggle overlays for diagnostics. It does NOT talk to the LSP
+// itself — the diagnostics are snapshotted at app boot, passed in here,
+// and baked into the SSR output.
 //
 // Each identifier in the rendered source becomes a hoverable span
-// carrying its (line, character) position in the ORIGINAL file
-// coordinates, even in the body panel where lines come from the
-// post-frontmatter region of the file. The hover endpoint then
-// queries the LSP at exactly those coordinates without needing to
-// translate panel-local positions back to file-local ones.
+// carrying its (line, character) position in the file's coordinates
+// (0-indexed LSP-style). Because the rendered window starts at file
+// line 0 (the opening `---`), those coordinates double as both the
+// LSP query position and the squiggle's CSS line offset.
 type Renderer struct {
 	source      string
 	diagnostics []lspclient.Diagnostic
 
 	// Split coordinates in 0-indexed LSP-style line numbers.
-	frontmatterStart int // first line of frontmatter content
-	frontmatterEnd   int // exclusive: line of the closing ---
-	bodyStart        int // first line of body content
+	frontmatterStart int // first line of frontmatter content (after opening `---`)
+	frontmatterEnd   int // exclusive: line of the closing `---`
+	bodyStart        int // first line of body content (after closing `---`)
 	bodyEnd          int // exclusive: one past last line
 }
 
@@ -66,69 +66,54 @@ func NewRenderer(source string, diagnostics []lspclient.Diagnostic) (*Renderer, 
 	}, nil
 }
 
-// Frontmatter returns the frontmatter panel's HTML, already wrapped
-// in macOS-window chrome and titled "<filename> — frontmatter".
-func (r *Renderer) Frontmatter() template.HTML {
-	return r.renderPanel(panelOpts{
-		titleSuffix: "frontmatter",
-		panelKey:    "left",
-		startLine:   r.frontmatterStart,
-		endLine:     r.frontmatterEnd,
-		lexerName:   "go",
-	})
-}
-
-// Body returns the body panel's HTML, already wrapped in macOS-window
-// chrome and titled "<filename> — body".
-func (r *Renderer) Body() template.HTML {
-	return r.renderPanel(panelOpts{
-		titleSuffix: "body",
-		panelKey:    "right",
-		startLine:   r.bodyStart,
-		endLine:     r.bodyEnd,
-		lexerName:   "html",
-	})
-}
-
-type panelOpts struct {
-	titleSuffix string // "frontmatter" | "body"
-	panelKey    string // "left" | "right" — set into $hover.panel on enter
-	startLine   int    // 0-indexed inclusive line in the original source
-	endLine     int    // 0-indexed exclusive
-	lexerName   string // chroma lexer id ("go" | "html")
-}
-
-func (r *Renderer) renderPanel(opts panelOpts) template.HTML {
+// Render returns the entire .gastro file's HTML in a single macOS-style
+// window: traffic-light bar + filename, then the opening `---`, the
+// frontmatter (Go-lexed), the closing `---`, and the body (HTML-lexed
+// with `{{ }}` template actions hand-walked for hoverable field
+// references). All identifier hover spans and squiggle overlays
+// carry file-absolute coordinates so the LSP query position and the
+// squiggle's CSS line offset are the same number.
+func (r *Renderer) Render() template.HTML {
 	lines := strings.Split(r.source, "\n")
-	chunkLines := lines[opts.startLine:opts.endLine]
-	chunk := strings.Join(chunkLines, "\n")
 
-	var code string
-	switch opts.lexerName {
-	case "go":
-		code = renderGoChunk(chunk, opts.startLine, opts.panelKey)
-	case "html":
-		code = renderBodyChunk(chunk, opts.startLine, opts.panelKey)
-	default:
-		code = html.EscapeString(chunk)
+	// Build the highlighted-code stream by concatenating, in file order:
+	//   line 0:                 opening `---`     (CommentPreproc class)
+	//   lines [fmStart..fmEnd): frontmatter Go    (renderGoChunk)
+	//   line fmEnd:             closing `---`     (CommentPreproc class)
+	//   lines [bodyStart..end): body HTML+actions (renderBodyChunk)
+	//
+	// Joining with `\n` keeps the visual layout intact while the
+	// chunks themselves carry no leading/trailing newlines.
+	delimSpan := `<span class="cp">---</span>`
+
+	fmChunk := strings.Join(lines[r.frontmatterStart:r.frontmatterEnd], "\n")
+	bodyChunk := strings.Join(lines[r.bodyStart:r.bodyEnd], "\n")
+
+	var code strings.Builder
+	code.WriteString(delimSpan)
+	code.WriteString("\n")
+	code.WriteString(renderGoChunk(fmChunk, r.frontmatterStart))
+	code.WriteString("\n")
+	code.WriteString(delimSpan)
+	if r.bodyStart < r.bodyEnd {
+		code.WriteString("\n")
+		code.WriteString(renderBodyChunk(bodyChunk, r.bodyStart))
 	}
 
-	// Squiggle overlays for diagnostics whose range falls within this
-	// panel's line span. Positioned absolutely via CSS custom props.
+	// Squiggle overlays for every diagnostic. Coordinates are
+	// file-absolute (0-indexed LSP-style); the CSS
+	//   top: calc(1rem + var(--lsp-line) * 1lh)
+	// lands the wave on the right line because the <pre> starts at
+	// file line 0 (the opening `---`).
 	var squiggles strings.Builder
 	for _, d := range r.diagnostics {
-		if d.Range.Start.Line < opts.startLine || d.Range.Start.Line >= opts.endLine {
-			continue
-		}
-		// Convert to panel-local 0-indexed coordinates for visual placement.
-		localLine := d.Range.Start.Line - opts.startLine
 		startCol := d.Range.Start.Character
 		endCol := d.Range.End.Character
 		if d.Range.End.Line != d.Range.Start.Line {
 			// Multi-line diagnostic: cap at the end of the start line.
 			lineLen := 0
-			if localLine < len(chunkLines) {
-				lineLen = len(chunkLines[localLine])
+			if d.Range.Start.Line < len(lines) {
+				lineLen = len(lines[d.Range.Start.Line])
 			}
 			endCol = lineLen
 		}
@@ -138,26 +123,25 @@ func (r *Renderer) renderPanel(opts panelOpts) template.HTML {
 		}
 		fmt.Fprintf(&squiggles,
 			`<span class="lsp-squiggle" style="--lsp-line:%d;--lsp-col:%d;--lsp-width:%d" title="%s"></span>`,
-			localLine, startCol, width, html.EscapeString(d.Message))
+			d.Range.Start.Line, startCol, width, html.EscapeString(d.Message))
 	}
 
-	// Panel chrome: traffic-light dots + filename — suffix. Pre is
-	// scrollable horizontally on overflow but never wraps so the
-	// (line, col)-positioned squiggles stay aligned.
+	// Window chrome: traffic-light dots + filename. The <pre> never
+	// wraps so (line, col)-positioned squiggles stay aligned with the
+	// rendered glyph grid.
 	var b strings.Builder
 	fmt.Fprintf(&b, `<div class="lsp-panel">`)
 	fmt.Fprintf(&b, `<div class="lsp-panel-bar">`)
 	fmt.Fprintf(&b, `<span class="lsp-dot lsp-dot-red"></span>`)
 	fmt.Fprintf(&b, `<span class="lsp-dot lsp-dot-yellow"></span>`)
 	fmt.Fprintf(&b, `<span class="lsp-dot lsp-dot-green"></span>`)
-	fmt.Fprintf(&b, `<span class="lsp-panel-title">%s <span class="lsp-panel-suffix">— %s</span></span>`,
-		html.EscapeString(Filename), html.EscapeString(opts.titleSuffix))
+	fmt.Fprintf(&b, `<span class="lsp-panel-title">%s</span>`, html.EscapeString(Filename))
 	fmt.Fprintf(&b, `</div>`)
 	fmt.Fprintf(&b, `<div class="lsp-panel-code">`)
 	// `chroma` class on the wrapper so existing per-token color rules
 	// (.chroma .kd, .chroma .nx, etc.) in tailwind.css apply without
 	// needing a parallel rule set keyed on .lsp-code.
-	fmt.Fprintf(&b, `<pre class="lsp-code chroma"><code>%s</code></pre>`, code)
+	fmt.Fprintf(&b, `<pre class="lsp-code chroma"><code>%s</code></pre>`, code.String())
 	b.WriteString(squiggles.String())
 	fmt.Fprintf(&b, `</div>`)
 	fmt.Fprintf(&b, `</div>`)
@@ -175,7 +159,7 @@ func (r *Renderer) renderPanel(opts panelOpts) template.HTML {
 //
 // originLine is the 0-indexed line in the full source where chunk
 // starts; we offset every token's line by this to recover file coords.
-func renderGoChunk(chunk string, originLine int, panelKey string) string {
+func renderGoChunk(chunk string, originLine int) string {
 	lexer := lexers.Get("go")
 	if lexer == nil {
 		return html.EscapeString(chunk)
@@ -189,7 +173,7 @@ func renderGoChunk(chunk string, originLine int, panelKey string) string {
 	var out strings.Builder
 	line, col := 0, 0
 	for tok := it(); tok != chroma.EOF; tok = it() {
-		emitToken(&out, tok, line+originLine, col, panelKey)
+		emitToken(&out, tok, line+originLine, col)
 		// Advance our (line, col) tracker by the token's value.
 		line, col = advance(line, col, tok.Value)
 	}
@@ -198,11 +182,11 @@ func renderGoChunk(chunk string, originLine int, panelKey string) string {
 
 // emitToken writes one chroma token as HTML. If the token is a Name
 // (any subcategory), it's wrapped in an .lsp-ident hover span.
-func emitToken(out *strings.Builder, tok chroma.Token, line, col int, panelKey string) {
+func emitToken(out *strings.Builder, tok chroma.Token, line, col int) {
 	escaped := html.EscapeString(tok.Value)
 
 	if isHoverable(tok.Type) {
-		out.WriteString(hoverableSpan(escaped, chromaClass(tok.Type), line, col, panelKey))
+		out.WriteString(hoverableSpan(escaped, chromaClass(tok.Type), line, col))
 		return
 	}
 
@@ -261,7 +245,7 @@ func advance(line, col int, value string) (int, int) {
 // 'Interaction' decision in the plan. mouseleave hides the tooltip
 // immediately; the next mouseenter on another span replaces its
 // content.
-func hoverableSpan(text, chromaCls string, line, col int, panelKey string) string {
+func hoverableSpan(text, chromaCls string, line, col int) string {
 	// Build space-separated class list: lsp-ident + chroma class (if any).
 	cls := "lsp-ident"
 	if chromaCls != "" {
@@ -272,22 +256,20 @@ func hoverableSpan(text, chromaCls string, line, col int, panelKey string) strin
 	// helper script: keeping it next to the data attribute makes the
 	// span self-contained, and Datastar v1 doesn't have an event-
 	// delegation primitive that would let us factor it onto the
-	// wrapper div. Inline cost is ~380 bytes per span; demo has on
+	// wrapper div. Inline cost is ~330 bytes per span; demo has on
 	// the order of 30 spans so the markup overhead is bounded.
 	//
 	// Coordinates are computed relative to the .lsp-demo-wrap (which
 	// is the tooltip's offset parent) by subtracting the wrap's rect
 	// from the target's. Using offsetLeft/offsetTop directly would
-	// give panel-local coords, mismatched against the tooltip's
+	// give window-local coords, mismatched against the tooltip's
 	// containing block.
-	const handler = "const w = evt.target.closest('.lsp-demo-wrap').getBoundingClientRect(); " +
+	const expr = "const w = evt.target.closest('.lsp-demo-wrap').getBoundingClientRect(); " +
 		"const t = evt.target.getBoundingClientRect(); " +
 		"$hover.x = t.left - w.left + t.width/2; " +
 		"$hover.y = t.top - w.top + t.height; " +
-		"$hover.panel = '%s'; " +
 		"$hover.show = true; " +
 		"@get('/api/lsp-demo/hover?l=' + evt.target.dataset.l + '&c=' + evt.target.dataset.c)"
-	expr := fmt.Sprintf(handler, panelKey)
 
 	return fmt.Sprintf(
 		`<span class="%s" data-l="%d" data-c="%d" data-on:mouseenter__debounce.150ms="%s" data-on:mouseleave="$hover.show = false">%s</span>`,
@@ -305,7 +287,12 @@ func hoverableSpan(text, chromaCls string, line, col int, panelKey string) strin
 // at `{{` / `}}` boundaries and run chroma only on the HTML slices,
 // avoiding a fight with the html lexer over template syntax it
 // doesn't understand.
-func renderBodyChunk(chunk string, originLine int, panelKey string) string {
+//
+// originLine is the 0-indexed line in the full source where chunk
+// starts; identifier hover spans inside `{{ }}` actions are emitted
+// with file-absolute coordinates by adding originLine to the
+// chunk-local line counter.
+func renderBodyChunk(chunk string, originLine int) string {
 	var out strings.Builder
 	line, col := 0, 0
 	i := 0
@@ -328,7 +315,7 @@ func renderBodyChunk(chunk string, originLine int, panelKey string) string {
 			}
 			actionEnd := i + end + 2 // include closing }}
 			action := chunk[i:actionEnd]
-			emitTemplateAction(&out, action, line+originLine, col, panelKey)
+			emitTemplateAction(&out, action, line+originLine, col)
 			line, col = advance(line, col, action)
 			i = actionEnd
 			segStart = i
@@ -381,7 +368,7 @@ func highlightHTML(src string) string {
 // `.Identifier` references within it and wrapping them in hover
 // spans. originLine/originCol is the (line, col) at which the action
 // starts in the original file (0-indexed LSP coords).
-func emitTemplateAction(out *strings.Builder, action string, originLine, originCol int, panelKey string) {
+func emitTemplateAction(out *strings.Builder, action string, originLine, originCol int) {
 	// Emit the opening `{{` with no decoration.
 	out.WriteString(html.EscapeString(action[:2]))
 	line, col := originLine, originCol+2
@@ -407,7 +394,7 @@ func emitTemplateAction(out *strings.Builder, action string, originLine, originC
 			// gastro's template hover treats the cursor on the first
 			// letter of the field as the field. Bump col by 1 to
 			// skip the `.`.
-			out.WriteString(hoverableSpan(html.EscapeString(ident), "", line, col+1, panelKey))
+			out.WriteString(hoverableSpan(html.EscapeString(ident), "", line, col+1))
 			line, col = advance(line, col, ident)
 			j = k
 			continue

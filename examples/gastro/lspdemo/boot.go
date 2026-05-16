@@ -64,9 +64,9 @@ func fallbackDemo() *Demo {
 // per-request for hovers, shut down at app exit.
 //
 // A "degraded" Demo (LSP failed to come up within the boot deadline)
-// is still usable: Frontmatter() and Body() render the source with
-// hoverable spans, but Hover() returns "" and the spans' tooltips
-// will be empty. This is the fail-soft path called out in the plan.
+// is still usable: Render() returns the source with hoverable spans,
+// but Hover() returns "" and the spans' tooltips will be empty. This
+// is the fail-soft path called out in the plan.
 type Demo struct {
 	client   *lspclient.Client // nil if degraded
 	uri      string            // file:// URI for the demo file
@@ -77,9 +77,9 @@ type Demo struct {
 	mu sync.Mutex // serialises Close
 }
 
-// Frontmatter / Body delegate to the snapshotted renderer.
-func (d *Demo) Frontmatter() template.HTML { return d.renderer.Frontmatter() }
-func (d *Demo) Body() template.HTML        { return d.renderer.Body() }
+// Render delegates to the snapshotted renderer, returning the entire
+// .gastro file's HTML in a single macOS-style window.
+func (d *Demo) Render() template.HTML { return d.renderer.Render() }
 
 // Degraded returns true if the demo booted without an LSP subprocess
 // (timeout or error during Boot). The handlers use this to skip the

@@ -27,37 +27,37 @@ Title := "Home"
 // Pull the currently-registered live-LSP demo. main.go calls
 // lspdemo.Register after Boot, before the HTTP server starts
 // accepting requests, so by the time this frontmatter runs we have
-// the booted (or fail-soft) Demo. Both panels are pre-rendered HTML;
+// the booted (or fail-soft) Demo. The window is pre-rendered HTML;
 // only the hover endpoint goes through the LSP at request time.
 LSPDemo := lspdemo.Live()
-LSPDemoFrontmatter := LSPDemo.Frontmatter()
-LSPDemoBody := LSPDemo.Body()
+LSPDemoFile := LSPDemo.Render()
 ---
 {{ wrap Layout (dict "Title" .Title) }}
 	{{ Hero (dict "IntroHero" .IntroHero) }}
 
-	{{- /* Live-LSP hero demo. The two panels are the same .gastro file
-	       seen from two angles (frontmatter / body); the floating
-	       tooltip element below is patched by the hover SSE handler
-	       and positioned via Datastar signals set on identifier
-	       hover. See examples/gastro/lspdemo for the wiring. */ -}}
+	{{- /* Live-LSP hero demo. The window is the entire .gastro file;
+	       the floating tooltip element below is patched by the hover
+	       SSE handler and positioned via Datastar signals set on
+	       identifier hover. See examples/gastro/lspdemo for the
+	       wiring. */ -}}
 	<section class="bg-surface border-y border-border-light px-6 py-12 md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]"
-		data-signals="{hover: {show: false, x: 0, y: 0, panel: 'left'}}">
+		data-signals="{hover: {show: false, x: 0, y: 0}}">
 		<div class="max-w-site mx-auto">
-			<div class="mb-8 max-w-[640px]">
-				<h2 class="font-display font-bold tracking-[-0.02em] mb-2 leading-[1.2] text-[clamp(1.6rem,3vw,2.2rem)]">See the LSP in action</h2>
-				<p class="text-text-muted text-[1.05rem]">Hover any identifier below — both sides of the file are wired up to the actual gastro LSP, the same one your editor uses.</p>
-			</div>
-
-			<div class="lsp-demo-wrap relative grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-8">
-				{{ .LSPDemoFrontmatter }}
-				{{ .LSPDemoBody }}
+			<div class="lsp-demo-wrap relative grid grid-cols-1 gap-8 md:grid-cols-12 md:gap-10 md:items-start">
+				<div class="min-w-0 md:col-span-7">
+					{{ .LSPDemoFile }}
+				</div>
+				<div class="md:col-span-5">
+					<h2 class="font-display font-bold tracking-[-0.02em] mb-4 leading-[1.2] text-[clamp(1.6rem,3vw,2.2rem)]">See the LSP in action</h2>
+					<p class="text-text-muted text-[1.05rem] leading-[1.6] mb-4">Hover any identifier — every span queries the real <code>gastro lsp</code> server, the same one your editor uses.</p>
+					<p class="text-text-muted text-[1.05rem] leading-[1.6] mb-4">The red squiggle on <code>p.NAme</code> is the actual gopls diagnostic, computed at page render. Hover tooltips come back from the LSP on every interaction.</p>
+					<p class="text-text-muted text-[1.05rem] leading-[1.6]">Available today for VS Code, Zed, and Neovim.</p>
+				</div>
 				<div id="lsp-tooltip"
 					class="lsp-hover"
 					data-class:visible="$hover.show"
 					data-style:--lsp-x="$hover.x + 'px'"
-					data-style:--lsp-y="$hover.y + 'px'"
-					data-style:--lsp-panel="$hover.panel"></div>
+					data-style:--lsp-y="$hover.y + 'px'"></div>
 			</div>
 		</div>
 	</section>
