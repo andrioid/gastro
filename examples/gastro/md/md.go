@@ -10,6 +10,10 @@ import (
 	"html/template"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	// Blank-import registers the "gastro" alias in chroma's global lexer
+	// registry. goldmark-highlighting then picks it up automatically for any
+	// ```gastro fenced block. See pkg/chromalexer/gastro for the lexer rules.
+	_ "github.com/andrioid/gastro/pkg/chromalexer/gastro"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
