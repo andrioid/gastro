@@ -42,7 +42,7 @@ Title := "Home"
 
 				<div class="feature-card [animation-delay:0.2s]">
 					<h3 class="font-display font-bold leading-[1.3] text-[1.1rem] mb-[0.4rem]">Editors &amp; Coding Agents</h3>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Full language server (LSP) with completions, diagnostics, and go-to-definition. For both frontmatter Go in the frontmatter, and HTML templates in the body.</p>
+					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Full language server (LSP) with completions, diagnostics, and go-to-definition. For both the Go frontmatter and the HTML template body.</p>
 					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Extensions for VS Code, Zed and Nevim. More can be created as interest grows.</p>
 				</div>
 				<div class="feature-card [animation-delay:0.25s]">
