@@ -317,26 +317,6 @@
     color: var(--color-code-text);
   }
 
-  /* Hero code window <pre> overrides. The IntroHero markdown is now
-     rendered through chroma (via the gastro lexer), so its <pre> carries
-     `class="chroma"`. Selecting under .hero-code-window keeps the rules
-     local without leaking into the docs prose styles.
-
-     Note: deprecated in favor of .code-window* (below). The hero is
-     migrated in this commit; the lspdemo renderer still emits its own
-     .lsp-panel* chrome and is migrated in the follow-up commit, after
-     which both .hero-code-window and .lsp-panel* are removed. */
-  .hero-code-window pre {
-    margin: 0;
-    padding: 1.25rem;
-    overflow-x: auto;
-    background: var(--color-code-bg);
-  }
-  .hero-code-window pre code {
-    font-size: 0.84rem;
-    line-height: 1.65;
-  }
-
   /* Code window framing. Shared by the hero (via the CodeWindow
      component, wrapping markdown-rendered .gastro snippets) and — in
      the follow-up commit — by the live-LSP demo renderer. macOS-style
@@ -577,65 +557,29 @@
 /* -------------------------------------------------------------------
    Live-LSP demo (homepage section between Hero and Why Gastro?)
 
-   Two-panel layout: one .lsp-panel for the frontmatter, one for the
-   body of the same .gastro file. A single floating #lsp-tooltip is
-   absolutely-positioned within .lsp-demo-wrap by Datastar signals
-   (--lsp-x / --lsp-y / --lsp-panel) that are set on identifier
-   mouseenter. Squiggles (.lsp-squiggle) overlay each panel using
-   per-element --lsp-line / --lsp-col / --lsp-width vars so the
-   wavy underline lands on the diagnostic's exact span.
+   The .gastro file is rendered into a single <CodeWindow>; the
+   lspdemo renderer supplies the inner <pre class="lsp-code chroma">
+   plus absolutely-positioned squiggle <span>s. A single floating
+   #lsp-tooltip is positioned within .lsp-demo-wrap by Datastar
+   signals (--lsp-x / --lsp-y) set on identifier mouseenter.
+   Squiggles use per-element --lsp-line / --lsp-col / --lsp-width
+   vars so the wavy underline lands on the diagnostic's exact span.
    ------------------------------------------------------------------- */
 @layer components {
   /* The grid wrapper is `position: relative` so the tooltip's
      absolute positioning is measured from the wrapper's edge. The
      grid itself is set with Tailwind utility classes in the markup
-     (1 col mobile, 2 col md+); only the relative is unavoidable. */
+     (1 col mobile, 12 col md+); only the relative is unavoidable. */
   .lsp-demo-wrap { position: relative; }
 
-  .lsp-panel {
-    background: var(--color-code-bg);
-    border-radius: var(--radius-lg, 0.5rem);
-    overflow: hidden;
-    box-shadow: 0 10px 30px -10px rgba(44, 36, 24, 0.35),
-                0 0 0 1px rgba(255, 255, 255, 0.04);
-  }
-
-  .lsp-panel-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.7rem 1rem;
-    background: rgba(0, 0, 0, 0.25);
-  }
-  .lsp-dot { width: 0.625rem; height: 0.625rem; border-radius: 9999px; }
-  .lsp-dot-red    { background: #e85c4a; }
-  .lsp-dot-yellow { background: #e8a73e; }
-  .lsp-dot-green  { background: #5eb86c; }
-  .lsp-panel-title {
-    margin-left: 0.5rem;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.78rem;
-    color: var(--color-text-subtle);
-  }
-  .lsp-panel-suffix { color: var(--color-text-muted); }
-
-  /* The code container. `position: relative` so squiggles can be
-     placed in panel-local coords; `overflow-x: auto` so long lines
-     scroll horizontally instead of breaking the squiggle alignment. */
-  .lsp-panel-code {
-    position: relative;
-    padding: 1rem 1.25rem;
-    overflow-x: auto;
-  }
-
+  /* The lspdemo <pre> lives inside .code-window-body, which already
+     supplies font-size 0.84rem / line-height 1.65 (see .code-window-body
+     pre). We add white-space: pre so (line, col)-positioned squiggles
+     stay aligned with the rendered glyphs, plus an explicit color so
+     identifier text without a chroma class (whitespace, plain text)
+     stays readable. */
   .lsp-code {
-    margin: 0;
-    font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.85rem;
-    line-height: 1.55;
     color: var(--color-code-text);
-    /* Pre wraps off so (line, col)-positioned squiggles stay aligned
-       with the actual rendered glyphs. */
     white-space: pre;
   }
 
@@ -653,29 +597,30 @@
     background: rgba(255, 255, 255, 0.06);
   }
 
-  /* Squiggle overlay. Positioned absolutely within .lsp-panel-code
+  /* Squiggle overlay. Positioned absolutely within .code-window-body
      using line/col CSS vars set per element. The squiggle occupies
      one full line-height box and the wave is painted at the bottom
      of that box (background-position: 0 bottom), so it always sits
      under the glyph baseline without overflowing into the next line
      or below the panel. 1ch tracks the monospace cell width, 1lh the
-     code's line-height — both inherited from the .lsp-code element
-     they're laid out over. The 0.85rem font-size + 1.55 line-height
-     match .lsp-code so 1lh/1ch resolve to the right cell. */
+     code's line-height — both inherited from this element's own font
+     metrics, which we set to match .code-window-body pre's metrics so
+     1lh / 1ch resolve to the same cell as the rendered glyphs. */
   .lsp-squiggle {
     position: absolute;
-    /* font-family + size + line-height MUST match .lsp-code: 1ch /
-       1lh resolve against this element's own font metrics, and we
-       use them to align with the monospace code grid. Without the
-       explicit font-family the squiggle inherits the body's
-       proportional font and 1ch overshoots horizontally. */
+    /* font-family + size + line-height MUST match .code-window-body
+       pre (font-size 0.84rem, line-height 1.65). 1ch / 1lh resolve
+       against this element's own font metrics, and we use them to
+       align with the monospace code grid. Without the explicit
+       font-family the squiggle inherits the body's proportional
+       font and 1ch overshoots horizontally. */
     font-family: var(--font-mono, ui-monospace, monospace);
-    font-size: 0.85rem;
-    line-height: 1.55;
-    /* +1rem matches .lsp-panel-code padding-top so line 0 lines up
-       with the first rendered glyph. */
-    top: calc(1rem + var(--lsp-line) * 1lh);
-    /* +1.25rem matches .lsp-panel-code padding-left. */
+    font-size: 0.84rem;
+    line-height: 1.65;
+    /* +1.25rem matches .code-window-body padding-top so line 0 lines
+       up with the first rendered glyph. */
+    top: calc(1.25rem + var(--lsp-line) * 1lh);
+    /* +1.25rem matches .code-window-body padding-left. */
     left: calc(1.25rem + var(--lsp-col) * 1ch);
     width: calc(var(--lsp-width) * 1ch);
     height: 1lh;
@@ -744,12 +689,6 @@
    single class name than as a long utility chain repeated everywhere.
    ------------------------------------------------------------------- */
 @layer utilities {
-  /* Code window framing in the hero — matches `.code-window` shadow. */
-  .shadow-code-window {
-    box-shadow: 0 20px 40px -12px rgba(44, 36, 24, 0.45),
-                0 0 0 1px rgba(255, 255, 255, 0.04);
-  }
-
   /* Accent focus ring used on guestbook inputs. */
   .ring-accent-soft {
     box-shadow: 0 0 0 3px rgba(232, 114, 42, 0.1);

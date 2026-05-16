@@ -64,12 +64,12 @@ func newLSPDemoHoverHandler(demo *lspdemo.Demo) http.HandlerFunc {
 // tooltipShell renders the always-the-same outer <div> with the
 // Datastar bindings. Both the populated and empty tooltip patches
 // share the same shell so the bindings stay attached across SSE
-// replacements.
+// replacements. Must stay in sync with the initial markup in
+// pages/index.gastro — same id, classes, and bindings.
 const tooltipShell = `<div id="lsp-tooltip" class="lsp-hover" ` +
 	`data-class:visible="$hover.show" ` +
 	`data-style:--lsp-x="$hover.x + 'px'" ` +
-	`data-style:--lsp-y="$hover.y + 'px'" ` +
-	`data-style:--lsp-panel="$hover.panel">%s</div>`
+	`data-style:--lsp-y="$hover.y + 'px'">%s</div>`
 
 func tooltipHTML(body template.HTML) string {
 	return fmt.Sprintf(tooltipShell, fmt.Sprintf(`<div class="lsp-hover-body">%s</div>`, body))

@@ -15,12 +15,19 @@ func TestRenderer_FileContainsExpectedIdents(t *testing.T) {
 
 	out := string(r.Render())
 
-	// Title bar appears exactly once (single-window layout).
-	if got := strings.Count(out, "greeting.gastro"); got != 1 {
-		t.Errorf("filename should appear exactly once, got %d occurrences in: %s", got, out)
+	// Inner-content-only output: no chrome, no title — the page
+	// template wraps this in <CodeWindow> for the bar + filename.
+	if strings.Contains(out, "greeting.gastro") {
+		t.Errorf("renderer should not emit the filename (chrome lives in <CodeWindow>); got: %s", out)
+	}
+	if strings.Contains(out, `class="lsp-panel"`) || strings.Contains(out, `class="lsp-panel-bar"`) {
+		t.Errorf("renderer should not emit lsp-panel chrome anymore; got: %s", out)
+	}
+	if !strings.Contains(out, `class="lsp-code chroma"`) {
+		t.Errorf("renderer should emit a <pre class=\"lsp-code chroma\"> wrapping the code; got: %s", out)
 	}
 
-	// Both `---` delimiters made it into the rendered window.
+	// Both `---` delimiters made it into the rendered code stream.
 	if got := strings.Count(out, `<span class="cp">---</span>`); got != 2 {
 		t.Errorf("expected exactly 2 `---` delimiter spans, got %d in: %s", got, out)
 	}

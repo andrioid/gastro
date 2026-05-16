@@ -66,13 +66,21 @@ func NewRenderer(source string, diagnostics []lspclient.Diagnostic) (*Renderer, 
 	}, nil
 }
 
-// Render returns the entire .gastro file's HTML in a single macOS-style
-// window: traffic-light bar + filename, then the opening `---`, the
-// frontmatter (Go-lexed), the closing `---`, and the body (HTML-lexed
-// with `{{ }}` template actions hand-walked for hoverable field
-// references). All identifier hover spans and squiggle overlays
-// carry file-absolute coordinates so the LSP query position and the
-// squiggle's CSS line offset are the same number.
+// Render returns the highlighted code + squiggle overlays for the
+// entire .gastro file. The macOS-style window chrome (traffic-light
+// bar, filename, dark background) is supplied by the shared
+// <CodeWindow> component; the page template wraps this output:
+//
+//	{{ wrap CodeWindow (dict "Title" "components/greeting.gastro") }}
+//	    {{ .LSPDemoFile }}
+//	{{ end }}
+//
+// The output is: the opening `---`, the frontmatter (Go-lexed), the
+// closing `---`, the body (HTML-lexed with `{{ }}` template actions
+// hand-walked for hoverable field references), then absolutely-
+// positioned squiggle <span>s. All identifier hover spans and
+// squiggle overlays carry file-absolute coordinates so the LSP query
+// position and the squiggle's CSS line offset are the same number.
 func (r *Renderer) Render() template.HTML {
 	lines := strings.Split(r.source, "\n")
 
@@ -102,9 +110,10 @@ func (r *Renderer) Render() template.HTML {
 
 	// Squiggle overlays for every diagnostic. Coordinates are
 	// file-absolute (0-indexed LSP-style); the CSS
-	//   top: calc(1rem + var(--lsp-line) * 1lh)
+	//   top: calc(1.25rem + var(--lsp-line) * 1lh)
 	// lands the wave on the right line because the <pre> starts at
-	// file line 0 (the opening `---`).
+	// file line 0 (the opening `---`) and 1.25rem matches the
+	// .code-window-body padding-top.
 	var squiggles strings.Builder
 	for _, d := range r.diagnostics {
 		startCol := d.Range.Start.Character
@@ -126,25 +135,17 @@ func (r *Renderer) Render() template.HTML {
 			d.Range.Start.Line, startCol, width, html.EscapeString(d.Message))
 	}
 
-	// Window chrome: traffic-light dots + filename. The <pre> never
-	// wraps so (line, col)-positioned squiggles stay aligned with the
-	// rendered glyph grid.
-	var b strings.Builder
-	fmt.Fprintf(&b, `<div class="lsp-panel">`)
-	fmt.Fprintf(&b, `<div class="lsp-panel-bar">`)
-	fmt.Fprintf(&b, `<span class="lsp-dot lsp-dot-red"></span>`)
-	fmt.Fprintf(&b, `<span class="lsp-dot lsp-dot-yellow"></span>`)
-	fmt.Fprintf(&b, `<span class="lsp-dot lsp-dot-green"></span>`)
-	fmt.Fprintf(&b, `<span class="lsp-panel-title">%s</span>`, html.EscapeString(Filename))
-	fmt.Fprintf(&b, `</div>`)
-	fmt.Fprintf(&b, `<div class="lsp-panel-code">`)
-	// `chroma` class on the wrapper so existing per-token color rules
+	// Inner content only: code <pre> + squiggle overlays. The page
+	// template wraps this in <CodeWindow> for the chrome.
+	//
+	// `chroma` class on the <pre> so existing per-token color rules
 	// (.chroma .kd, .chroma .nx, etc.) in tailwind.css apply without
-	// needing a parallel rule set keyed on .lsp-code.
+	// needing a parallel rule set. The `lsp-code` class scopes the
+	// squiggle font-metric overrides so 1ch / 1lh resolve against the
+	// monospace cell size, matching the rendered glyph grid.
+	var b strings.Builder
 	fmt.Fprintf(&b, `<pre class="lsp-code chroma"><code>%s</code></pre>`, code.String())
 	b.WriteString(squiggles.String())
-	fmt.Fprintf(&b, `</div>`)
-	fmt.Fprintf(&b, `</div>`)
 	return template.HTML(b.String())
 }
 
