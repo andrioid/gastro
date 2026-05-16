@@ -6,11 +6,17 @@ import (
 )
 
 type Props struct {
-	IntroHero template.HTML
+	// LSPDemoFile is the pre-rendered inner content of the live-LSP
+	// demo (a <pre class="lsp-code chroma"> + squiggle <span>s). Wrapped
+	// in a <CodeWindow> here for the chrome. The hover spans inside it
+	// expect a `.lsp-demo-wrap` ancestor with `position: relative` and
+	// a `hover` Datastar signal in scope — both supplied by this
+	// component's right column.
+	LSPDemoFile template.HTML
 }
 
 p := gastro.Props()
-IntroHero := p.IntroHero
+LSPDemoFile := p.LSPDemoFile
 ---
 <div class="bg-hero-bg">
 	<section class="grid grid-cols-1 gap-8 max-w-site mx-auto px-6 py-10 items-center lg:grid-cols-[1.1fr_0.9fr] md:gap-[clamp(2rem,4vw,5rem)] md:px-8 md:py-[clamp(3rem,6vw,6rem)]">
@@ -24,10 +30,21 @@ IntroHero := p.IntroHero
 				<a href="https://github.com/andrioid/gastro" class="btn btn-secondary" target="_blank" rel="noopener">GitHub<span class="sr-only"> (opens in new tab)</span></a>
 			</div>
 		</div>
-		<div class="min-w-0 max-lg:max-w-[520px] animate-[fade-up_0.5s_ease-out_0.15s_both]" aria-hidden="true">
+		{{- /* Right column: live LSP demo wrapped in <CodeWindow>.
+		       `.lsp-demo-wrap` is the tooltip's positioning parent and
+		       the ancestor the inline mouseenter handler in the hover
+		       spans looks up via .closest(). `data-signals` initialises
+		       the Datastar hover state in scope for those spans. */ -}}
+		<div class="lsp-demo-wrap relative min-w-0 max-lg:max-w-[520px] animate-[fade-up_0.5s_ease-out_0.15s_both]"
+			data-signals="{hover: {show: false, x: 0, y: 0}}">
 			{{ wrap CodeWindow (dict "Title" "components/greeting.gastro") }}
-				{{ .IntroHero }}
+				{{ .LSPDemoFile }}
 			{{ end }}
+			<div id="lsp-tooltip"
+				class="lsp-hover"
+				data-class:visible="$hover.show"
+				data-style:--lsp-x="$hover.x + 'px'"
+				data-style:--lsp-y="$hover.y + 'px'"></div>
 		</div>
 	</section>
 </div>
