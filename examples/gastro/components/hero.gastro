@@ -9,7 +9,7 @@ p := gastro.Props()
 IntroHero := p.IntroHero
 ---
 <div class="bg-hero-bg">
-	<section class="grid grid-cols-1 gap-8 max-w-site mx-auto px-6 py-10 items-center md:grid-cols-[1.1fr_0.9fr] md:gap-[clamp(2rem,4vw,5rem)] md:px-8 md:py-[clamp(3rem,6vw,6rem)]">
+	<section class="grid grid-cols-1 gap-8 max-w-site mx-auto px-6 py-10 items-center lg:grid-cols-[1.1fr_0.9fr] md:gap-[clamp(2rem,4vw,5rem)] md:px-8 md:py-[clamp(3rem,6vw,6rem)]">
 		<div class="flex flex-col animate-[fade-up_0.5s_ease-out_both]">
 			<p class="font-mono text-[0.82rem] text-accent-warm tracking-[0.04em] mb-4 font-medium">A fresh take on Go web development</p>
 			<h1 class="font-display font-bold leading-[1.15] text-header-text tracking-[-0.02em] mb-5 text-[clamp(1.75rem,5vw,2.2rem)] md:text-[clamp(2rem,4vw,3rem)]"
@@ -20,7 +20,7 @@ IntroHero := p.IntroHero
 				<a href="https://github.com/andrioid/gastro" class="btn btn-secondary" target="_blank" rel="noopener">GitHub<span class="sr-only"> (opens in new tab)</span></a>
 			</div>
 		</div>
-		<div class="min-w-0 max-md:max-w-[520px] animate-[fade-up_0.5s_ease-out_0.15s_both]" aria-hidden="true">
+		<div class="min-w-0 max-lg:max-w-[520px] animate-[fade-up_0.5s_ease-out_0.15s_both]" aria-hidden="true">
 			<div class="hero-code-window bg-code-bg rounded-lg overflow-hidden text-accent-light shadow-code-window">
 				<div class="flex items-center px-4 py-[0.7rem] bg-black/25 gap-2">
 					<span class="w-2.5 h-2.5 rounded-full bg-[#e85c4a]"></span>
