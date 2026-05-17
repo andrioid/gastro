@@ -744,16 +744,19 @@ func TestDiagnoseComponentProps_DeprecatedUnderscoreChildren(t *testing.T) {
 	}
 }
 
-// TestDiagnoseComponentProps_WrapFormFallback exercises the regex
-// fallback that handles `{{ wrap X (...) }}...{{ end }}` form. Go's
-// text/template/parse rejects this because `wrap` isn't a built-in
-// block keyword, so DiagnoseComponentProps gets a nil tree and the
-// fallback path runs. The fallback delegates synthetic-key
-// classification to codegen.SyntheticPropKey, so wrap-form and
-// bare-call form agree on which keys are valid — this test asserts
-// the canonical Children case is silently accepted, the deprecated
-// __children produces a warning, and an unknown key produces an error.
-func TestDiagnoseComponentProps_WrapFormFallback(t *testing.T) {
+// TestDiagnoseComponentProps_WrapForm exercises dict-key validation
+// on `{{ wrap X (...) }}...{{ end }}` blocks. ParseTemplateBody
+// rewrites the leading `wrap` keyword to `if  ` so Go's parser
+// accepts the body (otherwise the trailing {{ end }} is "unexpected"),
+// which routes diagnostics through the position-accurate AST path
+// rather than the legacy regex fallback. The substitution is
+// byte-for-byte preserving, so diagnostic positions still anchor on
+// the original source.
+//
+// The asserted behaviour matches the bare-call form: Children is
+// silently accepted, __children produces a deprecation warning, and
+// unknown keys produce errors.
+func TestDiagnoseComponentProps_WrapForm(t *testing.T) {
 	uses := []parser.UseDeclaration{
 		{Name: "Layout", Path: "components/layout.gastro"},
 	}
@@ -787,13 +790,16 @@ func TestDiagnoseComponentProps_WrapFormFallback(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// ParseTemplateBody returns nil tree for wrap form —
-			// confirm so we know the fallback is what's being tested.
+			// ParseTemplateBody must succeed on wrap form so the AST
+			// path drives diagnostics; if it ever regresses to nil,
+			// the regex fallback would silently re-introduce the
+			// false-positive bug TestDiagnoseComponentProps_WrapForm_
+			// PascalCaseValue covers.
 			tree, err := lsptemplate.ParseTemplateBody(tc.body, uses)
-			if err == nil && tree != nil {
-				t.Fatalf("sanity: expected ParseTemplateBody to fail on wrap form, got tree=%v err=%v", tree, err)
+			if err != nil || tree == nil {
+				t.Fatalf("expected ParseTemplateBody to succeed on wrap form, got tree=%v err=%v", tree, err)
 			}
-			diags := lsptemplate.DiagnoseComponentProps(tc.body, nil, uses, propsMap)
+			diags := lsptemplate.DiagnoseComponentProps(tc.body, tree, uses, propsMap)
 			if tc.want == "" {
 				// Silent path — no key-related diagnostic should fire.
 				for _, d := range diags {
@@ -816,6 +822,100 @@ func TestDiagnoseComponentProps_WrapFormFallback(t *testing.T) {
 				t.Errorf("expected diagnostic containing %q; got %d diagnostics: %v", tc.want, len(diags), diags)
 			}
 		})
+	}
+}
+
+// TestDiagnoseComponentProps_WrapForm_PascalCaseValue is a regression
+// test for the false-positive bug where dict values that looked like
+// PascalCase identifiers (e.g. `"Develop"`, `"Deploy"`, `"Title"`)
+// were flagged as unknown props. The bug lived in the regex fallback
+// path, which had no key/value pairing and treated every PascalCase
+// quoted string in the dict args as a key. Investigation report at
+// tmp/lsp-dict-value-false-positive.md (in the original PR).
+//
+// The fix is upstream of the regex fallback: ParseTemplateBody now
+// rewrites `wrap` to `if  ` so the AST path — which correctly pairs
+// keys and values via `i += 2` iteration — handles the wrap form
+// instead. This test asserts the bug does not return for any of the
+// shapes that originally tripped it.
+func TestDiagnoseComponentProps_WrapForm_PascalCaseValue(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "StepCard", Path: "components/step-card.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"StepCard": {{Name: "Eyebrow", Type: "string"}},
+	}
+
+	// Each case is a body that previously produced an `unknown prop "X"`
+	// diagnostic, where X was the PascalCase value (not the key).
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"single PascalCase word value", `{{ wrap StepCard (dict "Eyebrow" "Develop") }}body{{ end }}`},
+		{"common verb value", `{{ wrap StepCard (dict "Eyebrow" "Deploy") }}body{{ end }}`},
+		{"value matching a known prop name", `{{ wrap StepCard (dict "Eyebrow" "Title") }}body{{ end }}`},
+		{"value matching the synthetic Children key", `{{ wrap StepCard (dict "Eyebrow" "Children") }}body{{ end }}`},
+		{"multiple wraps in one body", `{{ wrap StepCard (dict "Eyebrow" "Develop") }}a{{ end }}` + "\n" + `{{ wrap StepCard (dict "Eyebrow" "Deploy") }}b{{ end }}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tree, err := lsptemplate.ParseTemplateBody(tc.body, uses)
+			if err != nil || tree == nil {
+				t.Fatalf("expected ParseTemplateBody to accept wrap form, got tree=%v err=%v", tree, err)
+			}
+			diags := lsptemplate.DiagnoseComponentProps(tc.body, tree, uses, propsMap)
+			for _, d := range diags {
+				if strings.Contains(d.Message, "unknown prop") {
+					t.Errorf("unexpected unknown-prop diagnostic: %s", d.Message)
+				}
+			}
+		})
+	}
+}
+
+// TestDiagnoseComponentProps_WrapForm_KeyPositions verifies that
+// dict-key diagnostics emitted from a wrap-form body anchor on the
+// correct (line, col) range in the ORIGINAL source — not the
+// rewritten body produced by ParseTemplateBody. The rewrite is
+// byte-for-byte preserving by design (`wrap` and `if  ` are both four
+// characters); this test guards against any future regression that
+// changes the substitution to something position-shifting.
+func TestDiagnoseComponentProps_WrapForm_KeyPositions(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Card": {{Name: "Title", Type: "string"}},
+	}
+	body := `padding
+{{ wrap Card (dict "Bogus" "v") }}body{{ end }}`
+	tree, err := lsptemplate.ParseTemplateBody(body, uses)
+	if err != nil || tree == nil {
+		t.Fatalf("ParseTemplateBody failed: %v", err)
+	}
+	diags := lsptemplate.DiagnoseComponentProps(body, tree, uses, propsMap)
+	var found bool
+	for _, d := range diags {
+		if !strings.Contains(d.Message, `unknown prop "Bogus"`) {
+			continue
+		}
+		found = true
+		// The diagnostic anchors on the opening `"` of `"Bogus"`,
+		// at column 19 of line 1 (0-indexed) in the original body:
+		//   `{{ wrap Card (dict "Bogus" ...`
+		//                       0         1
+		//                       0123456789012345678901
+		//                                          ^ col 19
+		if d.StartLine != 1 {
+			t.Errorf("StartLine: got %d, want 1", d.StartLine)
+		}
+		if d.StartChar != 19 {
+			t.Errorf("StartChar: got %d, want 19", d.StartChar)
+		}
+	}
+	if !found {
+		t.Errorf("expected unknown-prop diagnostic for Bogus, got %d diagnostics: %v", len(diags), diags)
 	}
 }
 
