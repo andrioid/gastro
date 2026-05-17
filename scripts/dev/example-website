@@ -4,7 +4,12 @@
 # Hot-reload loop for the gastro-website example.
 #
 #   tailwindcss        rebuilds static/styles.css when tailwind.css or
-#                      any scanned .gastro file changes
+#                      any scanned .gastro file changes. Wired as --asset
+#                      (not --build) so it ALSO runs on RELOAD-class
+#                      changes (template-body edits). --build only fires
+#                      on RESTART-class changes, so putting Tailwind
+#                      there would silently miss new utility classes
+#                      introduced by body-only edits.
 #   go build           rebuilds the binary against the regenerated
 #                      .gastro/ package after gastro watch's own codegen
 #   gastro watch       owns the .gastro -> .gastro/ codegen step itself,
@@ -20,6 +25,6 @@ set -euo pipefail
 cd "$(dirname "$0")/../../examples/gastro"
 
 exec gastro watch \
-  --build 'tailwindcss -i tailwind.css -o static/styles.css' \
+  --asset 'tailwindcss -i tailwind.css -o static/styles.css' \
   --build 'go build -o tmp/app .' \
   --run   'tmp/app'

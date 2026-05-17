@@ -103,6 +103,28 @@ type Config struct {
 	// signal is written.
 	OnReload func()
 
+	// PreReload runs between Generate and OnReload on every reload-class
+	// change. Intended for content-derived asset generators (Tailwind,
+	// esbuild, image opt) that need to re-run when a template body
+	// changes — the equivalent of `--build` for the reload path, which
+	// otherwise skips the build chain entirely because RELOAD-class
+	// changes don't restart the app.
+	//
+	// Failure semantics: when PreReload returns an error the OnReload
+	// signal is suppressed for that cycle so the browser doesn't refresh
+	// onto a partially-rebuilt asset state. The caller is expected to
+	// surface the failure separately (e.g. by writing
+	// .gastro/.build-error so the dev-reload client can show it). The
+	// app is never killed — a broken asset chain must not take down the
+	// previously-good running binary (R4 contract, mirrors --build).
+	//
+	// Receives the parent ctx today; cancellation semantics will tighten
+	// to a per-call child in a future revision (R3 follow-up).
+	//
+	// Wired up by `gastro watch --asset CMD`. `gastro dev` leaves this
+	// nil and so preserves its historical zero-config reload behaviour.
+	PreReload func(ctx context.Context) error
+
 	// WatchGoFiles enables polling of *.go files under GoWatchRoot
 	// (or ProjectRoot if GoWatchRoot is empty), excluding the hardcoded
 	// basename set in defaultGoExcludeBasenames plus ExtraExcludes. All
@@ -225,6 +247,15 @@ func Run(ctx context.Context, cfg Config) error {
 				}
 			}
 		} else {
+			// Reload path: asset chain first (Tailwind etc.), reload
+			// signal second. PreReload failure suppresses the reload so
+			// the browser doesn't see a half-rebuilt asset state.
+			if cfg.PreReload != nil {
+				if err := cfg.PreReload(ctx); err != nil {
+					fmt.Fprintf(os.Stderr, "gastro: pre-reload failed: %v\n", err)
+					return
+				}
+			}
 			if cfg.OnReload != nil {
 				cfg.OnReload()
 			}

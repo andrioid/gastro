@@ -50,19 +50,63 @@ gastro watch \
   --run 'tmp/app'
 ```
 
-`--build` is repeatable, so you can chain a CSS pipeline or anything else
-before the Go build:
+`--build` is repeatable so you can chain multiple compile steps:
 
 ```sh
 gastro watch \
-  --build 'tailwindcss -i in.css -o internal/web/static/styles.css' \
-  --build 'go build -o tmp/app ./cmd/myapp' \
-  --run 'tmp/app'
+  --build 'go build -o tmp/app/server ./cmd/server' \
+  --build 'go build -o tmp/app/worker ./cmd/worker' \
+  --run 'tmp/app/server'
 ```
+
+For asset generators (Tailwind, esbuild, image opt), use `--asset` instead
+of `--build` — see [Asset chain vs build chain](#asset-chain-vs-build-chain)
+below for why this matters.
 
 Full flag reference: `gastro watch --help`. The full library-mode walkthrough
 including component-only and `gastro.New(...)` integration patterns is in
 [Getting Started — Library Mode](getting-started-library.md).
+
+### Asset chain vs build chain
+
+`gastro watch` distinguishes two kinds of pre-run hooks:
+
+| Flag | Runs on RESTART-class changes | Runs on RELOAD-class changes | Use for |
+|---|---|---|---|
+| `--asset CMD` | ✅ (before `--build`) | ✅ (before reload signal) | Content-derived assets (Tailwind, esbuild, image opt) |
+| `--build CMD` | ✅ | ❌ | Binary compilation (`go build`) |
+
+A **template-body edit** (changing what's between the `---` delimiters and
+the end of file, without touching frontmatter) is RELOAD-class: the running
+binary serves the new template from disk and the browser is told to refresh.
+The app does *not* restart, so `--build` is skipped — that's the optimization
+that keeps body-only edits feeling instant.
+
+But a Tailwind setup needs to re-scan the new template to discover any new
+utility classes it should emit. If `tailwindcss` lives in `--build`, the
+reload fires with stale CSS and your new `class="size-12"` does nothing. The
+right wiring puts the asset generator in `--asset`:
+
+```sh
+gastro watch \
+  --asset 'tailwindcss -i tailwind.css -o static/styles.css' \
+  --build 'go build -o tmp/app .' \
+  --run   'tmp/app'
+```
+
+**On RESTART-class change** (frontmatter, Go source, embedded dep): assets
+run first, then builds, then the app restarts. On any failure the previous
+binary keeps serving.
+
+**On RELOAD-class change** (template body, static asset): assets run, the
+browser is told to reload, the app keeps running. If the asset chain fails,
+the reload is suppressed (so you don't refresh onto a half-rebuilt asset
+state) and the failure surfaces via `.gastro/.build-error` like any other
+build error.
+
+Use `--build` exclusively for the Go binary and anything else that only
+makes sense to recompile on restart. Use `--asset` for everything else that
+needs to track what the templates actually contain.
 
 ### Build-failure resilience
 

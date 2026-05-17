@@ -324,6 +324,146 @@ func TestRun_TemplateOnlyChangeTriggersReload(t *testing.T) {
 	})
 }
 
+// TestRun_PreReload_FiresBeforeReloadOnTemplateChange: a template-only
+// edit must trigger PreReload (asset chain) BEFORE OnReload (browser
+// refresh signal), so generated assets like CSS are on disk before the
+// browser fetches the new page. Validates the ordering contract that
+// `gastro watch --asset` relies on.
+func TestRun_PreReload_FiresBeforeReloadOnTemplateChange(t *testing.T) {
+	root := setupProject(t)
+	rec := newRecorder()
+	preCh := make(chan struct{}, 8)
+	ordering := make(chan string, 16)
+
+	withChdir(t, root, func() {
+		cancel, wait := runLoop(t, devloop.Config{
+			PollInterval:  testPoll,
+			DebounceDelay: testDebounce,
+			Generate:      rec.generate,
+			OnRestart:     rec.onRestart,
+			PreReload: func(_ context.Context) error {
+				ordering <- "pre-reload"
+				preCh <- struct{}{}
+				return nil
+			},
+			OnReload: func() {
+				ordering <- "on-reload"
+				rec.reloadCh <- struct{}{}
+			},
+		})
+		defer wait()
+		defer cancel()
+
+		waitN(t, "initial generate", rec.genCh, 1)
+		waitN(t, "initial restart", rec.restartCh, 1)
+
+		touchLater(t, filepath.Join(root, "pages", "index.gastro"), `---
+---
+<h1>NEW</h1>
+`)
+
+		waitN(t, "regen after template change", rec.genCh, 1)
+		waitN(t, "pre-reload fired", preCh, 1)
+		waitN(t, "reload fired", rec.reloadCh, 1)
+
+		// Drain ordering and assert pre-reload precedes on-reload. Both
+		// channels are buffered so the order on `ordering` reflects the
+		// goroutine's call sequence, which is the contract under test.
+		var seq []string
+		for i := 0; i < 2; i++ {
+			select {
+			case s := <-ordering:
+				seq = append(seq, s)
+			case <-time.After(waitTimeout):
+				t.Fatalf("timed out collecting ordering events; got: %v", seq)
+			}
+		}
+		if len(seq) != 2 || seq[0] != "pre-reload" || seq[1] != "on-reload" {
+			t.Errorf("expected ordering [pre-reload, on-reload], got %v", seq)
+		}
+	})
+}
+
+// TestRun_PreReload_ErrorSuppressesReload: when PreReload returns an
+// error, the reload signal must NOT fire — otherwise the browser would
+// refresh onto a half-rebuilt asset state (e.g. stale CSS while the new
+// CSS is mid-compile or broken). The app keeps running (R4 contract).
+func TestRun_PreReload_ErrorSuppressesReload(t *testing.T) {
+	root := setupProject(t)
+	rec := newRecorder()
+	preCh := make(chan struct{}, 8)
+
+	withChdir(t, root, func() {
+		cancel, wait := runLoop(t, devloop.Config{
+			PollInterval:  testPoll,
+			DebounceDelay: testDebounce,
+			Generate:      rec.generate,
+			OnRestart:     rec.onRestart,
+			PreReload: func(_ context.Context) error {
+				preCh <- struct{}{}
+				return fmt.Errorf("simulated asset chain failure")
+			},
+			OnReload: rec.onReload,
+		})
+		defer wait()
+		defer cancel()
+
+		waitN(t, "initial generate", rec.genCh, 1)
+		waitN(t, "initial restart", rec.restartCh, 1)
+
+		touchLater(t, filepath.Join(root, "pages", "index.gastro"), `---
+---
+<h1>NEW</h1>
+`)
+
+		waitN(t, "regen after template change", rec.genCh, 1)
+		waitN(t, "pre-reload attempted", preCh, 1)
+
+		// Give the loop plenty of time to (incorrectly) call OnReload
+		// before asserting silence. testDebounce + a few poll intervals
+		// is enough — if the suppression were missing, the reload would
+		// have fired within that window.
+		time.Sleep(testDebounce + 4*testPoll)
+		if drained := drain(rec.reloadCh); drained > 0 {
+			t.Errorf("reload signal must be suppressed when PreReload fails; saw %d reloads", drained)
+		}
+	})
+}
+
+// TestRun_PreReload_NilPreservesBehaviour: a nil PreReload must not
+// change anything — the historical zero-config `gastro dev` path stays
+// identical. Belt-and-suspenders alongside TestRun_TemplateOnlyChange-
+// TriggersReload (which already runs with PreReload=nil); this one is
+// explicit about the contract.
+func TestRun_PreReload_NilPreservesBehaviour(t *testing.T) {
+	root := setupProject(t)
+	rec := newRecorder()
+
+	withChdir(t, root, func() {
+		cancel, wait := runLoop(t, devloop.Config{
+			PollInterval:  testPoll,
+			DebounceDelay: testDebounce,
+			Generate:      rec.generate,
+			OnRestart:     rec.onRestart,
+			PreReload:     nil, // explicit
+			OnReload:      rec.onReload,
+		})
+		defer wait()
+		defer cancel()
+
+		waitN(t, "initial generate", rec.genCh, 1)
+		waitN(t, "initial restart", rec.restartCh, 1)
+
+		touchLater(t, filepath.Join(root, "pages", "index.gastro"), `---
+---
+<h1>NEW</h1>
+`)
+
+		waitN(t, "regen after template change", rec.genCh, 1)
+		waitN(t, "reload fires", rec.reloadCh, 1)
+	})
+}
+
 // TestRun_DebouncesBurstOfChanges: a rapid burst of N file edits within
 // the debounce window collapses into a single Generate / restart pair.
 // Without debouncing, every poll cycle would compile the world.

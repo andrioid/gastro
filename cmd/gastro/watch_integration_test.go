@@ -530,6 +530,125 @@ func TestWatch_BuildSequence(t *testing.T) {
 	h.Stop()
 }
 
+// TestWatch_AssetChainRunsOnReload exercises the contract that
+// --asset commands fire on RELOAD-class changes (template body edits),
+// not just RESTART-class changes. This was the original bug motivating
+// the --asset flag's introduction: --build is restart-only, so projects
+// that put Tailwind in --build saw stale CSS after any body-only edit.
+func TestWatch_AssetChainRunsOnReload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test \u2014 spawns processes")
+	}
+	root := setupLibProject(t)
+
+	// Asset command writes a marker. The startWatch fixture's initial
+	// OnRestart fires the asset chain once, so we drain that marker
+	// before triggering the reload-class edit.
+	marker := filepath.Join(root, "asset-marker")
+
+	h := startWatch(t, root,
+		"--debounce", "30ms",
+		"--asset", fmt.Sprintf("sh -c 'date +%%s%%N >> %s'", marker),
+		"--run", "sleep 60",
+	)
+	defer h.Stop()
+
+	// Wait for initial asset run (fires before --run starts).
+	if err := waitForMarkerLines(marker, 1, integrationTimeout); err != nil {
+		t.Fatalf("asset chain didn't fire on initial start: %v", err)
+	}
+
+	// Edit the template body only — same frontmatter, different body.
+	// DetectChangedSection sees only the body change, so the watcher
+	// classifies this as ChangeReload. Pre-fix this would never trigger
+	// the asset chain.
+	touchLater(t, filepath.Join(root, "pages", "index.gastro"), `---
+Title := "hello"
+---
+<h1>{{ .Title }} (edited)</h1>
+`)
+
+	if err := waitForMarkerLines(marker, 2, integrationTimeout); err != nil {
+		t.Fatalf("asset chain didn't fire on RELOAD-class body edit: %v", err)
+	}
+}
+
+// TestWatch_AssetChainFailureSuppressesReload: when an --asset command
+// fails (e.g. broken Tailwind config), the browser reload signal must
+// NOT be written — otherwise the page refreshes onto a half-rebuilt
+// asset state. The app keeps running per the R4 contract.
+func TestWatch_AssetChainFailureSuppressesReload(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test \u2014 spawns processes")
+	}
+	root := setupLibProject(t)
+
+	// Pre-create the reload signal so we can detect whether it was
+	// (incorrectly) re-written. The dev-reload server uses mtime to
+	// trigger browser refresh, so a re-write changes the mtime.
+	reloadPath := filepath.Join(root, ".gastro", ".reload")
+	if err := os.MkdirAll(filepath.Dir(reloadPath), 0o755); err != nil {
+		t.Fatalf("mkdir .gastro: %v", err)
+	}
+	if err := os.WriteFile(reloadPath, []byte("initial"), 0o644); err != nil {
+		t.Fatalf("seed reload signal: %v", err)
+	}
+	baseline, _ := os.Stat(reloadPath)
+
+	h := startWatch(t, root,
+		"--debounce", "30ms",
+		"--asset", "false", // always fails
+		"--run", "sleep 60",
+	)
+	defer h.Stop()
+
+	// Trigger a reload-class change. The asset chain runs first, fails,
+	// and devloop suppresses OnReload.
+	touchLater(t, filepath.Join(root, "pages", "index.gastro"), `---
+Title := "hello"
+---
+<h1>{{ .Title }} (edited)</h1>
+`)
+
+	// Generous wait — the debounce + asset attempt + reload-signal
+	// write would all fit in well under a second. Sleeping past that
+	// window proves no reload happened.
+	time.Sleep(2 * time.Second)
+
+	now, err := os.Stat(reloadPath)
+	if err != nil {
+		t.Fatalf("stat reload signal: %v", err)
+	}
+	if !now.ModTime().Equal(baseline.ModTime()) {
+		t.Errorf("reload signal was re-written despite asset failure (mtime %v -> %v)",
+			baseline.ModTime(), now.ModTime())
+	}
+
+	// Build-error signal must exist so the dev-reload client can show it.
+	if _, serr := os.Stat(filepath.Join(root, ".gastro", ".build-error")); os.IsNotExist(serr) {
+		t.Errorf("expected .gastro/.build-error after asset chain failure")
+	}
+}
+
+// waitForMarkerLines polls path until it contains at least n lines, or
+// the deadline expires. Returns an error describing the last-seen state.
+func waitForMarkerLines(path string, n int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastLines int
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			lines := strings.Count(string(data), "\n")
+			if lines >= n {
+				return nil
+			}
+			lastLines = lines
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for %d lines in %s (last seen: %d)", n, path, lastLines)
+}
+
 // --- helpers ---
 
 // freePort asks the kernel for a free TCP port and returns it. The port

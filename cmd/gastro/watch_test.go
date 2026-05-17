@@ -42,7 +42,9 @@ func TestDev_RejectsUnknownFlags(t *testing.T) {
 	}{
 		{"long --build", []string{"--build", "x"}},
 		{"long --run", []string{"--run", "go run ."}},
+		{"long --asset", []string{"--asset", "tailwindcss"}},
 		{"short -b", []string{"-b", "x"}},
+		{"short -a", []string{"-a", "tailwindcss"}},
 		{"unknown -x", []string{"-x"}},
 	}
 	for _, tc := range cases {
@@ -201,6 +203,47 @@ func TestParseWatchArgs(t *testing.T) {
 		}
 		if len(fl.Build) != 3 || fl.Build[0] != "a" || fl.Build[2] != "c" {
 			t.Errorf("Build = %v", fl.Build)
+		}
+	})
+
+	t.Run("single --asset", func(t *testing.T) {
+		fl, err := parseWatchArgs([]string{"--asset", "tailwindcss -i in -o out", "--run", "tmp/app"})
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if len(fl.Asset) != 1 || fl.Asset[0] != "tailwindcss -i in -o out" {
+			t.Errorf("Asset = %v", fl.Asset)
+		}
+	})
+
+	t.Run("repeated --asset accumulates", func(t *testing.T) {
+		fl, err := parseWatchArgs([]string{"--asset", "a", "-a", "b", "--asset=c"})
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if len(fl.Asset) != 3 || fl.Asset[0] != "a" || fl.Asset[1] != "b" || fl.Asset[2] != "c" {
+			t.Errorf("Asset = %v", fl.Asset)
+		}
+	})
+
+	t.Run("--asset and --build coexist", func(t *testing.T) {
+		fl, err := parseWatchArgs([]string{
+			"--asset", "tailwindcss -i in -o out",
+			"--build", "go build -o tmp/app .",
+			"--run", "tmp/app",
+		})
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		if len(fl.Asset) != 1 || len(fl.Build) != 1 {
+			t.Errorf("Asset = %v, Build = %v", fl.Asset, fl.Build)
+		}
+	})
+
+	t.Run("--asset requires value", func(t *testing.T) {
+		_, err := parseWatchArgs([]string{"--asset"})
+		if err == nil {
+			t.Fatal("expected error for missing --asset value")
 		}
 	})
 

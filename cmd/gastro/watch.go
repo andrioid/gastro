@@ -30,8 +30,8 @@ import (
 // `air` / `wgo` / similar.
 func devFlagRejectionMessage(flag string) string {
 	return fmt.Sprintf("gastro dev: unknown flag %s\n"+
-		"gastro dev takes no flags. For custom build/run commands, use:\n"+
-		"  gastro watch --build '...' --run '...'", flag)
+		"gastro dev takes no flags. For custom build/asset/run commands, use:\n"+
+		"  gastro watch --asset '...' --build '...' --run '...'", flag)
 }
 
 // validateDevArgs implements the Q5 flag-rejection contract. Returns nil
@@ -98,6 +98,7 @@ func parseDevWatchFlags(args []string) ([]string, error) {
 type watchFlags struct {
 	Run        string
 	Build      []string
+	Asset      []string
 	Excludes   []string
 	Project    string
 	WatchRoot  string
@@ -153,6 +154,22 @@ func parseWatchArgs(args []string) (watchFlags, error) {
 				consumed = 2
 			}
 			fl.Build = append(fl.Build, value)
+		case "--asset", "-a":
+			// --asset is the reload-aware sibling of --build. Runs on
+			// every change (both reload-class and restart-class), before
+			// the --build chain on restart. Use for content-derived
+			// asset generators (Tailwind, esbuild, image opt) that need
+			// to re-run whenever a template body changes -- RELOAD-class
+			// changes skip --build entirely and would otherwise miss
+			// asset regeneration. See docs/dev-mode.md.
+			if !hasValue {
+				if i+1 >= len(args) {
+					return fl, fmt.Errorf("%s needs a value", a)
+				}
+				value = args[i+1]
+				consumed = 2
+			}
+			fl.Asset = append(fl.Asset, value)
 		case "--exclude":
 			if !hasValue {
 				if i+1 >= len(args) {
@@ -243,9 +260,23 @@ Required:
 Optional:
   -b, --build COMMAND     Command to compile before each (re)start.
                           Repeat for multi-step pipelines:
-                            --build "tailwindcss -i in.css -o out.css"
                             --build "go build -o tmp/app ./cmd/myapp"
                           On build failure, the previous --run keeps running.
+                          NOTE: --build runs ONLY on restart-class changes
+                          (frontmatter, Go sources, embedded deps).
+                          Template-body edits are reload-class and skip
+                          --build entirely. Put asset generators in --asset.
+  -a, --asset COMMAND     Command to regenerate content-derived assets
+                          (Tailwind, esbuild, image opt) before every change
+                          -- both reload-class and restart-class.
+                          Repeat for multi-step pipelines:
+                            --asset "tailwindcss -i in.css -o out.css"
+                          On asset-chain failure, the browser reload is
+                          suppressed so it doesn't render onto stale assets,
+                          and the previous --run keeps running. Errors are
+                          surfaced via .gastro/.build-error.
+                          On restart-class changes, --asset runs before
+                          --build.
   -p, --project PATH      Path to the gastro project root
                           (defaults to GASTRO_PROJECT env, then cwd)
       --watch-root PATH   Override the directory walked for *.go changes.
@@ -265,6 +296,10 @@ Optional:
 Example:
   gastro watch --run 'go run ./cmd/myapp'
   gastro watch --build 'go build -o tmp/app ./cmd/myapp' --run 'tmp/app'
+  gastro watch \
+    --asset 'tailwindcss -i tailwind.css -o static/styles.css' \
+    --build 'go build -o tmp/app .' \
+    --run   'tmp/app'
 `
 
 // runWatch is the entry point for `gastro watch`. Parses argv, sets up
@@ -320,13 +355,23 @@ func runWatch(args []string) error {
 	flags.WatchRoot = goWatchRoot
 	fmt.Fprintf(os.Stderr, "gastro: watching *.go under %s (%s)\n", goWatchRoot, goWatchSource)
 
-	// Build-output collision warning (\u00a74a). If any --build command's argv
-	// looks like it writes a binary into a watched directory other than
-	// tmp/, emit a heads-up. Non-fatal.
+	// Build-output collision warning (\u00a74a). If any --build or --asset
+	// command's argv looks like it writes into a watched directory
+	// other than tmp/, emit a heads-up. Non-fatal. Asset outputs into
+	// static/ are by design (the app serves them) and the suspect-path
+	// helper already exempts that path, so legitimate Tailwind setups
+	// don't trip the warning.
 	for _, b := range flags.Build {
 		if dst := suspectedBuildOutputCollision(b); dst != "" {
 			fmt.Fprintf(os.Stderr,
 				"gastro: --build writes to %q which is under a watched path; "+
+					"this can cause reload loops. Consider writing to tmp/.\n", dst)
+		}
+	}
+	for _, a := range flags.Asset {
+		if dst := suspectedBuildOutputCollision(a); dst != "" {
+			fmt.Fprintf(os.Stderr,
+				"gastro: --asset writes to %q which is under a watched path; "+
 					"this can cause reload loops. Consider writing to tmp/.\n", dst)
 		}
 	}
@@ -361,6 +406,33 @@ func runWatchLoop(ctx context.Context, flags watchFlags) error {
 		buildMu     sync.Mutex
 	)
 
+	// runChain executes a sequence of shell commands in order. Returns
+	// true on full success; false (with the build-error signal already
+	// written and a stderr log) on the first failure, so the caller can
+	// decide whether to skip downstream work. ctx-cancelled mid-run is
+	// silent (newer change won the race; the new cycle will redo it).
+	runChain := func(ctx context.Context, label string, cmds []string) bool {
+		for _, c := range cmds {
+			if ctx.Err() != nil {
+				return false
+			}
+			fmt.Fprintf(os.Stderr, "gastro: %s\n", c)
+			out, runErr := runShellCommand(ctx, c)
+			if ctx.Err() != nil {
+				return false
+			}
+			if runErr != nil {
+				msg := fmt.Sprintf("$ %s\n%s%v", c, out, runErr)
+				fmt.Fprintf(os.Stderr, "gastro: %s failed; previous version still serving\n", label)
+				if werr := writeBuildErrorSignal(msg); werr != nil {
+					fmt.Fprintf(os.Stderr, "gastro: failed to write build-error signal: %v\n", werr)
+				}
+				return false
+			}
+		}
+		return true
+	}
+
 	startApp := func(loopCtx context.Context) error {
 		// R3: cancel any in-flight build before starting a new one.
 		buildMu.Lock()
@@ -371,27 +443,14 @@ func runWatchLoop(ctx context.Context, flags watchFlags) error {
 		buildCancel = cancelBuild
 		buildMu.Unlock()
 
-		// Run --build commands in order. On any failure we DO NOT stop
-		// the previously-running app (R4) and we surface the error to
-		// the browser via .gastro/.build-error.
-		for _, b := range flags.Build {
-			if buildCtx.Err() != nil {
-				// Newer change cancelled us mid-build; surrender quietly.
-				return nil
-			}
-			fmt.Fprintf(os.Stderr, "gastro: %s\n", b)
-			out, runErr := runShellCommand(buildCtx, b)
-			if buildCtx.Err() != nil {
-				return nil
-			}
-			if runErr != nil {
-				msg := fmt.Sprintf("$ %s\n%s%v", b, out, runErr)
-				fmt.Fprintln(os.Stderr, "gastro: build failed; previous version still serving")
-				if werr := writeBuildErrorSignal(msg); werr != nil {
-					fmt.Fprintf(os.Stderr, "gastro: failed to write build-error signal: %v\n", werr)
-				}
-				return nil
-			}
+		// Asset chain first (Tailwind etc.), then build chain. On any
+		// failure we DO NOT stop the previously-running app (R4) and
+		// we surface the error to the browser via .gastro/.build-error.
+		if !runChain(buildCtx, "asset", flags.Asset) {
+			return nil
+		}
+		if !runChain(buildCtx, "build", flags.Build) {
+			return nil
 		}
 
 		// Builds succeeded \u2014 swap the running app.
@@ -416,6 +475,23 @@ func runWatchLoop(ctx context.Context, flags watchFlags) error {
 		return nil
 	}
 
+	// runAssets is wired to devloop.PreReload so the asset chain runs
+	// on RELOAD-class changes too -- not just RESTART-class -- which is
+	// the whole point of distinguishing --asset from --build. Failure
+	// is signalled by returning an error; devloop will then suppress
+	// the OnReload signal so the browser doesn't refresh onto a
+	// half-rebuilt asset state. The error itself is informational; the
+	// build-error signal has already been written inside runChain.
+	runAssets := func(loopCtx context.Context) error {
+		if len(flags.Asset) == 0 {
+			return nil
+		}
+		if !runChain(loopCtx, "asset", flags.Asset) {
+			return errors.New("asset chain failed")
+		}
+		return nil
+	}
+
 	debounce := flags.Debounce
 	loopErr := devloop.Run(ctx, devloop.Config{
 		ProjectRoot:   ".",
@@ -433,6 +509,7 @@ func runWatchLoop(ctx context.Context, flags watchFlags) error {
 			return result.EmbedDeps, nil
 		},
 		OnRestart: startApp,
+		PreReload: runAssets,
 		OnReload:  writeReloadSignal,
 	})
 
