@@ -100,11 +100,34 @@ func TestValidateDictKeys_DynamicKeysSkipped(t *testing.T) {
 	}
 }
 
-func TestValidateDictKeys_BareCallNoDict(t *testing.T) {
+func TestValidateDictKeys_BareCallOnPropfulComponent(t *testing.T) {
+	// Bare-calling a component that declares a Props struct must surface
+	// as a hard diagnostic — the FuncMap wrapper for propful components
+	// is non-variadic, so html/template will fail at execute time. We
+	// catch it during validation so editors and `gastro build` reject
+	// it before deployment.
 	body := `{{ Card }}`
 	warnings := codegen.ValidateDictKeys(body, cardUses(), cardSchema())
+	if len(warnings) != 1 {
+		t.Fatalf("expected exactly one warning for bare-call on propful component, got: %v", warnings)
+	}
+	if !strings.Contains(warnings[0].Message, "requires props") {
+		t.Errorf("warning message = %q, want it to mention \"requires props\"", warnings[0].Message)
+	}
+	if !strings.Contains(warnings[0].Message, "Card") {
+		t.Errorf("warning message = %q, want it to mention the component name \"Card\"", warnings[0].Message)
+	}
+}
+
+func TestValidateDictKeys_BareCallOnPropless(t *testing.T) {
+	// A propless component (absent from propsByPath) called bare must
+	// not trigger any diagnostic. The compiler emits a variadic FuncMap
+	// wrapper for these so `{{ Icon }}` and `{{ Icon (dict) }}` both work.
+	body := `{{ Icon }}`
+	uses := []parser.UseDeclaration{{Name: "Icon", Path: "components/icon.gastro"}}
+	warnings := codegen.ValidateDictKeys(body, uses, map[string][]codegen.StructField{})
 	if len(warnings) != 0 {
-		t.Fatalf("expected no warnings on bare call, got: %v", warnings)
+		t.Fatalf("expected no warnings on bare-call of propless component, got: %v", warnings)
 	}
 }
 

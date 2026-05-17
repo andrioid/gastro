@@ -76,7 +76,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	// Pre-pass: gather every component's Props field list so the per-file
 	// pass can validate (dict ...) keys against the destination schema.
 	// Cheap (parse + frontmatter analyze + struct hoist; no template work).
-	propsByPath, err := gatherComponentSchemas(componentFiles, projectDir)
+	propsByPath, knownComponents, err := gatherComponentSchemas(componentFiles, projectDir)
 	if err != nil {
 		return nil, fmt.Errorf("gathering component schemas: %w", err)
 	}
@@ -111,7 +111,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 
 	for _, relPath := range allFiles {
 		absPath := filepath.Join(projectDir, relPath)
-		result, err := compileFile(absPath, relPath, absProjectDir, outputDir, propsByPath)
+		result, err := compileFile(absPath, relPath, absProjectDir, outputDir, propsByPath, knownComponents)
 		if err != nil {
 			return nil, fmt.Errorf("compiling %s: %w", relPath, err)
 		}
@@ -314,10 +314,16 @@ type compileResult struct {
 }
 
 // gatherComponentSchemas reads each component file's frontmatter, extracts
-// its hoisted Props type, and returns a map keyed by relative path (the
-// same path that appears in `import X "components/foo.gastro"`). Files
-// without a Props struct are omitted; readers are expected to treat a
-// missing key as "no schema, skip validation".
+// its hoisted Props type, and returns two maps keyed by relative path
+// (the same path that appears in `import X "components/foo.gastro"`):
+//
+//   - propsByPath: components that declare a Props struct, mapped to
+//     their field list. Files without a Props struct are omitted; the
+//     validator treats a missing key as "no schema, skip validation".
+//   - knownComponents: every discovered component (propful AND propless),
+//     mapped to true. The compiler uses this to compute `UseInfo.Propless`
+//     and to let the dict-key validator distinguish "propless component
+//     called bare — fine" from "propful component called bare — error".
 //
 // Delegates to codegen.ScanComponents (the canonical project-walker)
 // and then filters down to the subset the compiler discovered via
@@ -326,29 +332,38 @@ type compileResult struct {
 // former includes hidden directories, the latter skips them); the
 // per-file compile pass uses discoverFiles' list, so the schema map
 // keyed by that list keeps everything aligned.
-func gatherComponentSchemas(componentFiles []string, projectDir string) (map[string][]codegen.StructField, error) {
+func gatherComponentSchemas(componentFiles []string, projectDir string) (map[string][]codegen.StructField, map[string]bool, error) {
 	schemas, err := codegen.ScanComponents(projectDir)
 	if err != nil {
-		return nil, fmt.Errorf("scanning components: %w", err)
+		return nil, nil, fmt.Errorf("scanning components: %w", err)
 	}
 	discovered := make(map[string]bool, len(componentFiles))
 	for _, p := range componentFiles {
 		discovered[p] = true
 	}
-	out := make(map[string][]codegen.StructField, len(schemas))
+	propsByPath := make(map[string][]codegen.StructField, len(schemas))
+	knownComponents := make(map[string]bool, len(schemas))
 	for _, s := range schemas {
 		if !discovered[s.RelPath] {
 			continue
 		}
+		knownComponents[s.RelPath] = true
 		if len(s.PropsFields) == 0 {
 			continue
 		}
-		out[s.RelPath] = s.PropsFields
+		propsByPath[s.RelPath] = s.PropsFields
 	}
-	return out, nil
+	// Frontmatter-less files in components/ are valid propless components
+	// (the compiler infers IsComponent for them later). ScanComponents only
+	// returns files it could parse a frontmatter from, so they're missing
+	// from `schemas` — backfill them here so knownComponents is complete.
+	for _, p := range componentFiles {
+		knownComponents[p] = true
+	}
+	return propsByPath, knownComponents, nil
 }
 
-func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath map[string][]codegen.StructField) (compileResult, error) {
+func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath map[string][]codegen.StructField, knownComponents map[string]bool) (compileResult, error) {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return compileResult{}, err
@@ -439,12 +454,23 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 
 	funcName := codegen.HandlerFuncName(relPath)
 
-	// Build UseInfo for this template's component dependencies
+	// Build UseInfo for this template's component dependencies. The
+	// Propless flag drives FuncMap codegen: propless components get a
+	// variadic wrapper so bare calls like `{{ Icon }}` work; propful
+	// components keep the direct method assignment so bare-calling them
+	// is a parse/validation error rather than a silent zero-prop render.
 	var uses []codegen.UseInfo
 	for _, u := range file.Uses {
+		_, hasProps := propsByPath[u.Path]
+		known := knownComponents[u.Path]
 		uses = append(uses, codegen.UseInfo{
 			Name:     u.Name,
 			FuncName: codegen.HandlerFuncName(u.Path),
+			// Treat unknown imports (typo, missing file) as propful so we
+			// don't generate a variadic wrapper for a method that won't
+			// exist. The downstream Go compile will surface the missing
+			// method clearly.
+			Propless: known && !hasProps,
 		})
 	}
 
@@ -877,6 +903,19 @@ func (__r *Router) __gastro_componentClosuresForRequest(name string, r *http.Req
 {{- range .Templates}}{{- if .Uses}}{{$fn := .FuncName}}
 	case "{{$fn}}":
 {{- range .Uses}}
+{{- if .Propless}}
+		// Propless component: variadic wrapper so bare calls work.
+		fm["{{ .Name }}"] = func(p ...map[string]any) template.HTML {
+			var props map[string]any
+			if len(p) > 0 && p[0] != nil {
+				props = p[0]
+			} else {
+				props = map[string]any{}
+			}
+			props["__gastro_request"] = r
+			return __r.{{ .FuncName }}(props)
+		}
+{{- else}}
 		fm["{{ .Name }}"] = func(p map[string]any) template.HTML {
 			if p == nil {
 				p = map[string]any{}
@@ -884,6 +923,7 @@ func (__r *Router) __gastro_componentClosuresForRequest(name string, r *http.Req
 			p["__gastro_request"] = r
 			return __r.{{ .FuncName }}(p)
 		}
+{{- end}}
 {{- end}}
 {{- end}}{{end}}
 	}
@@ -911,7 +951,20 @@ func (__r *Router) __gastro_buildFuncMap(name string, userFuncs template.FuncMap
 {{- range .Templates}}{{- if .Uses}}{{$fn := .FuncName}}
 	case "{{$fn}}":
 {{- range .Uses}}
+{{- if .Propless}}
+		// Propless component: variadic wrapper so bare calls work.
+		fm["{{ .Name }}"] = func(p ...map[string]any) template.HTML {
+			var props map[string]any
+			if len(p) > 0 && p[0] != nil {
+				props = p[0]
+			} else {
+				props = map[string]any{}
+			}
+			return __r.{{ .FuncName }}(props)
+		}
+{{- else}}
 		fm["{{ .Name }}"] = __r.{{ .FuncName }}
+{{- end}}
 {{- end}}
 		fm["__gastro_render_children"] = func(n string, data any) template.HTML {
 			var __buf bytes.Buffer

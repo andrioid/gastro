@@ -203,10 +203,11 @@ Posts := posts
 
 ### Leaf vs wrapper components
 
-**Leaf** components (no children) use bare function calls:
+**Leaf** components (no children) use a direct function call. Propful components require a `dict`; propless components can omit it (see "Propless components" below):
 
 ```
 {{ PostCard (dict "Title" .Title "Slug" .Slug) }}
+{{ Divider }}
 ```
 
 **Wrapper** components (accept children) use `wrap` ... `{{ end }}`:
@@ -262,6 +263,65 @@ Gastro coerces prop values to match struct field types:
 | `bool` | `bool`, `string` (`"true"`, `"false"`) |
 | `int` | `int`, `int64`, `float64`, `float32`, `string` (parsed) |
 | `float64` | `float64`, `float32`, `int`, `string` (parsed) |
+
+### Propless components
+
+A component with **no `Props` struct** can be called bare:
+
+```gastro
+---
+import Icon "components/icon.gastro"
+---
+<button>{{ Icon }} Save</button>
+```
+
+Both call forms are equivalent for propless components:
+
+```
+{{ Icon }}          ✓ idiomatic
+{{ Icon (dict) }}   ✓ also valid
+```
+
+The component file itself can be entirely frontmatter-free (no `---` delimiters), just template body:
+
+```gastro
+<svg viewBox="0 0 24 24" stroke="currentColor" fill="none">
+    <circle cx="12" cy="12" r="10" />
+</svg>
+```
+
+Components that **do** declare `Props` always require an explicit dict — bare-calling them is a compile-time error caught by `gastro generate`, `gastro build`, and the LSP (red squiggle in your editor):
+
+```
+{{ Card }}                              ✗ component Card requires props
+{{ Card (dict "Title" "Hello") }}       ✓
+```
+
+#### ⚠️ Design caveat — prefer styling hooks
+
+Before reaching for a truly propless component, ask whether callers need to:
+
+- Add a `class` (positioning, sizing, color in CSS)
+- Pass `style` overrides
+- Set an `id` for anchors or `aria-labelledby`
+- Override `aria-label` for accessibility
+
+If yes — even just for `class` and `style` — add a minimal Props struct:
+
+```gastro
+---
+type Props struct {
+    Class string
+    Style string
+}
+p := gastro.Props()
+Class := p.Class
+Style := p.Style
+---
+<svg class="{{ .Class }}" style="{{ .Style }}" viewBox="0 0 24 24">...</svg>
+```
+
+Reach for true propless only when the component is genuinely a fixed chunk of markup that's already externally controllable via CSS (e.g. an SVG that uses `currentColor` and CSS custom properties for every styling hook, like `examples/gastro/components/logo-svg.gastro`).
 
 ## Template Functions
 

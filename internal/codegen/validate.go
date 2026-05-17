@@ -186,6 +186,12 @@ type ValidateDictKeysOptions struct {
 //   - SeverityError, "unknown prop": a literal string key was passed
 //     that does not match any field on the component's Props struct
 //     and is not a recognised synthetic key.
+//   - SeverityError, "requires props": the component declares a Props
+//     struct but was called bare (no `(dict ...)` argument). At runtime
+//     this would surface as "wrong number of args"; we catch it here
+//     so editors and `gastro build` reject it before deployment.
+//     Anchored on the component name. Always emitted regardless of
+//     opts.EmitMissingProps.
 //   - SeverityWarning, deprecated-key hint: the legacy "__children"
 //     key was passed; runtime no longer recognises it.
 //   - SeverityWarning, "missing prop" (only when opts.EmitMissingProps):
@@ -296,11 +302,30 @@ func ValidateDictKeysFromAST(
 				}
 				literalKeys = append(literalKeys, str)
 			}
-		} else if !opts.EmitMissingProps {
-			// Pure bare call ({{ Card }}) — no dict, no keys to validate.
-			// Skip unless the caller wants missing-prop warnings, which
-			// fire for every Props field on a bare call.
-			return
+		} else {
+			// Pure bare call ({{ Card }}) — no dict pipe. Always an error
+			// for propful components: html/template will fail at execute
+			// time with "wrong number of args" because the underlying
+			// component method takes a single map[string]any. The compiler
+			// only emits a variadic wrapper for propless components.
+			nameStart := nodeLineCol(body, int(compIdent.Position()))
+			nameEnd := nodeLineCol(body, int(compIdent.Position())+len(compIdent.Ident))
+			diags = append(diags, DictKeyDiagnostic{
+				StartLine: nameStart.Line,
+				StartCol:  nameStart.Col,
+				EndLine:   nameEnd.Line,
+				EndCol:    nameEnd.Col,
+				Severity:  SeverityError,
+				Message: fmt.Sprintf(
+					"component %s requires props; call with (dict %q ...) — bare-call syntax is only valid for components with no Props struct",
+					compName, firstFieldName(schema),
+				),
+			})
+			if !opts.EmitMissingProps {
+				// Without missing-prop emission the only thing left to do
+				// would be unknown-key validation, but there are no keys.
+				return
+			}
 		}
 		validNames := make(map[string]bool, len(schema))
 		for _, f := range schema {
@@ -468,6 +493,17 @@ func nodeLine(body string, pos parse.Pos) int {
 		return 1
 	}
 	return 1 + strings.Count(body[:int(pos)], "\n")
+}
+
+// firstFieldName returns the first declared Props field name, or a
+// placeholder if the slice is empty. Used in the "requires props"
+// diagnostic to give the user a concrete example of how to call the
+// component (declaration order matches what the source file shows).
+func firstFieldName(fields []StructField) string {
+	if len(fields) == 0 {
+		return "Key"
+	}
+	return fields[0].Name
 }
 
 // joinSortedFieldNames returns a comma-separated, alphabetically-sorted list

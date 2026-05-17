@@ -592,6 +592,67 @@ func TestDiagnoseComponentProps_NoPropsStruct(t *testing.T) {
 	}
 }
 
+func TestDiagnoseComponentProps_BareCallOnPropful(t *testing.T) {
+	// Bare-calling a component that declares a Props struct must surface
+	// as a SeverityError diagnostic anchored on the component name so the
+	// editor shows a red squiggle. Otherwise the user only finds out at
+	// request time via html/template's "wrong number of args" panic.
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Card": {
+			{Name: "Title", Type: "string"},
+		},
+	}
+
+	templateBody := `{{ Card }}`
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
+
+	var found bool
+	for _, d := range diags {
+		if !strings.Contains(d.Message, "requires props") {
+			continue
+		}
+		found = true
+		if d.Severity != 1 {
+			t.Errorf("expected severity 1 (Error), got %d", d.Severity)
+		}
+		// Diagnostic anchors on the component identifier `Card`. The body
+		// is `{{ Card }}` so `Card` starts at byte offset 3 (col 4 in
+		// 1-indexed terms, which the LSP converts to 0-indexed col 3).
+		if d.StartChar != 3 {
+			t.Errorf("diagnostic StartChar = %d, want 3 (the 'C' of Card)", d.StartChar)
+		}
+		if d.EndChar != 7 {
+			t.Errorf("diagnostic EndChar = %d, want 7 (one past the 'd' of Card)", d.EndChar)
+		}
+		break
+	}
+	if !found {
+		t.Errorf("expected SeverityError diagnostic mentioning \"requires props\" for bare-call on propful component, got: %v", diags)
+	}
+}
+
+func TestDiagnoseComponentProps_BareCallOnPropless(t *testing.T) {
+	// A propless component (absent from propsMap) called bare must not
+	// surface any diagnostic — the compiler emits a variadic FuncMap
+	// wrapper for these, so `{{ Icon }}` is a valid call form.
+	uses := []parser.UseDeclaration{
+		{Name: "Icon", Path: "components/icon.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{}
+
+	templateBody := `{{ Icon }}`
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
+
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics for bare-call on propless component, got: %v", diags)
+	}
+}
+
 func TestDiagnoseComponentProps_WithChildren(t *testing.T) {
 	uses := []parser.UseDeclaration{
 		{Name: "Layout", Path: "components/layout.gastro"},

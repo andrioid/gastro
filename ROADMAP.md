@@ -38,6 +38,16 @@ shape matches a real workflow rather than a guessed one.
   Parsing `go.mod` from Lua adds maintenance for unproven value.
   Reference: `DECISIONS.md` 2026-05-03 (go-tool entry).
 
+- **Quick-fix code action: insert `(dict)` skeleton on
+  bare-call-propful diagnostic.** When the editor surfaces
+  `component X requires props` (added 2026-05-17 alongside the
+  propless-bare-call feature), offer a code action that rewrites
+  `{{ X }}` to `{{ X (dict "FieldA" "" "FieldB" 0) }}` with every
+  Props field pre-filled at its zero value. Mirrors the existing
+  unknown-prop code actions. Reference: `internal/codegen/validate.go`
+  "requires props" diagnostic; `internal/lsp/server/code_action.go`
+  for the existing patterns.
+
 ### Dev mode
 
 - **Visible browser banner UI for build errors.** The
@@ -62,6 +72,36 @@ shape matches a real workflow rather than a guessed one.
   `Recover` deferred function still surface only via the default
   recovery log. The workaround is log-scraping or a sidecar panic
   tracker. Reference: `docs/error-handling.md:274`.
+
+### Codegen / validation
+
+- **Optional Props fields (suppress "missing prop" warnings).** The
+  LSP currently warns on every Props field a caller doesn't pass.
+  Adding `gastro:"optional"` (or treating zero-default-friendly types
+  like `string` as implicitly optional) would let component authors
+  silence the warning per field without forcing callers to write
+  `"Field" ""` placeholders. Bundles with surfacing missing-prop
+  warnings in `gastro generate` itself — today `EmitMissingProps` is
+  off in the codegen pipeline (only the LSP opts in), so partial
+  dicts never warn at build time. Once optional vs. required is
+  expressible, flipping the default becomes safe. Reference:
+  `internal/codegen/validate.go` `EmitMissingProps`,
+  `ValidateDictKeysFromAST` missing-prop branch.
+
+- **Promote dict-key `SeverityError` diagnostics to hard failures in
+  non-strict mode.** Today `unknown prop` and `requires props` are
+  emitted at `SeverityError` severity but flow through the
+  `[]Warning` channel, so `gastro generate` (default) and
+  `gastro dev` (`runGenerate(false)`) only print them — they don't
+  fail the build. The LSP shows them as red squiggles and
+  `gastro build` / `gastro check` (strict) fail correctly, but a
+  user without an editor + a dev workflow still hits the runtime
+  crash. Either route true-error diagnostics through a separate
+  error channel that bypasses the Strict flag, or flip dev-mode
+  generation to strict-by-default for `SeverityError` only.
+  Reference: `internal/compiler/compiler.go` dictWarnings handling
+  (~L500), `cmd/gastro/main.go:600` (`runGenerate(false)`),
+  `internal/codegen/validate.go` SeverityError emit sites.
 
 - **Frontmatter `Deps := gastro.Deps[T]()` declaration.** A nicer
   surface than the runtime `gastro.From[T](ctx)` accessor — would let

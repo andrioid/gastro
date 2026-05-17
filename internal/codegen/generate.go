@@ -18,6 +18,13 @@ import (
 type UseInfo struct {
 	Name     string // e.g. "Layout"
 	FuncName string // e.g. "componentLayout"
+	// Propless is true when the referenced component declares no Props
+	// struct. The compiler's FuncMap-registration template uses this to
+	// emit a variadic wrapper so `{{ Component }}` (bare call, zero args)
+	// works in addition to `{{ Component (dict) }}`. Components with a
+	// Props struct always require an explicit dict argument; bare-calling
+	// them is rejected by ValidateDictKeysFromAST at compile time.
+	Propless bool
 }
 
 // GenerateOptions configures emission. The zero value is suitable for the
