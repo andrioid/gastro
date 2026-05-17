@@ -1,9 +1,13 @@
-FROM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+ARG TARGETARCH
 WORKDIR /src
 
 # git is needed by `go install` for module resolution.
 # wget is needed to fetch the tailwindcss standalone binary below.
-RUN apk add --no-cache git wget
+# libstdc++ is needed at runtime by the tailwindcss standalone binary;
+# without it the binary fails to relocate with errors like
+#   Error relocating /usr/local/bin/tailwindcss: _ZSt4cerr: symbol not found
+RUN apk add --no-cache git wget libstdc++
 
 # Install tailwindcss. The committed examples/gastro/static/styles.css
 # is gitignored — it's generated at build time by the
@@ -11,9 +15,17 @@ RUN apk add --no-cache git wget
 # out to `tailwindcss`. Version must match the mise pin
 # (`github:tailwindlabs/tailwindcss = v4.3.0` in mise.toml) so local
 # and Docker builds produce identical output. The -musl suffix is
-# required because we're on alpine.
-RUN wget -q -O /usr/local/bin/tailwindcss \
-      https://github.com/tailwindlabs/tailwindcss/releases/download/v4.3.0/tailwindcss-linux-x64-musl && \
+# required because we're on alpine. TARGETARCH is set by BuildKit
+# (amd64 or arm64) so the binary matches the build platform — without
+# this, building on Apple Silicon pulls the x64 binary and Rosetta
+# fails with "failed to open elf at /lib/ld-musl-x86_64.so.1".
+RUN case "$TARGETARCH" in \
+      amd64) TW_ARCH=x64 ;; \
+      arm64) TW_ARCH=arm64 ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac && \
+    wget -q -O /usr/local/bin/tailwindcss \
+      "https://github.com/tailwindlabs/tailwindcss/releases/download/v4.3.0/tailwindcss-linux-${TW_ARCH}-musl" && \
     chmod +x /usr/local/bin/tailwindcss
 
 # Install gopls into /go/bin. The live-LSP demo on the homepage spawns
