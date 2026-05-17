@@ -1,4 +1,8 @@
 ---
+import (
+	LogoSvg "components/logo-svg.gastro"
+)
+
 type Props struct {
 	Title string
 }
@@ -26,7 +30,7 @@ Title := p.Title
 		<header class="sticky top-0 z-[100] bg-header-bg">
 			<div class="max-w-site mx-auto px-8 h-14 flex items-center justify-between">
 				<a href="/" class="gap-2 flex font-display text-xl font-medium items-center text-header-text" aria-label="Gastro home">
-					<img src="/static/logo2.svg" alt="Gastro" class="max-h-8 stroke-white inline">
+					{{ LogoSvg (dict "Class" "max-h-8 stroke-2" "Style" "") }}
 					Gastro
 				</a>
 				<nav class="flex items-center gap-7 text-sm font-medium tracking-[0.01em] [&_a]:text-text-subtle [&_a:hover]:text-header-text [&_a]:transition-colors" aria-label="Main">
