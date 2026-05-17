@@ -1,0 +1,31 @@
+---
+// FrictionCard renders the two-stack "pain / want" card used in the
+// Frictions section of the landing page. Both halves are
+// template.HTML rather than plain strings so callers can include
+// inline <code>, <a>, <em> etc. in either side.
+//
+// Gastro components have a single anonymous slot; passing Pain and
+// Want as separate params is the pragmatic way to support two
+// distinct bodies without nested wrapper components.
+import "html/template"
+
+type Props struct {
+	Pain template.HTML
+	Want template.HTML
+}
+
+p := gastro.Props()
+Pain := p.Pain
+Want := p.Want
+---
+<div class="friction-card bg-bg border border-border rounded-lg p-[clamp(1.5rem,2.5vw,2rem)]">
+	<div class="friction-card-pain flex gap-3">
+		<span aria-hidden="true" class="text-accent-warm font-mono text-[1.1rem] leading-[1.4] shrink-0">✕</span>
+		<div class="text-text leading-[1.6]">{{ .Pain }}</div>
+	</div>
+	<div class="my-[1.1rem] h-px bg-border-light" role="presentation"></div>
+	<div class="friction-card-want flex gap-3">
+		<span aria-hidden="true" class="text-accent font-mono text-[1.1rem] leading-[1.4] shrink-0">✓</span>
+		<div class="text-text-muted leading-[1.6]">{{ .Want }}</div>
+	</div>
+</div>

@@ -1,0 +1,35 @@
+---
+// TimelineItem is one node in the Timeline. Renders an era eyebrow,
+// title, and a body slot. On desktop, items alternate left/right
+// based on :nth-child position (positional, not identity-based — so
+// reordering items in the page re-stages the layout correctly). On
+// mobile, items stack to the right of the rail.
+//
+// The `Current` flag highlights the "you are here" entry — typically
+// the last item — with a filled dot and an accent border on the
+// content card. Styling for both states lives in tailwind.css under
+// .timeline-item / .timeline-item-current.
+type Props struct {
+	Eyebrow string
+	Title   string
+	Current bool
+}
+
+p := gastro.Props()
+Eyebrow := p.Eyebrow
+Title := p.Title
+
+itemClass := "timeline-item"
+if p.Current {
+	itemClass = "timeline-item timeline-item-current"
+}
+ItemClass := itemClass
+---
+<li class="{{ .ItemClass }}">
+	<span class="timeline-dot" aria-hidden="true"></span>
+	<div class="timeline-content">
+		<p class="timeline-eyebrow">{{ .Eyebrow }}</p>
+		<h3 class="timeline-title">{{ .Title }}</h3>
+		<div class="timeline-body">{{ .Children }}</div>
+	</div>
+</li>

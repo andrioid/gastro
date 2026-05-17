@@ -1,0 +1,38 @@
+---
+// FeatureCard renders one card in the "Why Gastro?" grid on the home
+// page. The component owns the `feature-card` chrome (background,
+// border, padding, hover, entrance animation, paragraph typography).
+// Stagger delays are applied via :nth-child in tailwind.css — the
+// page does not pass a Delay prop, so reordering cards re-stages the
+// animation automatically.
+//
+// Variant:
+//   - "" / "default" — body uses the smaller card typography
+//   - "large"        — first card in the grid; bigger title/body,
+//                      vertically centered so its row-span feels
+//                      intentional rather than empty
+//
+// The title is rendered as `safeHTML` because one of the existing
+// cards embeds a literal <code>html/template</code> tag in its title.
+// Title strings are author-controlled (hard-coded in pages/), never
+// user-supplied.
+type Props struct {
+	Title   string
+	Variant string
+}
+
+p := gastro.Props()
+Title := p.Title
+IsLarge := p.Variant == "large"
+---
+{{ if .IsLarge }}
+<div class="feature-card feature-card-large md:row-span-2 bg-surface flex flex-col justify-center p-[clamp(2rem,3vw,2.5rem)]">
+	<h3 class="font-display font-bold leading-[1.3] text-[clamp(1.2rem,2vw,1.4rem)] mb-[0.6rem]">{{ .Title | safeHTML }}</h3>
+	{{ .Children }}
+</div>
+{{ else }}
+<div class="feature-card">
+	<h3 class="font-display font-bold leading-[1.3] text-[1.1rem] mb-[0.4rem]">{{ .Title | safeHTML }}</h3>
+	{{ .Children }}
+</div>
+{{ end }}

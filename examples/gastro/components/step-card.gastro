@@ -1,0 +1,22 @@
+---
+// StepCard renders one card in the "Quick Start" grid on the home
+// page. Each card is a framed box with a small mono "eyebrow" label
+// and a body slot. The body slot is typically a pre-rendered markdown
+// fragment ({{ .IntroComponent }} etc.) but anything HTML works.
+//
+// The grid layout (first card spans full width on desktop) is the
+// caller's concern — see pages/index.gastro. This component just
+// owns the card frame.
+type Props struct {
+	Eyebrow string
+}
+
+p := gastro.Props()
+Eyebrow := p.Eyebrow
+---
+<div class="bg-bg border border-border rounded-lg p-6">
+	<h3 class="font-mono text-[0.78rem] font-medium text-accent tracking-[0.02em] mb-4">{{ .Eyebrow }}</h3>
+	<div class="code-block">
+		{{ .Children }}
+	</div>
+</div>

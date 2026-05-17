@@ -1,9 +1,17 @@
 ---
 import (
-	Hero "components/hero.gastro"
-	Layout "components/layout.gastro"
 	"gastro-website/lspdemo"
 	"gastro-website/md"
+
+	CodeWindow "components/code-window.gastro"
+	FeatureCard "components/feature-card.gastro"
+	FrictionCard "components/friction-card.gastro"
+	Hero "components/hero.gastro"
+	Layout "components/layout.gastro"
+	SectionHeader "components/section-header.gastro"
+	StepCard "components/step-card.gastro"
+	Timeline "components/timeline.gastro"
+	TimelineItem "components/timeline-item.gastro"
 )
 
 //gastro:embed intro-component.md
@@ -32,72 +40,115 @@ LSPDemoFile := LSPDemo.Render()
 	{{ Hero (dict "LSPDemoFile" .LSPDemoFile) }}
 
 	<main id="main-content">
-		<section class="px-6 py-12 max-w-site mx-auto md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]">
-			<div class="mb-8 max-w-[520px] md:mb-[clamp(2rem,4vw,3.5rem)]">
-				<h2 class="font-display font-bold tracking-[-0.02em] mb-2 leading-[1.2] text-[clamp(1.6rem,3vw,2.2rem)]">Why Gastro?</h2>
-				<p class="text-text-muted text-[1.05rem] leading-[1.6]">Your programming language has strict types. Why doesn't that extend to templates and routing?</p>
-			</div>
-			<div class="grid grid-cols-1 grid-rows-[auto] gap-5 md:grid-cols-2 md:grid-rows-[auto_auto_auto]">
-				{{- /* Feature cards. The first card spans rows 1-2 in the
-				       left column on desktop; on mobile it stacks naturally. */ -}}
-				<div class="feature-card md:row-span-2 bg-surface flex flex-col justify-center p-[clamp(2rem,3vw,2.5rem)] [animation-delay:0.05s]">
-					<h3 class="font-display font-bold leading-[1.3] text-[clamp(1.2rem,2vw,1.4rem)] mb-[0.6rem]">File-Based Routing</h3>
-					<p class="text-text-muted text-base leading-[1.6]">Pages in your <code>pages/</code> directory automatically become routes. Dynamic parameters with <code>[slug]</code> syntax. No configuration needed &mdash; just create a file and it&rsquo;s live.</p>
-				</div>
-				<div class="feature-card [animation-delay:0.1s]">
-					<h3 class="font-display font-bold leading-[1.3] text-[1.1rem] mb-[0.4rem]">Go Frontmatter</h3>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Write type-safe Go in the frontmatter, import libraries or services and make variables and functions available to your template.</p>
-				</div>
-				<div class="feature-card [animation-delay:0.15s]">
-					<h3 class="font-display font-bold leading-[1.3] text-[1.1rem] mb-[0.4rem]">HTML Body, using <code>html/template</code></h3>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Uses the standard Go templating engine. Syntax validation and autocomplete for variables and functions.</p>
-				</div>
-
-				<div class="feature-card [animation-delay:0.2s]">
-					<h3 class="font-display font-bold leading-[1.3] text-[1.1rem] mb-[0.4rem]">Editors &amp; Coding Agents</h3>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Full language server (LSP) with completions, diagnostics, and go-to-definition. For both the Go frontmatter and the HTML template body.</p>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Extensions for VS Code, Zed and Nevim. More can be created as interest grows.</p>
-				</div>
-				<div class="feature-card [animation-delay:0.25s]">
-					<h3 class="font-display font-bold leading-[1.3] text-[1.1rem] mb-[0.4rem]">Single Binary Deploy</h3>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Templates and static assets are embedded at build time. Zero runtime dependencies. Ship one file anywhere.</p>
-				</div>
-				<div class="feature-card [animation-delay:0.3s]">
-					<h3 class="font-display font-bold leading-[1.3] text-[1.1rem] mb-[0.4rem]">Idiomatic Go</h3>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Standard Go syntax you already know. <code>html/template</code>, <code>net/http</code>, <code>go:embed</code> &mdash; no new language to learn, full type-safety throughout.</p>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">The project is still a Go project and you can build it as you see fit. We just take away the pain of managing page handlers and templates.</p>
-				</div>
-				<div class="feature-card [animation-delay:0.35s]">
-					<h3 class="font-display font-bold leading-[1.3] text-[1.1rem] mb-[0.4rem]">Hypermedia Ready</h3>
-					<p class="text-text-muted text-[0.93rem] leading-[1.6]">Use with <a href="examples/guestbook-datastar">Datastar</a> or <a href="examples/guestbook-htmx">htmx</a> for awesome user-experience and dynamic functionality that was once reserved for single-page-applications.</p>
+		<section id="frictions" class="bg-surface border-y border-border-light px-6 py-12 md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]">
+			<div class="max-w-site mx-auto">
+				{{ SectionHeader (dict "Title" "Writing web-applications in Go" "Lede" "Frictions and how we've overcome them.") }}
+				<div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+					{{ FrictionCard (dict
+						"Pain" "Go's package per directory is a pain-point for web-development. Pages are not a natural abstraction point like typical Go directories"
+						"Want" "Gastro generates a single package for all pages and components."
+					) }}
+					{{ FrictionCard (dict
+						"Pain" "IDE support is lacking and templates are disconnected from the logic they present."
+						"Want" "Gastro ships a language-server (LSP) for `.gastro` files that connects logic to markup seamlessly."
+					) }}					
 				</div>
 			</div>
 		</section>
+
+		<section id="timeline" class="px-6 py-12 max-w-site mx-auto md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]">
+			{{ SectionHeader (dict "Title" "Journey of web development" "Lede" "A brief history of the web, and how we got here.") }}
+			{{ wrap Timeline (dict) }}
+				{{ wrap TimelineItem (dict "Eyebrow" "2026" "Title" "Hypermedia revolution" "Current" true) }}
+					<p>Pain surfaces from now maintaining business-logic in 2+ places. "JavaScript fatigue" is common knowledge, and browser performance suffers. JS Platform authors solve this by adding server-side rendering</p>
+					<p><strong>It's time to go back to the server.</strong></p>
+					<p>Turbo, htmx, Datastar and more are bringing the business-logic back to the server. Not to repeat our old mistakes, but to take advantage of how far the web has come since the 1990s.</p>
+					<p>Modern CSS, HTML5 and web-components didn't exist when we did our templates failed us. We're not hating on JavaScript. It's simply not as necessary as it once was.</p>
+				{{ end }}
+
+				{{ wrap TimelineItem (dict "Eyebrow" "Early 2010s" "Title" "Single-Page-Applications") }}
+					<p>Rich web-applications exist, but as user-experience expectations rose, the amount of jQuery snippets were starting to cause pain. Single-page applications and components (React, Vue, Angular, etc) were celebrated as our saviors.</p>
+				{{ end }}
+
+				{{ wrap TimelineItem (dict "Eyebrow" "Mid 2000s" "Title" "Rise of JavaScript") }}
+					<p>Google releases Gmail and Google Calendar with superior user-experience and developers all over the world looked at JS with new eyes. jQuery was born, but only used partially on top of existing server-rendered systems.</p>
+				{{ end }}
+
+				{{ wrap TimelineItem (dict "Eyebrow" "Early 2000s" "Title" "Server Rendered HTML") }}
+					<p>Systems came online and more complicated applications were needed. PHP, Perl, ASP.net were born. JavaScript was used for popups, period.</p>
+				{{ end }}
+
+				{{ wrap TimelineItem (dict "Eyebrow" "Late 1990s" "Title" "Static web-pages") }}
+					<p>The dawn of the world-wide-web. Geocities, Frontpage and Netscape. Pages were "dumb" and most interactivity was through cgi-bin forms.</p>
+				{{ end }}
+			{{ end }}
+		</section>
+
+		<section class="px-6 py-12 max-w-site mx-auto md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]">
+			{{ SectionHeader (dict "Title" "Why Gastro?" "Lede" "Your programming language has strict types. Why doesn't that extend to templates and routing?") }}
+			<div class="grid grid-cols-1 grid-rows-[auto] gap-5 md:grid-cols-2 md:grid-rows-[auto_auto_auto]">
+				{{ wrap FeatureCard (dict "Title" "File-Based Routing" "Variant" "large") }}
+					<p>Pages in your <code>pages/</code> directory automatically become routes. Dynamic parameters with <code>[slug]</code> syntax. No configuration needed &mdash; just create a file and it&rsquo;s live.</p>
+				{{ end }}
+				{{ wrap FeatureCard (dict "Title" "Go Frontmatter") }}
+					<p>Write type-safe Go in the frontmatter, import libraries or services and make variables and functions available to your template.</p>
+				{{ end }}
+				{{ wrap FeatureCard (dict "Title" "HTML Body, using <code>html/template</code>") }}
+					<p>Uses the standard Go templating engine. Syntax validation and autocomplete for variables and functions.</p>
+				{{ end }}
+
+				{{ wrap FeatureCard (dict "Title" "Editors &amp; Coding Agents") }}
+					<p>Full language server (LSP) with completions, diagnostics, and go-to-definition. For both the Go frontmatter and the HTML template body.</p>
+					<p>Extensions for VS Code, Zed and Nevim. More can be created as interest grows.</p>
+				{{ end }}
+				{{ wrap FeatureCard (dict "Title" "Single Binary Deploy") }}
+					<p>Templates and static assets are embedded at build time. Zero runtime dependencies. Ship one file anywhere.</p>
+				{{ end }}
+				{{ wrap FeatureCard (dict "Title" "Idiomatic Go") }}
+					<p>Standard Go syntax you already know. <code>html/template</code>, <code>net/http</code>, <code>go:embed</code> &mdash; no new language to learn, full type-safety throughout.</p>
+					<p>The project is still a Go project and you can build it as you see fit. We just take away the pain of managing page handlers and templates.</p>
+				{{ end }}
+				{{ wrap FeatureCard (dict "Title" "Hypermedia Ready") }}
+					<p>Use with <a href="examples/guestbook-datastar">Datastar</a> or <a href="examples/guestbook-htmx">htmx</a> for awesome user-experience and dynamic functionality that was once reserved for single-page-applications.</p>
+				{{ end }}
+			</div>
+		</section>
+
+		<section class="px-6 py-12 max-w-site mx-auto md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]">
+			<div class="mb-8 max-w-[640px] md:mb-[clamp(2rem,4vw,3.5rem)]">
+				<p class="font-mono text-[0.82rem] text-accent-warm tracking-[0.04em] mb-3 font-medium">TODO: §3 eyebrow</p>
+				<h2 class="font-display font-bold tracking-[-0.02em] mb-3 leading-[1.15] text-[clamp(1.8rem,3.5vw,2.5rem)]">TODO: §3 headline</h2>
+				<p class="text-text-muted text-[1.05rem] leading-[1.6]">TODO: §3 lede</p>
+			</div>
+			<div class="flex flex-wrap gap-3 mb-8 md:mb-[clamp(2rem,3vw,3rem)]">
+				<span class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-surface border border-border text-[0.9rem] font-medium">TODO: pill 1</span>
+				<span class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-surface border border-border text-[0.9rem] font-medium">TODO: pill 2</span>
+				<span class="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-surface border border-border text-[0.9rem] font-medium">TODO: pill 3</span>
+			</div>
+			<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+				{{ wrap CodeWindow (dict "Title" "TODO: server file") }}
+					<pre><code>TODO: server snippet</code></pre>
+				{{ end }}
+				{{ wrap CodeWindow (dict "Title" "TODO: browser") }}
+					<pre><code>TODO: rendered preview</code></pre>
+				{{ end }}
+			</div>
+		</section>
+
+
 		<section class="bg-surface border-y border-border-light px-6 py-12 md:px-8 md:py-[clamp(3.5rem,6vw,5.5rem)]">
 			<div class="max-w-site mx-auto">
-				<div class="mb-8 max-w-[480px] md:mb-[clamp(2rem,3vw,3rem)]">
-					<h2 class="font-display font-bold tracking-[-0.02em] mb-2 leading-[1.2] text-[clamp(1.6rem,3vw,2.2rem)]">Quick Start</h2>
-					<p class="text-text-muted text-[1.05rem]">Get a Gastro project running in under a minute.</p>
-				</div>
+				{{ SectionHeader (dict "Title" "Anatomy of a Gastro" "Lede" "Get a Gastro project running in under a minute.") }}
 				<div class="grid grid-cols-1 gap-6 md:grid-cols-2 [&>*:first-child]:col-span-full">
-					<div class="bg-bg border border-border rounded-lg p-6">
-						<h3 class="font-mono text-[0.78rem] font-medium text-accent tracking-[0.02em] mb-4">Write a component</h3>
-						<div class="code-block">
-							{{ .IntroComponent }}
-						</div>
-					</div>
-					<div class="bg-bg border border-border rounded-lg p-6">
-						<h3 class="font-mono text-[0.78rem] font-medium text-accent tracking-[0.02em] mb-4">Develop</h3>
-						<div class="code-block">
-							{{ .IntroDevelop }}
-						</div>
-					</div>
-					<div class="bg-bg border border-border rounded-lg p-6">
-						<h3 class="font-mono text-[0.78rem] font-medium text-accent tracking-[0.02em] mb-4">Deploy</h3>
-						<div class="code-block">
-							{{ .IntroDeploy }}
-						</div>
-					</div>
+					{{ wrap StepCard (dict "Eyebrow" "Write a component") }}
+						{{ .IntroComponent }}
+					{{ end }}
+					{{ wrap StepCard (dict "Eyebrow" "Develop") }}
+						{{ .IntroDevelop }}
+					{{ end }}
+					{{ wrap StepCard (dict "Eyebrow" "Deploy") }}
+						{{ .IntroDeploy }}
+					{{ end }}
 				</div>
 			</div>
 		</section>

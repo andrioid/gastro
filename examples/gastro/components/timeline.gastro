@@ -1,0 +1,15 @@
+---
+// Timeline is the outer wrapper for the "How we got here" narrative
+// on the landing page. Owns the vertical rail (a pseudo-element on
+// the <ol>) and the list semantics. Children should be TimelineItem
+// components; on desktop they alternate left/right via :nth-child
+// rules in tailwind.css, on mobile they stack on the right of the
+// rail.
+//
+// Propless: the timeline has no per-instance configuration. If a
+// second timeline appears elsewhere with different rhythm, add a
+// Variant prop rather than threading style classes through callers.
+---
+<ol class="timeline list-none p-0 m-0 relative">
+	{{ .Children }}
+</ol>

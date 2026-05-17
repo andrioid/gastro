@@ -1,0 +1,22 @@
+---
+// SectionHeader renders the H2 + lede pair used at the top of each
+// landing-page section. Used by the "Why Gastro?", "Quick Start",
+// "Frictions" and "Timeline" sections in pages/index.gastro.
+//
+// The wrapper width and bottom margin are intentionally not exposed
+// as props — the page rhythm is part of the design system, not a
+// per-call decision. If a section needs different proportions, add
+// a variant here rather than threading classes through callers.
+type Props struct {
+	Title string
+	Lede  string
+}
+
+p := gastro.Props()
+Title := p.Title
+Lede := p.Lede
+---
+<div class="mb-8 max-w-[520px] md:mb-[clamp(2rem,4vw,3.5rem)]">
+	<h2 class="font-display font-bold tracking-[-0.02em] mb-2 leading-[1.2] text-[clamp(1.6rem,3vw,2.2rem)]">{{ .Title }}</h2>
+	<p class="text-text-muted text-[1.05rem] leading-[1.6]">{{ .Lede }}</p>
+</div>

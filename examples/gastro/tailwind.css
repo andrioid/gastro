@@ -279,9 +279,12 @@
     font-size: 0.82rem;
   }
 
-  /* Feature cards on the home page. Six instances with staggered
-     entrance animations — the `[animation-delay:Xs]` utility on each
-     instance feeds the shared `fade-up` keyframe defined in @theme. */
+  /* Feature cards on the home page (components/feature-card.gastro).
+     Stagger delays are positional via :nth-child rather than a Delay
+     prop on the component — reordering cards re-stages the entrance
+     animation automatically. Paragraph typography lives here too so
+     callers can write plain <p>...</p> inside the slot and the
+     component fully owns its body styling. */
   .feature-card {
     background: var(--color-bg);
     border: 1px solid var(--color-border);
@@ -293,6 +296,139 @@
   .feature-card:hover {
     border-color: var(--color-accent);
     box-shadow: 0 2px 12px rgba(232, 114, 42, 0.06);
+  }
+  .feature-card > p {
+    color: var(--color-text-muted);
+    font-size: 0.93rem;
+    line-height: 1.6;
+  }
+  .feature-card > p + p {
+    margin-top: 0.6em;
+  }
+  .feature-card-large > p {
+    font-size: 1rem;
+  }
+  /* Stagger entrance — positional, not identity-based. Cap at the
+     current count (7); extra cards beyond this stop staggering and
+     animate at the final delay, which is the right failure mode. */
+  .feature-card:nth-child(1) { animation-delay: 0.05s; }
+  .feature-card:nth-child(2) { animation-delay: 0.10s; }
+  .feature-card:nth-child(3) { animation-delay: 0.15s; }
+  .feature-card:nth-child(4) { animation-delay: 0.20s; }
+  .feature-card:nth-child(5) { animation-delay: 0.25s; }
+  .feature-card:nth-child(6) { animation-delay: 0.30s; }
+  .feature-card:nth-child(n+7) { animation-delay: 0.35s; }
+
+  /* Timeline (components/timeline.gastro + timeline-item.gastro).
+     Vertical rail with alternating left/right item placement on
+     desktop, single-column on mobile. The rail itself is a
+     pseudo-element on the <ol>; items position themselves via
+     :nth-child(odd|even) on desktop, which is positional (not
+     identity-based), so reordering items re-stages the layout
+     automatically. */
+  .timeline {
+    --timeline-rail-x: 1rem;
+    padding-left: calc(var(--timeline-rail-x) + 1.25rem);
+  }
+  .timeline::before {
+    content: "";
+    position: absolute;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    left: var(--timeline-rail-x);
+    width: 2px;
+    background: var(--color-border);
+    border-radius: 1px;
+  }
+  .timeline-item {
+    position: relative;
+    margin-bottom: clamp(1.5rem, 3vw, 2.5rem);
+  }
+  .timeline-item:last-child {
+    margin-bottom: 0;
+  }
+  .timeline-dot {
+    position: absolute;
+    top: 0.55rem;
+    left: calc(-1 * 1.25rem - 5px);
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--color-bg);
+    border: 2px solid var(--color-border);
+    box-shadow: 0 0 0 4px var(--color-bg);
+  }
+  .timeline-item-current .timeline-dot {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+  .timeline-content {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: clamp(1rem, 2vw, 1.5rem);
+  }
+  .timeline-item-current .timeline-content {
+    border-color: var(--color-accent);
+    box-shadow: 0 2px 12px rgba(232, 114, 42, 0.06);
+  }
+  .timeline-eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--color-accent-warm);
+    letter-spacing: 0.04em;
+    margin: 0 0 0.4rem;
+    font-weight: 500;
+  }
+  .timeline-title {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 1.1rem;
+    line-height: 1.3;
+    margin: 0 0 0.5rem;
+  }
+  .timeline-body {
+    color: var(--color-text-muted);
+    font-size: 0.93rem;
+    line-height: 1.6;
+  }
+  .timeline-body > p + p {
+    margin-top: 0.6em;
+  }
+
+  /* Desktop: centered rail, alternating sides. The rail sits in the
+     middle of the timeline; odd items occupy the left half (their
+     dot floats on the rail's right edge), even items occupy the
+     right half. */
+  @media (min-width: 768px) {
+    .timeline {
+      --timeline-rail-x: 50%;
+      padding-left: 0;
+      max-width: 56rem;
+      margin-inline: auto;
+    }
+    .timeline::before {
+      transform: translateX(-1px);
+    }
+    .timeline-item {
+      width: 50%;
+      box-sizing: border-box;
+    }
+    .timeline-item:nth-child(odd) {
+      padding-right: 2.5rem;
+      text-align: right;
+    }
+    .timeline-item:nth-child(odd) .timeline-dot {
+      left: auto;
+      right: -7px;
+    }
+    .timeline-item:nth-child(even) {
+      margin-left: 50%;
+      padding-left: 2.5rem;
+    }
+    .timeline-item:nth-child(even) .timeline-dot {
+      left: -7px;
+    }
   }
 
   /* Code blocks (docs) ----------------------------------------------
