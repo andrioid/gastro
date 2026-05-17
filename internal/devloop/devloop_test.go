@@ -324,6 +324,62 @@ func TestRun_TemplateOnlyChangeTriggersReload(t *testing.T) {
 	})
 }
 
+// TestRun_NoOpMtimeBumpDoesNotRestart: an mtime bump with no content
+// change (`touch foo.gastro`, an editor save-with-no-change, a git
+// checkout that restores identical bytes) must not trigger a restart
+// — nor a reload. Regression test for a watcher bug where
+// DetectChangedSection returned SectionUnknown for the no-op case and
+// ClassifyChange's fallthrough then escalated to ChangeRestart, logging
+// it misleadingly as "(frontmatter)".
+//
+// This also surfaced as flake in TestRun_PreReload_NilPreservesBehaviour
+// on slow CI runners: touchLater's WriteFile + Chtimes is two syscalls,
+// and a poll between them detected the genuine template change first
+// then a phantom "no content diff" event on the Chtimes bump, which
+// escalated the pending action to ChangeRestart and starved OnReload.
+func TestRun_NoOpMtimeBumpDoesNotRestart(t *testing.T) {
+	root := setupProject(t)
+	rec := newRecorder()
+
+	withChdir(t, root, func() {
+		cancel, wait := runLoop(t, devloop.Config{
+			PollInterval:  testPoll,
+			DebounceDelay: testDebounce,
+			Generate:      rec.generate,
+			OnRestart:     rec.onRestart,
+			OnReload:      rec.onReload,
+		})
+		defer wait()
+		defer cancel()
+
+		waitN(t, "initial generate", rec.genCh, 1)
+		waitN(t, "initial restart", rec.restartCh, 1)
+
+		// Bump mtime without touching content. Mimics `touch` exactly
+		// — file bytes are unchanged, only the timestamp moves forward.
+		p := filepath.Join(root, "pages", "index.gastro")
+		future := time.Now().Add(2 * time.Second)
+		if err := os.Chtimes(p, future, future); err != nil {
+			t.Fatalf("chtimes: %v", err)
+		}
+
+		// Give the poller several cycles to (incorrectly) classify and
+		// fire. testDebounce + a few poll intervals is enough — the
+		// historical bug fired within one debounce window.
+		time.Sleep(testDebounce + 4*testPoll)
+
+		if extra := drain(rec.restartCh); extra > 0 {
+			t.Errorf("no-op mtime bump must not trigger restart; saw %d", extra)
+		}
+		if extra := drain(rec.reloadCh); extra > 0 {
+			t.Errorf("no-op mtime bump must not trigger reload; saw %d", extra)
+		}
+		if extra := drain(rec.genCh); extra > 0 {
+			t.Errorf("no-op mtime bump must not trigger regen; saw %d", extra)
+		}
+	})
+}
+
 // TestRun_PreReload_FiresBeforeReloadOnTemplateChange: a template-only
 // edit must trigger PreReload (asset chain) BEFORE OnReload (browser
 // refresh signal), so generated assets like CSS are on disk before the

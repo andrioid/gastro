@@ -255,6 +255,20 @@ func (s *watcherState) runLoop(ctx context.Context) {
 					oldContent := fileContents[f]
 
 					section := watcher.DetectChangedSection(oldContent, newContent)
+
+					// Mtime bumped but neither frontmatter nor body
+					// actually changed (e.g. `touch`, editor save-with-no-
+					// change, git checkout restoring an identical file).
+					// Refresh the stored mtime so we don't re-detect the
+					// same phantom event forever, but skip the regen — a
+					// no-op write must not trigger a restart, and the
+					// previous classifier path mis-labelled this as
+					// "(frontmatter)" and escalated to ChangeRestart.
+					if section == watcher.SectionUnknown {
+						modTimes[f] = info.ModTime()
+						continue
+					}
+
 					ct := watcher.ClassifyChange(f, section)
 
 					label := "template"
