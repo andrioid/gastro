@@ -12,6 +12,11 @@ tmp/
 # Generated output
 .gastro/
 examples/blog/.gastro/
+# Tailwind output for the gastro-website example. Generated from
+# tailwind.css via the //go:generate directive in
+# examples/gastro/generate.go. Re-run `go generate ./...` (or the
+# mise dev task) after a fresh clone before the example serves CSS.
+examples/gastro/static/styles.css
 
 # Example binaries
 examples/sse/sse-example
@@ -22,7 +27,7 @@ examples/gastro/app
 node_modules/
 # Tailwind contributor-local — only relevant if a contributor opts to
 # install tailwindcss via npm instead of the mise-managed standalone
-# binary. The committed examples/gastro/static/styles.css is what ships.
+# binary.
 examples/gastro/node_modules/
 
 # OpenCode (auto-managed)

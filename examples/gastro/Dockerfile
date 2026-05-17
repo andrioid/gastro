@@ -2,7 +2,19 @@ FROM golang:1.26-alpine AS build
 WORKDIR /src
 
 # git is needed by `go install` for module resolution.
-RUN apk add --no-cache git
+# wget is needed to fetch the tailwindcss standalone binary below.
+RUN apk add --no-cache git wget
+
+# Install tailwindcss. The committed examples/gastro/static/styles.css
+# is gitignored — it's generated at build time by the
+# //go:generate directive in examples/gastro/generate.go, which shells
+# out to `tailwindcss`. Version must match the mise pin
+# (`github:tailwindlabs/tailwindcss = v4.3.0` in mise.toml) so local
+# and Docker builds produce identical output. The -musl suffix is
+# required because we're on alpine.
+RUN wget -q -O /usr/local/bin/tailwindcss \
+      https://github.com/tailwindlabs/tailwindcss/releases/download/v4.3.0/tailwindcss-linux-x64-musl && \
+    chmod +x /usr/local/bin/tailwindcss
 
 # Install gopls into /go/bin. The live-LSP demo on the homepage spawns
 # `gastro lsp` at runtime, which in turn shells out to gopls for Go
@@ -27,8 +39,13 @@ RUN CGO_ENABLED=0 go build -o /usr/local/bin/gastro ./cmd/gastro/
 COPY examples/gastro/ /src/examples/gastro/
 WORKDIR /src/examples/gastro
 
-# Generate Go code from .gastro files and build the binary
-RUN gastro generate
+# Generate Tailwind CSS and Go code from .gastro files, then build
+# the binary. `go generate ./...` runs both //go:generate directives
+# in generate.go in order: tailwindcss first (produces static/styles.css),
+# then `gastro generate` (which copies static/ into .gastro/ for
+# //go:embed). Doing it via `go generate` instead of two RUN steps
+# keeps the host-side and Docker-side bootstrap commands identical.
+RUN go generate ./...
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /gastro-website .
 
 # -------------------------------------------------------------------

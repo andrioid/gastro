@@ -24,6 +24,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../examples/gastro"
 
+# Bootstrap: static/styles.css is gitignored, so a fresh clone has
+# no CSS file. `gastro watch`'s first Generate copies static/ into
+# .gastro/static/ BEFORE the --asset chain has a chance to run, so
+# without this priming step the initial build would embed an empty
+# CSS asset and the first page load would 404. Subsequent .gastro
+# edits would recover, but that's a bad first impression. One sync
+# tailwindcss run here means the .gastro/static/ copy is correct
+# from the very first Generate.
+if [ ! -f static/styles.css ]; then
+  echo "bootstrap: generating static/styles.css"
+  tailwindcss -i tailwind.css -o static/styles.css
+fi
+
 exec gastro watch \
   --asset 'tailwindcss -i tailwind.css -o static/styles.css' \
   --build 'go build -o tmp/app .' \

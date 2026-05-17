@@ -369,10 +369,10 @@ func runWatch(args []string) error {
 		}
 	}
 	for _, a := range flags.Asset {
-		if dst := suspectedBuildOutputCollision(a); dst != "" {
+		if dst := suspectedAssetOutputCollision(a); dst != "" {
 			fmt.Fprintf(os.Stderr,
-				"gastro: --asset writes to %q which is under a watched path; "+
-					"this can cause reload loops. Consider writing to tmp/.\n", dst)
+				"gastro: --asset writes to %q which is under a watched source path; "+
+					"this can cause reload loops. Asset outputs belong in static/.\n", dst)
 		}
 	}
 
@@ -580,24 +580,33 @@ func writeBuildErrorSignal(msg string) error {
 	return nil
 }
 
+// suspectedAssetOutputCollision is the --asset-flavoured sibling of
+// suspectedBuildOutputCollision. Same parser, narrower exclusion list:
+// asset generators are *meant* to write into static/ (Tailwind, esbuild,
+// image opt, fingerprint hashing), so flagging that case would warn on
+// every legitimate setup. We still flag writes into pages/ or components/
+// because those are source directories \u2014 an --asset producing files
+// there would feed back into Generate and almost certainly loop.
+func suspectedAssetOutputCollision(assetCmd string) string {
+	dst := parseOutputPath(assetCmd)
+	if dst == "" {
+		return ""
+	}
+	for _, watched := range []string{"pages/", "components/"} {
+		if strings.HasPrefix(dst, watched) {
+			return dst
+		}
+	}
+	return ""
+}
+
 // suspectedBuildOutputCollision returns the destination path if the build
 // command appears to write to a directory the watcher is polling. Used
 // for the heads-up startup warning in \u00a74a. Substring match keeps the
 // check cheap and forgiving \u2014 false positives are non-fatal.
 func suspectedBuildOutputCollision(buildCmd string) string {
-	// Look for `-o <path>` style outputs (go build, ko, custom Makefiles).
-	idx := strings.Index(buildCmd, "-o ")
-	if idx < 0 {
-		return ""
-	}
-	rest := strings.TrimSpace(buildCmd[idx+3:])
-	end := strings.IndexAny(rest, " \t")
-	if end > 0 {
-		rest = rest[:end]
-	}
-	rest = strings.TrimPrefix(rest, "./")
-	// tmp/ is conventional and intentionally allowed.
-	if rest == "" || strings.HasPrefix(rest, "tmp/") || rest == "tmp" {
+	rest := parseOutputPath(buildCmd)
+	if rest == "" {
 		return ""
 	}
 	// Anything else under a watched path is suspicious. We can't know
@@ -610,6 +619,30 @@ func suspectedBuildOutputCollision(buildCmd string) string {
 		}
 	}
 	return ""
+}
+
+// parseOutputPath extracts the argument to `-o <path>` from a shell
+// command, returning "" if no such argument is present or if it points
+// at tmp/ (conventional and intentionally allowed). Shared by the
+// build- and asset-output collision checks.
+func parseOutputPath(cmd string) string {
+	// Look for `-o <path>` style outputs (go build, tailwindcss, ko,
+	// custom Makefiles).
+	idx := strings.Index(cmd, "-o ")
+	if idx < 0 {
+		return ""
+	}
+	rest := strings.TrimSpace(cmd[idx+3:])
+	end := strings.IndexAny(rest, " \t")
+	if end > 0 {
+		rest = rest[:end]
+	}
+	rest = strings.TrimPrefix(rest, "./")
+	// tmp/ is conventional and intentionally allowed.
+	if rest == "" || strings.HasPrefix(rest, "tmp/") || rest == "tmp" {
+		return ""
+	}
+	return rest
 }
 
 // absDir resolves p to an absolute directory path and verifies it

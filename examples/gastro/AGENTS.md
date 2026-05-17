@@ -6,37 +6,41 @@ Inherits from the repo-root `AGENTS.md` — read that first.
 ## Generated files — do not edit by hand
 
 The following paths are produced by build tooling. Treat them as
-read-only. If you see them modified in `git status` and you didn't
-intentionally regenerate them, leave them alone and ask the user how to
-proceed (revert, commit, or rerun the generator).
+read-only. They are **gitignored** and regenerated on every build.
 
 ### `static/styles.css`
 
-Generated from `tailwind.css` by the `tailwindcss` CLI. The committed
-version **must** be the minified single-line build (`--minify`):
+Generated from `tailwind.css` by the `tailwindcss` CLI. Gitignored
+(see the repo-root `.gitignore`) because:
 
-  - CI runs a drift gate (`go generate ./... && git diff --exit-code`)
-    that fails if the committed file doesn't match the minifier output.
-    See commit `b1c3085` for the prior incident.
-  - A dev-mode run of `tailwindcss` without `--minify` produces a much
-    larger pretty-printed file. That output is fine for local
-    inspection but **must not be committed**.
+  - It's a generated artifact, not source. Same treatment as `.gastro/`.
+  - Committing it forced an awkward minify-on-commit / unminify-during-dev
+    dance with a CI drift gate (see commit `b1c3085` and its follow-ups).
+  - The committed file would obscure source review with 50KB CSS diffs
+    every time a new utility class was used.
 
-If you find this file modified in your working tree and you didn't
-intentionally change it, the safe fix is to regenerate:
+**Fresh-clone bootstrap:** the file does not exist after `git clone`.
+Run one of:
 
 ```sh
+# Option A: explicit
 cd examples/gastro && go generate ./...
-# which runs: tailwindcss -i tailwind.css -o static/styles.css --minify
+
+# Option B: the dev task primes it automatically before `gastro watch`
+mise run dev:example-website
 ```
 
-This is also what an agent should do before staging a commit that
-touches any `.gastro` template under `examples/gastro/` — the
-minified output may legitimately change as the Tailwind JIT discovers
-new utility classes used by your edits.
+Both `go generate ./...` and the dev task produce a working
+`static/styles.css`. The dev task uses `tailwindcss` without
+`--minify` (faster, easier to inspect); production builds via
+`go generate` and the Dockerfile use `--minify`. Both modes work
+because the file is never committed — there is no canonical form
+to drift from.
 
-See `generate.go` for the full directive and the rationale (parity with
-embedded production builds).
+**Production builds:** the Dockerfile installs `tailwindcss`
+(version pinned to match `mise.toml`) and runs `go generate ./...`
+before `go build`. If you change the Tailwind version in
+`mise.toml`, update the Dockerfile pin to match.
 
 ### `.gastro/`
 

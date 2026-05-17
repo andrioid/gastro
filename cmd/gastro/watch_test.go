@@ -395,6 +395,43 @@ func TestSuspectedBuildOutputCollision(t *testing.T) {
 	}
 }
 
+// TestSuspectedAssetOutputCollision verifies the --asset variant's
+// narrower exclusion list: writes to static/ are PERMITTED (asset
+// generators are meant to write there — Tailwind, esbuild, image
+// opt), but writes to pages/ or components/ would feed back into
+// Generate and loop.
+func TestSuspectedAssetOutputCollision(t *testing.T) {
+	cases := []struct {
+		cmd     string
+		flagged bool
+		hint    string
+	}{
+		// The canonical Tailwind pattern: write to static/. MUST NOT flag.
+		{"tailwindcss -i tailwind.css -o static/styles.css", false, ""},
+		{"tailwindcss -i tailwind.css -o static/styles.css --minify", false, ""},
+		{"esbuild --bundle src/app.ts -o static/app.js", false, ""},
+		// tmp/ is conventional (shared with --build).
+		{"tailwindcss -i in.css -o tmp/out.css", false, ""},
+		// Source directories: still bad, would loop.
+		{"tailwindcss -i in.css -o pages/styles.css", true, "pages/"},
+		{"sharp resize -o components/img.webp", true, "components/"},
+		// No -o: nothing to flag.
+		{"some-asset-script", false, ""},
+	}
+	for _, tc := range cases {
+		got := suspectedAssetOutputCollision(tc.cmd)
+		if tc.flagged {
+			if got == "" {
+				t.Errorf("%q: expected collision flagged with hint %q, got empty", tc.cmd, tc.hint)
+			} else if !strings.HasPrefix(got, tc.hint) {
+				t.Errorf("%q: expected hint prefix %q, got %q", tc.cmd, tc.hint, got)
+			}
+		} else if got != "" {
+			t.Errorf("%q: expected no collision, got %q", tc.cmd, got)
+		}
+	}
+}
+
 // TestResolveGoWatchRoot exercises the three branches of the resolver
 // the production runWatch funnels through: explicit override, walk-up
 // success, and walk-up fallback. The walk-up tests rely on chdir into
