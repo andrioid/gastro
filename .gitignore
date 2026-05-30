@@ -36,8 +36,8 @@ examples/gastro/node_modules/
 .opencode/package.json
 .opencode/.gitignore
 
-# Tree-sitter generated source
-tree-sitter-gastro/src/
+# Tree-sitter generated source (parser.c must be committed for Zed)
+# tree-sitter-gastro/src/
 
 # Playwright CLI artifacts
 .playwright-cli/

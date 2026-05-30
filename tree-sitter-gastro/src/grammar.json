@@ -1,0 +1,227 @@
+{
+  "name": "gastro",
+  "rules": {
+    "document": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "frontmatter_section"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "template_body"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        }
+      ]
+    },
+    "frontmatter_section": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "frontmatter_delimiter"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "frontmatter"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "SYMBOL",
+          "name": "frontmatter_delimiter"
+        }
+      ]
+    },
+    "frontmatter_delimiter": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": 1,
+        "content": {
+          "type": "PATTERN",
+          "value": "---\\n"
+        }
+      }
+    },
+    "frontmatter": {
+      "type": "REPEAT1",
+      "content": {
+        "type": "SYMBOL",
+        "name": "_frontmatter_line"
+      }
+    },
+    "_frontmatter_line": {
+      "type": "PATTERN",
+      "value": "[^\\n]*\\n"
+    },
+    "template_body": {
+      "type": "REPEAT1",
+      "content": {
+        "type": "CHOICE",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "template_expression"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "component_self_closing"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "component_open_tag"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "component_close_tag"
+          },
+          {
+            "type": "SYMBOL",
+            "name": "html_content"
+          }
+        ]
+      }
+    },
+    "template_expression": {
+      "type": "PATTERN",
+      "value": "\\{\\{[^}]*\\}\\}"
+    },
+    "component_self_closing": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "<"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "component_name"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "component_prop"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "/>"
+        }
+      ]
+    },
+    "component_open_tag": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "<"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "component_name"
+        },
+        {
+          "type": "REPEAT",
+          "content": {
+            "type": "SYMBOL",
+            "name": "component_prop"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": ">"
+        }
+      ]
+    },
+    "component_close_tag": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "</"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "component_name"
+        },
+        {
+          "type": "STRING",
+          "value": ">"
+        }
+      ]
+    },
+    "component_name": {
+      "type": "PATTERN",
+      "value": "[A-Z][a-zA-Z0-9]*"
+    },
+    "component_prop": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "prop_name"
+        },
+        {
+          "type": "STRING",
+          "value": "="
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "prop_expression"
+            },
+            {
+              "type": "SYMBOL",
+              "name": "prop_string"
+            }
+          ]
+        }
+      ]
+    },
+    "prop_name": {
+      "type": "PATTERN",
+      "value": "[A-Za-z][A-Za-z0-9]*"
+    },
+    "prop_expression": {
+      "type": "PATTERN",
+      "value": "\\{[^}]+\\}"
+    },
+    "prop_string": {
+      "type": "PATTERN",
+      "value": "\"[^\"]*\""
+    },
+    "html_content": {
+      "type": "PATTERN",
+      "value": "[^<{]+|<[a-z\\/!][^<{]*|[<{]"
+    }
+  },
+  "extras": [
+    {
+      "type": "PATTERN",
+      "value": "\\s"
+    }
+  ],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": []
+}

@@ -38,5 +38,6 @@ Self-closing component
       (component_name)
       (component_prop
         (prop_name)
-        (prop_expression)))))
+        (prop_expression)))
+    (html_content)))
 

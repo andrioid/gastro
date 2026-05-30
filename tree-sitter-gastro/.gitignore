@@ -1,0 +1,50 @@
+# Rust artifacts
+Cargo.lock
+target/
+
+# Node artifacts
+build/
+prebuilds/
+node_modules/
+*.tgz
+
+# Swift artifacts
+.build/
+
+# Go artifacts
+go.sum
+_obj/
+
+# Python artifacts
+.venv/
+dist/
+*.egg-info
+*.whl
+
+# C artifacts
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.pc
+
+# Example dirs
+/examples/*/
+
+# Generated language bindings (we only need grammar.js + src/parser.c)
+binding.gyp
+bindings/
+Makefile
+Package.swift
+Cargo.toml
+pyproject.toml
+setup.py
+package-lock.json
+.editorconfig
+.gitattributes
+
+# Grammar volatiles
+*.wasm
+*.obj
+*.o

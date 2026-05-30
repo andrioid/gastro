@@ -18,10 +18,12 @@ module.exports = grammar({
         $.frontmatter_delimiter,
       ),
 
-    frontmatter_delimiter: (_) => /---\n/,
+    frontmatter_delimiter: (_) => token(prec(1, /---\n/)),
 
-    // The frontmatter content — injected as Go via queries
-    frontmatter: (_) => /[^]*?(?=\n---\n)/,
+    // The frontmatter content — injected as Go via queries.
+    // Each line is matched individually; the _ prefix keeps the tree clean.
+    frontmatter: ($) => repeat1($._frontmatter_line),
+    _frontmatter_line: (_) => /[^\n]*\n/,
 
     // Everything after the closing --- delimiter
     template_body: ($) =>
@@ -83,7 +85,7 @@ module.exports = grammar({
     // "literal"
     prop_string: (_) => /"[^"]*"/,
 
-    // Any other HTML content
-    html_content: (_) => /[^<{]+|[<{]/,
+    // Any other HTML content (including regular HTML tags, which start lowercase)
+    html_content: (_) => /[^<{]+|<[a-z\/!][^<{]*|[<{]/,
   },
 });
