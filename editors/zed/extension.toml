@@ -9,7 +9,7 @@ repository = "https://github.com/andrioid/gastro"
 [grammars.gastro]
 repository = "https://github.com/andrioid/gastro"
 path = "tree-sitter-gastro"
-rev = "38ccc35d5f85e89335d4c2967b34a6f2420540e2"
+rev = "54d91b2ba38946652d993838c6d54a1b9588f26c"
 
 [language_servers.gastro-lsp]
 name = "Gastro Language Server"
