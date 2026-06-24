@@ -107,8 +107,8 @@ func TestGenerate_MainGoImportsGastroPackage(t *testing.T) {
 	if !strings.Contains(text, `"coolapp/.gastro"`) {
 		t.Errorf("main.go should import coolapp/.gastro, got:\n%s", text)
 	}
-	if !strings.Contains(text, "gastro.Routes()") {
-		t.Errorf("main.go should call gastro.Routes(), got:\n%s", text)
+	if !strings.Contains(text, "gastro.New().Handler()") {
+		t.Errorf("main.go should call gastro.New().Handler(), got:\n%s", text)
 	}
 	if !strings.Contains(text, "//go:generate go tool gastro generate") {
 		t.Errorf("main.go should contain go:generate directive for gastro generate, got:\n%s", text)
