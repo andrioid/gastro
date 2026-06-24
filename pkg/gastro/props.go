@@ -4,11 +4,18 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 )
+
+// attrsType is the reflect type of the attribute-forwarding bag, matched
+// by identity so MapToStruct can route unconsumed dict keys into it.
+var attrsType = reflect.TypeOf(Attrs(nil))
 
 // MapToStruct converts a map[string]any (from template dict calls) into a
 // typed struct T. Handles type coercion for common cases (string->bool,
-// string->int, float64->int).
+// string->int, float64->int). A field of type gastro.Attrs receives every
+// key that does not match a declared field (implicit "rest" capture) so a
+// component can forward arbitrary HTML attributes.
 func MapToStruct[T any](m map[string]any) (T, error) {
 	var result T
 	rv := reflect.ValueOf(&result).Elem()
@@ -18,21 +25,61 @@ func MapToStruct[T any](m map[string]any) (T, error) {
 		return result, fmt.Errorf("MapToStruct: T must be a struct, got %s", rt.Kind())
 	}
 
+	consumed := make(map[string]bool, rt.NumField())
+	var (
+		attrsField     reflect.Value
+		attrsFieldName string
+		hasAttrs       bool
+	)
+
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 		fieldVal := rv.Field(i)
+
+		if field.Type == attrsType {
+			attrsField = fieldVal
+			attrsFieldName = field.Name
+			hasAttrs = true
+			continue
+		}
 
 		val, ok := m[field.Name]
 		if !ok {
 			continue
 		}
+		consumed[field.Name] = true
 
 		if err := setField(fieldVal, val, field.Name); err != nil {
 			return result, err
 		}
 	}
 
+	if hasAttrs {
+		rest := make(Attrs)
+		for k, v := range m {
+			if k == attrsFieldName || consumed[k] || isReservedPropKey(k) {
+				continue
+			}
+			rest[k] = v
+		}
+		if len(rest) > 0 {
+			attrsField.Set(reflect.ValueOf(rest))
+		}
+	}
+
 	return result, nil
+}
+
+// isReservedPropKey reports whether a dict key is consumed by gastro's own
+// machinery and must never be forwarded as an HTML attribute. Covers the
+// synthetic children keys (canonical list in internal/codegen/synthetic.go)
+// and any runtime-injected "__gastro_"-prefixed key (e.g. __gastro_request).
+func isReservedPropKey(k string) bool {
+	switch k {
+	case "Children", "__children":
+		return true
+	}
+	return strings.HasPrefix(k, "__gastro_")
 }
 
 func setField(fieldVal reflect.Value, val any, fieldName string) error {

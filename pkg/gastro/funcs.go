@@ -39,6 +39,12 @@ func DefaultFuncs() template.FuncMap {
 		"has":    hasFunc,
 		"hasKey": hasKeyFunc,
 		"set":    setFunc,
+		// Attribute forwarding (see attrs.go). twJoin always plain-joins;
+		// twMerge and attrs default to plain-join too but New() rebinds
+		// them to a WithClassMerger-supplied merger when one is set.
+		"twJoin":  DefaultClassMerger,
+		"twMerge": DefaultClassMerger,
+		"attrs":   BuildAttrsFunc(DefaultClassMerger),
 	}
 }
 

@@ -739,6 +739,7 @@ type config struct {
 	devMode      *bool // nil = use GASTRO_DEV env var; non-nil = override
 	errorHandler gastroRuntime.PageErrorHandler
 	binders      []func(*http.Request) template.FuncMap
+	classMerger  gastroRuntime.ClassMerger
 	// userFuncNames records names registered via WithFuncs so the probe
 	// can distinguish them from built-in defaults when reporting
 	// collisions. Tracked separately because cfg.funcs starts as
@@ -780,6 +781,16 @@ func WithFuncs(fm template.FuncMap) Option {
 			c.userFuncNames[k] = true
 		}
 	}
+}
+
+// WithClassMerger plugs a class-merging function (e.g. a Tailwind-aware
+// merger like tailwind-merge-go) into the attrs helper and the twMerge
+// template func. The dependency lives in your module — gastro core ships
+// only DefaultClassMerger (plain concatenation, no conflict resolution).
+//
+//	router := gastro.New(gastro.WithClassMerger(twmerge.Merge))
+func WithClassMerger(m gastroRuntime.ClassMerger) Option {
+	return func(c *config) { c.classMerger = m }
 }
 
 // WithDeps registers a typed dependency that page handlers can retrieve via
@@ -1348,6 +1359,21 @@ func New(opts ...Option) *Router {
 	}
 	for _, opt := range opts {
 		opt(cfg)
+	}
+
+	// Bind the class-merge-dependent template funcs to the configured
+	// ClassMerger. html/template funcs can't call sibling funcs, so attrs
+	// and twMerge must hold the merger directly. DefaultFuncs() installed
+	// plain-concat versions; override them when WithClassMerger was set,
+	// unless the user replaced them via WithFuncs.
+	if cfg.classMerger != nil {
+		if !cfg.userFuncNames["attrs"] {
+			cfg.funcs["attrs"] = gastroRuntime.BuildAttrsFunc(cfg.classMerger)
+		}
+		if !cfg.userFuncNames["twMerge"] {
+			merger := cfg.classMerger
+			cfg.funcs["twMerge"] = func(classes ...string) string { return merger(classes...) }
+		}
 	}
 
 	isDev := gastroRuntime.IsDev()

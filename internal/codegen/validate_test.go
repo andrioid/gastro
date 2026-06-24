@@ -213,3 +213,41 @@ func TestValidateDictKeys_ParseErrorBailsSilently(t *testing.T) {
 		t.Fatalf("expected no warnings on parse error, got: %v", warnings)
 	}
 }
+
+// buttonBagSchema is a component with an attribute-forwarding bag
+// (a gastro.Attrs field) alongside one typed prop.
+func buttonBagSchema() map[string][]codegen.StructField {
+	return map[string][]codegen.StructField{
+		"components/button.gastro": {
+			{Name: "Label", Type: "string"},
+			{Name: "Attrs", Type: "gastro.Attrs"},
+		},
+	}
+}
+
+func buttonUses() []parser.UseDeclaration {
+	return []parser.UseDeclaration{{Name: "Button", Path: "components/button.gastro"}}
+}
+
+func TestValidateDictKeys_BagComponentAcceptsArbitraryKeys(t *testing.T) {
+	// A gastro.Attrs field opens the schema: forwarded keys that match no
+	// declared field are HTML attributes, not typos, so no warning fires.
+	body := `{{ Button (dict "Label" "Save" "type" "submit" "data-on:click" "@post('/x')") }}`
+	warnings := codegen.ValidateDictKeys(body, buttonUses(), buttonBagSchema())
+	if len(warnings) != 0 {
+		t.Fatalf("expected no warnings for bag component, got: %v", warnings)
+	}
+}
+
+func TestValidateDictKeys_NonBagComponentStillFlagsUnknown(t *testing.T) {
+	// Contrast with the bag case: a component without gastro.Attrs must
+	// still flag an unknown key (preserves the #36 dict-key typo guard).
+	body := `{{ Card (dict "Title" "Hi" "type" "submit") }}`
+	warnings := codegen.ValidateDictKeys(body, cardUses(), cardSchema())
+	if len(warnings) != 1 {
+		t.Fatalf("expected 1 warning for non-bag component, got %d: %v", len(warnings), warnings)
+	}
+	if !strings.Contains(warnings[0].Message, `unknown prop "type"`) {
+		t.Errorf("warning message missing key: %q", warnings[0].Message)
+	}
+}

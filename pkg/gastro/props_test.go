@@ -187,3 +187,71 @@ func TestMapToStruct_EmptyMap(t *testing.T) {
 		t.Errorf("Title should be zero value, got %q", result.Title)
 	}
 }
+
+func TestMapToStruct_RestCaptureIntoAttrs(t *testing.T) {
+	type Props struct {
+		Label string
+		Attrs gastro.Attrs
+	}
+	m := map[string]any{
+		"Label":         "Save",
+		"type":          "submit",
+		"data-on:click": "@post('/x')",
+	}
+	result, err := gastro.MapToStruct[Props](m)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Label != "Save" {
+		t.Errorf("Label: got %q, want %q", result.Label, "Save")
+	}
+	if got := result.Attrs["type"]; got != "submit" {
+		t.Errorf("Attrs[type]: got %v, want %q", got, "submit")
+	}
+	if got := result.Attrs["data-on:click"]; got != "@post('/x')" {
+		t.Errorf("Attrs[data-on:click]: got %v", got)
+	}
+	// Declared field must not leak into the bag.
+	if _, ok := result.Attrs["Label"]; ok {
+		t.Errorf("declared field Label leaked into Attrs")
+	}
+}
+
+func TestMapToStruct_RestCaptureExcludesReservedKeys(t *testing.T) {
+	type Props struct {
+		Attrs gastro.Attrs
+	}
+	m := map[string]any{
+		"__gastro_request": "req",
+		"Children":         "kids",
+		"__children":       "old",
+		"data-x":           "1",
+	}
+	result, err := gastro.MapToStruct[Props](m)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, k := range []string{"__gastro_request", "Children", "__children"} {
+		if _, ok := result.Attrs[k]; ok {
+			t.Errorf("reserved key %q leaked into Attrs", k)
+		}
+	}
+	if result.Attrs["data-x"] != "1" {
+		t.Errorf("Attrs[data-x]: got %v, want %q", result.Attrs["data-x"], "1")
+	}
+}
+
+func TestMapToStruct_NoBagDropsUnknownKeys(t *testing.T) {
+	type Props struct {
+		Label string
+	}
+	m := map[string]any{"Label": "x", "type": "submit"}
+	result, err := gastro.MapToStruct[Props](m)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Label != "x" {
+		t.Errorf("Label: got %q", result.Label)
+	}
+	// No gastro.Attrs field — unknown keys are silently dropped (back-compat).
+}

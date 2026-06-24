@@ -72,6 +72,19 @@ func dictValidationStubFuncs(uses []gastroParser.UseDeclaration) map[string]any 
 	return stubs
 }
 
+// hasRestBag reports whether a component's Props schema includes an
+// attribute-forwarding bag (a field of type gastro.Attrs). Such a
+// component accepts arbitrary literal dict keys — they are forwarded as
+// HTML attributes — so the unknown-prop diagnostic is suppressed for it.
+func hasRestBag(fields []StructField) bool {
+	for _, f := range fields {
+		if f.Type == "gastro.Attrs" {
+			return true
+		}
+	}
+	return false
+}
+
 // DiagnosticSeverity classifies a DictKeyDiagnostic. The integer
 // values match the LSP spec (1=Error, 2=Warning) so callers can pass
 // them through without remapping.
@@ -284,6 +297,7 @@ func ValidateDictKeysFromAST(
 			// gets ignored at render time. Don't warn for this case.
 			return
 		}
+		openSchema := hasRestBag(schema)
 
 		var literalKeys []*parse.StringNode
 		if dictPipe != nil {
@@ -355,7 +369,7 @@ func ValidateDictKeysFromAST(
 				})
 				continue
 			}
-			if validNames[name] {
+			if validNames[name] || openSchema {
 				continue
 			}
 			start, end := stringNodePosRange(body, key)

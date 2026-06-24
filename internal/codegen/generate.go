@@ -116,7 +116,13 @@ func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent
 	// resolve to the mangled names.
 	frontmatter = RewriteHoistedRefs(frontmatter, names)
 	for i := range hoistedDecls {
-		hoistedDecls[i].SourceText = RewriteHoistedRefsInDecl(hoistedDecls[i].SourceText, names)
+		src := RewriteHoistedRefsInDecl(hoistedDecls[i].SourceText, names)
+		// Hoisted decls also need gastro-marker rewriting (e.g. a Props
+		// struct field typed gastro.Attrs). rewriteGastroMarkers bails
+		// cleanly on the decls it can't wrap (func decls), leaving them
+		// untouched; warnings are surfaced from the body-level analysis.
+		src, _ = rewriteGastroMarkers(src)
+		hoistedDecls[i].SourceText = src
 	}
 
 	// Component-only: resolve PropsTypeName to either the mangled
@@ -471,6 +477,11 @@ var gastroMarkerAllowlist = map[string]string{
 	"FromContextOK": "gastroRuntime.FromContextOK",
 	"NewSSE":        "gastroRuntime.NewSSE",
 	"Render":        "Render",
+
+	// Type-position marker: gastro.Attrs is the attribute-forwarding bag
+	// (see pkg/gastro/attrs.go). Rewritten to the runtime alias so a
+	// hoisted Props struct field `Attrs gastro.Attrs` compiles.
+	"Attrs": "gastroRuntime.Attrs",
 
 	// Call-expression rewrites — placeholder values; the call-pass
 	// substitutes its own text. Listed here so they are NOT flagged as
