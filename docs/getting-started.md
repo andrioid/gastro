@@ -49,6 +49,14 @@ after scaffolding, without installing the CLI globally. If you also have
 `gastro` on `PATH`, both styles work and stay equivalent (the `tool`
 directive just gives you a project-pinned version).
 
+> If you add other code generators (e.g. `sqlc`) with their own
+> `//go:generate` directives, remember that `go generate ./...` runs
+> directives in package-path order — there is no cross-generator
+> sequencing. When one generator's output feeds another, sequence them
+> explicitly (`sqlc generate && gastro generate`, a `Makefile`/task
+> target, or directives co-located in one package) instead of relying on
+> `go generate ./...` order.
+
 To add the directive to an existing project, run
 `go get -tool github.com/andrioid/gastro/cmd/gastro` inside the module.
 
@@ -57,6 +65,12 @@ To add Gastro support in your IDE, you can install one of our extensions.
 - [Gastro for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=andrioid.gastro-vscode)
 
 You can also configure the language-server manually by setting up your IDE (or coding-agent) to use `gastro lsp` as the LSP.
+
+Format `.gastro` files with `gastro fmt` — plain `gofmt` chokes on the
+`---` frontmatter fence. `gastro fmt` is fence-aware: it formats the Go
+frontmatter with `go/format` and sorts/groups your imports (standard Go
+imports first, component imports second). The editor extensions run the
+same formatter on save through the language server.
 
 ## Create a Project
 
@@ -86,6 +100,14 @@ myapp/
 Your project is still a Go project. Gastro generates routes and templates inside of `.gastro/`. The gastro folders are special, but otherwise you can organize your project as you see fit.
 
 > **Note:** `pages/` is optional for component-only projects (e.g. when gastro is embedded inside a larger module and you use it solely for its component rendering and static asset serving).
+
+> **Heads up:** a plain `go build` / `go test` fails on a fresh checkout or
+> right after editing a `.gastro` file — `main.go` imports the generated
+> `.gastro/` package, which only exists after code generation. Use `gastro
+> dev` (regenerates on every change), `gastro build` (generate + build), or
+> run `gastro generate` / `go generate ./...` before reaching for the Go
+> toolchain directly. `.gastro/` is gitignored by default; committing it is
+> optional.
 
 ## Your First Page
 

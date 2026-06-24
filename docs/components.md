@@ -98,6 +98,25 @@ Title := "Home"
 {{ end }}
 ```
 
+### Filenames are the public API
+
+A component's Go identifier is derived from its file path. Path separators
+(`/`) and dashes (`-`) fold to PascalCase; **underscores are kept verbatim**:
+
+| File | `Render` method / Props type |
+|------|------------------------------|
+| `components/card.gastro` | `Render.Card` / `CardProps` |
+| `components/post-card.gastro` | `Render.PostCard` / `PostCardProps` |
+| `components/blog/post-card.gastro` | `Render.BlogPostCard` / `BlogPostCardProps` |
+| `components/interest_chips.gastro` | `Render.Interest_chips` / `Interest_chipsProps` |
+
+The import alias (the name left of the path) is what you write in templates
+and is free-form, so the derived name only surfaces when [calling a
+component from Go](#calling-components-from-go). Prefer single-word or
+kebab-case filenames so the generated identifier reads as idiomatic Go —
+`interest-chips.gastro` gives you `Render.InterestChips`, while
+`interest_chips.gastro` gives you the awkward `Render.Interest_chips`.
+
 ## Prop Syntax
 
 Props are passed as attributes on the component tag:

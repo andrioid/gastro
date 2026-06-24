@@ -1,0 +1,91 @@
+# Gastro
+
+> Gastro is a file-based component framework for Go. A `.gastro` file pairs Go
+> "frontmatter" with an `html/template` body in one file; the `gastro` CLI
+> compiles those files into type-safe Go (a generated `.gastro/` package) with
+> file-based routing. Mental model: Astro's authoring DX, Go's type safety,
+> PHP's file-based routes. Server-rendered only — no client islands, no CSS/JS
+> bundling.
+
+## How it works in 60 seconds
+
+- A `.gastro` file has two sections split by a `---` fence: **frontmatter**
+  (Go that runs per request; ambient `w http.ResponseWriter`, `r *http.Request`)
+  and a **template body** (standard Go `html/template`).
+- In frontmatter, **Uppercase** vars are exported to the template (`{{ .Title }}`);
+  lowercase vars stay private. Mirrors Go's export rule.
+- `pages/` map to routes (`pages/index.gastro` → `/`, `pages/blog/[slug].gastro`
+  → `/blog/{slug}`); patterns are method-less — branch on `r.Method` in frontmatter.
+- `components/` are reusable `.gastro` files with a typed `Props` struct.
+- The compiler writes a generated Go package into `./.gastro/` (package name
+  `gastro`). `main.go` imports it (`import gastro "<module>/.gastro"`) and mounts
+  `gastro.New(opts...).Handler()`. The runtime lives in
+  `github.com/andrioid/gastro/pkg/gastro`.
+
+## Critical rules (read before editing a .gastro project)
+
+- **Generate before you build.** Plain `go build`/`go test` fail on a fresh or
+  edited tree because the imported `./.gastro` package does not exist yet. Use
+  `gastro dev` (auto-regenerates on change), `gastro build` (generate + build),
+  or run `gastro generate` (a.k.a. `go generate ./...`) first.
+- **Never hand-edit `./.gastro/`.** It is generated ("DO NOT EDIT"), gitignored
+  by default, and fully owned by the tool. Deleting a page/component source
+  auto-prunes its generated file on the next `generate` — do not delete generated
+  files by hand and do not commit fixes into them.
+- **Filenames are the public API.** A component's exported name is derived from
+  its path: `/` and `-` fold to PascalCase, but `_` is kept verbatim.
+  `components/post-card.gastro` → `Render.PostCard` / `PostCardProps`;
+  `components/interest_chips.gastro` → `Render.Interest_chips` /
+  `Interest_chipsProps`. Prefer single-word or kebab-case filenames.
+- **Import components per page.** Each page declares the components it uses in
+  frontmatter: `import ( Card "components/card.gastro" )`. There is no global
+  auto-resolution — a working sibling page gives no signal. The alias must start
+  uppercase.
+- **Props go through `dict`, keys are checked at build.** Call sites pass
+  `{{ Card (dict "Title" .Title) }}`; the dict is untyped at the call but
+  literal keys are validated against the component's `Props` struct.
+  `gastro build` / `gastro check` fail on a typo'd key; `gastro dev` only prints
+  the warning. Missing keys fall back to the zero value (not yet flagged at build).
+- **Format with `gastro fmt`, not `gofmt`.** `gofmt` errors on the `---` fence.
+  `gastro fmt` is fence-aware and also sorts/groups frontmatter imports
+  (Go group, then component group). The same formatter backs the LSP's
+  format-on-save.
+- **`gastro.From[T]` / `gastro.Render.X` are frontmatter-only sugar.** In
+  frontmatter, `gastro.From[T](ctx)` and `gastro.Render.X(...)` are rewritten by
+  the compiler. In plain Go (`main.go`, side-mounted handlers) those symbols do
+  not exist — call `gastro.FromContext[T](ctx)` (from `pkg/gastro`) directly and
+  use the generated package's `Render` API.
+- **Components declare `gastro.Props()`.** `type Props struct { ... }` then
+  `X := gastro.Props().X`. Components that render `{{ .Children }}` accept nested
+  content via `{{ wrap Component (dict ...) }}...{{ end }}`.
+
+## Commands
+
+- `gastro new <name>` — scaffold a new project (framework mode).
+- `gastro dev` — framework-mode dev server with hot reload (owns the process).
+- `gastro watch --run '<cmd>'` — library-mode dev loop (you keep `main.go`).
+- `gastro generate` — compile `.gastro` → Go into `./.gastro/` (also `go generate ./...`).
+- `gastro build` — generate then `go build` a single self-contained binary.
+- `gastro list [--json]` — list pages/components with their Props signatures.
+- `gastro fmt [--check]` — format `.gastro` sources.
+- `gastro check` — verify `./.gastro/` is up to date (CI drift gate).
+- `gastro lsp` — language server for editors (pair with `gopls` for frontmatter).
+
+## Documentation
+
+- [Getting Started — Framework Mode](https://github.com/andrioid/gastro/blob/main/docs/getting-started.md): scaffolding and the dev loop for new projects.
+- [Getting Started — Library Mode](https://github.com/andrioid/gastro/blob/main/docs/getting-started-library.md): adding gastro to an existing Go service.
+- [Pages & Routing](https://github.com/andrioid/gastro/blob/main/docs/pages.md): page authoring, file-based routes, `WithDeps`/`From`, options API.
+- [Components](https://github.com/andrioid/gastro/blob/main/docs/components.md): props, `dict`, composition/children, naming, the `Render` API.
+- [Helpers](https://github.com/andrioid/gastro/blob/main/docs/helpers.md): built-in template helpers and request-aware `WithRequestFuncs`.
+- [Markdown](https://github.com/andrioid/gastro/blob/main/docs/markdown.md): `//gastro:embed` and goldmark rendering.
+- [Dev Mode](https://github.com/andrioid/gastro/blob/main/docs/dev-mode.md): `gastro dev`/`watch`, env vars, watching extra files, composed setups.
+- [Error Handling](https://github.com/andrioid/gastro/blob/main/docs/error-handling.md): failure-mode catalogue and `WithErrorHandler`.
+- [Architecture](https://github.com/andrioid/gastro/blob/main/docs/architecture.md): package-by-package guide to the codebase.
+
+## Optional
+
+- [Design](https://github.com/andrioid/gastro/blob/main/docs/design.md): full chronological design document.
+- [Roadmap](https://github.com/andrioid/gastro/blob/main/ROADMAP.md): scoped, deferred work and known limitations.
+- [Decisions](https://github.com/andrioid/gastro/blob/main/DECISIONS.md): chronological design log.
+- [Deployment](https://github.com/andrioid/gastro/blob/main/docs/deployment.md): single-binary deploy, Docker, CI drift checks.

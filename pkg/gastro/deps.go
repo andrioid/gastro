@@ -13,7 +13,7 @@ type depsKey struct{}
 
 // depsMap is the per-request registry of typed dependency values. It is keyed
 // by reflect.Type, so each Go type can have at most one instance in scope per
-// router. Use FromContext / From to retrieve values.
+// router. Use FromContext / FromContextOK to retrieve values.
 type depsMap map[reflect.Type]any
 
 // AttachDeps returns a derived context carrying the supplied deps map.
@@ -49,9 +49,11 @@ func AttachDeps(parent context.Context, deps map[reflect.Type]any) context.Conte
 //
 // Use FromContextOK if a missing value should be a recoverable condition.
 //
-// FromContext is the lower-level form of From: prefer From when you have a
-// *gastro.Context (page handlers); use FromContext from SSE handlers,
-// middleware, or any code that only has a context.Context.
+// In page frontmatter the page-friendly spellings gastro.From[T](ctx) /
+// gastro.FromOK[T](ctx) are rewritten by the compiler to FromContext /
+// FromContextOK — those markers do not exist as Go symbols outside
+// frontmatter, so call FromContext / FromContextOK directly from main.go,
+// SSE handlers, middleware, or any other plain Go.
 func FromContext[T any](ctx context.Context) T {
 	v, ok := FromContextOK[T](ctx)
 	if !ok {

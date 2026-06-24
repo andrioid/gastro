@@ -190,6 +190,17 @@ matching the naming in `codegen.handlerFuncName`.
 2. For each file: parse -> analyse -> transform template -> generate handler
 3. Writes generated `.go` files and template `.html` files to output directory
 4. Generates `routes.go` with the `*Router` type, `New()` constructor, and route registrations. Each generated page handler and component renderer is a method on `*Router` so it can read the per-router template registry and dependency map. The legacy package-level `Routes(opts...) http.Handler` is kept as a deprecated shim around `New(opts...).Handler()`.
+5. Prunes stale outputs: any generated `.go` handler or template `.html`
+   whose source `.gastro` file no longer exists is removed (along with
+   `render.go` once the last component is deleted). Without this, a
+   deleted page/component would leave an orphaned handler in `package
+   gastro` that still references removed symbols (e.g. a frontmatter
+   `gastro.Render.X(...)` call) and breaks `go build` until `.gastro/`
+   is wiped by hand. The keep-set is derived from the same path→filename
+   transform `compileFile` uses to write the outputs, so a live file is
+   never deleted; transient dev artifacts (the `dev-server` binary,
+   `.reload`) and the `static/` copy (managed separately by `syncStatic`)
+   are out of scope.
 
 ### `internal/watcher/`
 

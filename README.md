@@ -118,6 +118,19 @@ gastro list
 gastro list --json
 ```
 
+### Format Your Sources
+
+```sh
+gastro fmt          # format every .gastro file in the project
+gastro fmt --check  # exit non-zero if any file is unformatted (CI)
+```
+
+Plain `gofmt` can't parse `.gastro` files — the `---` frontmatter fence
+isn't valid Go. `gastro fmt` is fence-aware: it formats the Go frontmatter
+with `go/format` and sorts/groups imports (standard Go imports first,
+component imports second). The editor extensions run the same formatter on
+save through the language server.
+
 ### Build for Production
 
 ```sh

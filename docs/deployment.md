@@ -93,6 +93,12 @@ regenerating:
 gastro check
 ```
 
+> Deleting a `.gastro` page or component no longer leaves a stale generated
+> file behind: `gastro generate` (and therefore `gastro dev` / `gastro
+> build`) prunes the orphaned `.go`/`.html` output on every run. `gastro
+> check` drift in CI now almost always means a contributor edited a
+> `.gastro` source without regenerating, not a leftover from a deleted file.
+
 Exit codes:
 
 | Code | Meaning |
