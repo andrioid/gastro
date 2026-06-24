@@ -1,6 +1,6 @@
 # Template Helpers
 
-Gastro provides 21 built-in template functions available in all templates without registration. You can also add custom helpers.
+Gastro provides 24 built-in template functions available in all templates without registration. You can also add custom helpers.
 
 ## String Functions
 
@@ -109,6 +109,40 @@ frontmatter; these helpers let templates ask the question directly.
 | `has` | Reports whether `needle` appears in `haystack`. Accepts a slice/array or variadic arguments. Uses `reflect.DeepEqual`. |
 | `hasKey` | Reports whether `key` is present in `m`. Works on any map (string-keyed, int-keyed, `map[any]bool`). Returns false for non-maps rather than panicking. |
 | `set` | Builds a `map[any]bool` from the given items. Combine with `hasKey` for efficient repeated membership tests. Unhashable items (slices, maps, funcs) are skipped silently. |
+
+## Attribute Forwarding
+
+These funcs render a component's `gastro.Attrs` bag and merge Tailwind
+class lists. See [Components → Forwarding attributes](components.md#forwarding-attributes)
+for the full pattern.
+
+```go
+// Render a bag of forwarded attributes, with base defaults.
+<button {{ attrs .Attrs (dict "class" "btn" "type" "button") }}>
+
+// Join class lists (plain concatenation, no conflict resolution).
+<div class="{{ twJoin "card" .Variant }}">
+
+// Merge class lists through the configured merger (plain join by
+// default; conflict-aware once you call WithClassMerger).
+<div class="{{ twMerge "p-4" .Class }}">
+```
+
+| Function | Description |
+|----------|-------------|
+| `attrs` | Renders a `gastro.Attrs` bag as HTML attributes. Optional second `dict` of base defaults; `class` is merged, other keys are overridable defaults. Escapes values (safe-typed values pass through), `bool` → bare/omitted, names validated. |
+| `twJoin` | Concatenates class lists with single spaces, dropping empties. Never resolves conflicts. |
+| `twMerge` | Same as `twJoin` until you call `gastro.WithClassMerger` — then it delegates to your merger (e.g. tailwind-merge-go) for conflict-aware merging. |
+
+By default `twMerge` and `attrs`'s class handling only concatenate. Plug a
+Tailwind-aware merger to get conflict resolution; the dependency lives in
+your module, not gastro's:
+
+```go
+import twmerge "github.com/Oudwins/tailwind-merge-go"
+
+router := gastro.New(gastro.WithClassMerger(twmerge.Merge))
+```
 
 ## Custom Helpers
 

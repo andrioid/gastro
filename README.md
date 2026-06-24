@@ -213,7 +213,10 @@ auto-generated route with a Go handler, `WithMiddleware(pattern, fn)` for
 wrapping routes (subtree wildcards via `"/admin/{path...}"`),
 `WithRequestFuncs(binder)` for **request-aware template helpers** (i18n
 translators, CSRF tokens, CSP nonces — see [Helpers → Request-aware
-helpers](docs/helpers.md#request-aware-helpers-withrequestfuncs)), and
+helpers](docs/helpers.md#request-aware-helpers-withrequestfuncs)),
+`WithClassMerger(fn)` for plugging a Tailwind-aware class merger behind the
+`attrs`/`twMerge` helpers (see [Components → Forwarding
+attributes](docs/components.md#forwarding-attributes)), and
 `WithErrorHandler(fn)` for custom render-error responses (logging, error
 tracking, branded 500 pages). See [Pages & Routing](docs/pages.md) for
 the full API and [Error Handling](docs/error-handling.md) for the

@@ -255,6 +255,93 @@ The parent passes children by wrapping content in the component tags:
 
 Children are rendered in the **parent's** data context, so they can reference the parent's template data. Only one `{{ .Children }}` is supported per component.
 
+## Forwarding attributes
+
+A component that wraps a native element — a `Button`, `Input`, `Link` —
+often needs to pass through arbitrary HTML attributes (`type`, `href`,
+`data-*`, `aria-*`, Datastar's `data-on:*`) without declaring a typed prop
+for each. Declare a field of type `gastro.Attrs` and it collects every
+dict key that does **not** match a declared prop:
+
+```gastro
+--- components/button.gastro
+type Props struct {
+    Label string
+    Attrs gastro.Attrs
+}
+
+Label := gastro.Props().Label
+Attrs := gastro.Props().Attrs
+---
+<button {{ attrs .Attrs (dict "class" "btn px-4" "type" "button") }}>{{ .Label }}</button>
+```
+
+Call it forwarding any attributes alongside the typed `Label`:
+
+```gastro
+{{ Button (dict
+    "Label"         "Save"
+    "type"          "submit"
+    "class"         "px-2"
+    "data-on:click" (safeJS "@post('/save')")
+) }}
+```
+
+`Label` binds to the typed field; `type`, `class`, and `data-on:click`
+fall through into `.Attrs` and are emitted by the `attrs` func.
+
+### The `attrs` func
+
+`{{ attrs .Attrs (dict ...base) }}` renders the bag as HTML attributes,
+taking an optional second dict of **base defaults**:
+
+- Values are HTML-escaped by default. A value already marked safe
+  (`safeJS`, `safeAttr`, …) is emitted verbatim — the same contract as
+  those helpers. That is how Datastar expressions pass through unescaped.
+- A `bool` value renders as a bare attribute when `true` (`disabled`) and
+  is omitted when `false`.
+- Keys are emitted in sorted order; names outside `[A-Za-z0-9_:.-]` are
+  skipped, so a forwarded key can never break out of the tag.
+- Base keys are defaults the caller can override — except `class`, which
+  is **merged** (below). Above, `type` defaults to `"button"` but the
+  caller's `"submit"` wins.
+
+### Merging classes (`twJoin` / `twMerge`)
+
+The base `class` and the forwarded `class` are combined through a **class
+merger** rather than overwritten. The built-in merger only concatenates:
+
+```
+attrs .Attrs (dict "class" "btn px-4")  +  caller class "px-2"
+  →  class="btn px-4 px-2"
+```
+
+Plain concatenation does **not** resolve Tailwind conflicts — `px-4` and
+`px-2` both survive, and which wins is decided by the generated CSS order,
+not the attribute. For real conflict resolution, plug a Tailwind-aware
+merger via `WithClassMerger` in your `main.go`:
+
+```go
+import twmerge "github.com/Oudwins/tailwind-merge-go" // lives in YOUR module
+
+router := gastro.New(gastro.WithClassMerger(twmerge.Merge))
+//  →  class="btn px-2"   (px-4 dropped)
+```
+
+The dependency stays in your module — gastro core ships only the plain
+`twJoin` merger and never imports a Tailwind library. The same merger
+backs the `twMerge` template func; `twJoin` always plain-joins. See
+[Template Helpers](helpers.md#attribute-forwarding).
+
+### Typos become attributes
+
+Because a `gastro.Attrs` field accepts arbitrary keys, the
+[compile-time prop validation](#compile-time-prop-validation) below is
+relaxed for that component: an unknown key is a forwarded attribute, not a
+typo. A misspelled `Lable` silently becomes a `lable="…"` attribute rather
+than a build error. Components without an `Attrs` field keep the strict
+typo guard.
+
 ## Compile-time prop validation
 
 Gastro statically validates the literal string keys you pass to `(dict ...)`
