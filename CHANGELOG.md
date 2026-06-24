@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.3.3](https://github.com/andrioid/gastro/compare/v0.3.2...v0.3.3) (2026-06-24)
+
+
+### Features
+
+* **attrs:** forward arbitrary HTML attributes via gastro.Attrs bag ([87c8889](https://github.com/andrioid/gastro/commit/87c888957b6abce9fac6bdc9133dc7000ea6067c))
+* **chromalexer:** restore gastro chroma lexer as separate sub-module ([ed71ba1](https://github.com/andrioid/gastro/commit/ed71ba1b7883bb89aef4336598de386f5f88d593))
+* **cli:** --asset CMD on gastro watch (reload-aware build chain) ([3938025](https://github.com/andrioid/gastro/commit/3938025aed55a16db3cb54d7be8d34edd3f97d53))
+* **codegen:** bare-call syntax for propless components ([e7d40ac](https://github.com/andrioid/gastro/commit/e7d40ac64e271ab4414a8a447b760b32024fdd73))
+* **examples/gastro:** add lspclient + embedded demo (Steps 1+2) ([fef0eeb](https://github.com/andrioid/gastro/commit/fef0eeba0fc6fb08f654cb1bd424a06c02c160ab))
+* **examples/gastro:** extract &lt;CodeWindow&gt; component, hero adopts it ([5ca384c](https://github.com/andrioid/gastro/commit/5ca384c24e6b337aea5b17772b9d997cc06eeee6))
+* **examples/gastro:** live LSP demo replaces hero code window, drop standalone section ([ab3a166](https://github.com/andrioid/gastro/commit/ab3a16694de684d9b599989f68c2803f2c7b906f))
+* **examples/gastro:** live-LSP homepage demo (Steps 3-7) ([53f5020](https://github.com/andrioid/gastro/commit/53f5020433c4164ab6f57c9d71d56a1b49f7affe))
+* **examples/gastro:** restructure landing page with reusable section components ([a8d72b7](https://github.com/andrioid/gastro/commit/a8d72b7610b5499cfe25bc8d2cfb77111085555a))
+
+
+### Bug Fixes
+
+* **compiler:** prune orphaned generated files on regenerate ([5368e16](https://github.com/andrioid/gastro/commit/5368e162aa125551b5b35cca0e4b4b3c838536cb))
+* **devloop:** mtime bump with no content diff must not escalate to restart ([3f70623](https://github.com/andrioid/gastro/commit/3f70623521780a6b80b3d51039b3ccc769a416fa))
+* **examples/gastro/Dockerfile:** install libstdc++ and pick tailwind binary by TARGETARCH ([e785abe](https://github.com/andrioid/gastro/commit/e785abeaea66b35ba61e3c78c787ebc683d8a002))
+* **examples/gastro/lspdemo:** align squiggle to glyphs; fall back to diagnostic on empty hover ([6c45744](https://github.com/andrioid/gastro/commit/6c4574459e31e48c8de0d23f91ee1f5179c49fb1))
+* **examples/gastro/lspdemo:** security audit fixes ([001288a](https://github.com/andrioid/gastro/commit/001288addc76796b3eadef322e059af43372fc83))
+* **examples/gastro:** make LogoSvg actually respond to class overrides ([6bee00b](https://github.com/andrioid/gastro/commit/6bee00b0db9c14c86e9e94e8ae2d0516e9bd9ec4))
+* **examples/gastro:** restore minified styles.css to match generator output ([b1c3085](https://github.com/andrioid/gastro/commit/b1c308543321c33f2b3251a65ffadb67b5032f23))
+* **examples/gastro:** stack hero at md, push 2-col to lg ([fd135e9](https://github.com/andrioid/gastro/commit/fd135e9d4d9692b409e859ebde728f3206d96f5b))
+* **examples/gastro:** trim live-LSP runtime image from 662MB to 414MB ([f5b9bd8](https://github.com/andrioid/gastro/commit/f5b9bd89a953a238336ed64e2a512ff7de6d5ad7))
+* **lsp/server:** canonicalise URIs at handler boundary ([f0f28a3](https://github.com/andrioid/gastro/commit/f0f28a3d10aa742057adabb97f0f31df911dffc5))
+* **lsp:** stop flagging PascalCase dict values as unknown props ([29636ec](https://github.com/andrioid/gastro/commit/29636ecd121ec211c5af8ce55dd282c74bcc8df8))
+* **scaffold:** generated main.go uses New().Handler() ([9711b36](https://github.com/andrioid/gastro/commit/9711b36e0710edfcab9173a812f27f8237622b62))
+* **zed:** pin grammar rev to commit with generated parser.c ([86511d1](https://github.com/andrioid/gastro/commit/86511d11d2095dbb78d9e7c56401a610e8ba61ae))
+
+
+### Refactoring
+
+* **examples/gastro/lspdemo:** render the entire file in a single window ([4c90c77](https://github.com/andrioid/gastro/commit/4c90c7755ae56219e78836695aa8e6e0dcccaead))
+* **examples/gastro/lspdemo:** use shared CodeWindow component, drop dead chrome CSS ([a525352](https://github.com/andrioid/gastro/commit/a525352a26f4593dde5fbb692539b642b7ded42d))
+* **examples/gastro:** adopt bare-call form, add LogoSvg component ([1e009a0](https://github.com/andrioid/gastro/commit/1e009a06cd1aab5f85e40be1c10f179a54f98ec8))
+* **examples/gastro:** drop macOS symlink workarounds, canonicalise in lspclient ([2559add](https://github.com/andrioid/gastro/commit/2559addaad625bab26683e2adf641eaafaf0f709))
+* **examples/gastro:** inline CodeWindow chrome with Tailwind utilities ([98ad84d](https://github.com/andrioid/gastro/commit/98ad84d4a69434a39078e084d8f401eb0f52b7f4))
+* **examples/gastro:** replace Prism with chroma for Quick Start bash blocks ([93fc65a](https://github.com/andrioid/gastro/commit/93fc65a75633b65acf0d69515f955b0b326ebd23))
+
+
+### Documentation
+
+* document attribute forwarding (attrs, twJoin/twMerge, WithClassMerger) ([c4e2ede](https://github.com/andrioid/gastro/commit/c4e2ede5b601da5871fe376beeee48635e0e5aa5))
+* surface gastro fmt, naming rule, build loop, and From accessor ([9802f46](https://github.com/andrioid/gastro/commit/9802f464f8b7e3c8520390fbbd06baee405a9455))
+
 ## [0.3.2](https://github.com/andrioid/gastro/compare/v0.3.1...v0.3.2) (2026-05-14)
 
 
