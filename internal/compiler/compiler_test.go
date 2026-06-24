@@ -1086,3 +1086,98 @@ var Content string
 		t.Errorf("error should mention missing.md: %v", err)
 	}
 }
+
+// TestCompile_PrunesStaleOutputs is the issue #36 reproducer turned into a
+// regression test. Deleting a page/component source used to leave its
+// generated handler .go (and template .html) behind in package gastro,
+// still referencing removed symbols, breaking `go build` until `.gastro/`
+// was wiped by hand. Regenerating must now prune those orphans — including
+// render.go once the last component is gone — while leaving live outputs,
+// always-generated files, and transient dev artifacts untouched.
+func TestCompile_PrunesStaleOutputs(t *testing.T) {
+	projectDir := t.TempDir()
+	pagesDir := filepath.Join(projectDir, "pages")
+	componentsDir := filepath.Join(projectDir, "components")
+	if err := os.MkdirAll(pagesDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(componentsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	indexPage := filepath.Join(pagesDir, "index.gastro")
+	aboutPage := filepath.Join(pagesDir, "about.gastro")
+	badgeComp := filepath.Join(componentsDir, "badge.gastro")
+	write := func(path, content string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(indexPage, "---\nTitle := \"Home\"\n---\n<h1>{{ .Title }}</h1>")
+	write(aboutPage, "---\nTitle := \"About\"\n---\n<h1>{{ .Title }}</h1>")
+	write(badgeComp, "---\ntype Props struct{ Label string }\nLabel := gastro.Props().Label\n---\n<span>{{ .Label }}</span>")
+
+	outputDir := t.TempDir()
+	if _, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{}); err != nil {
+		t.Fatalf("first compile: %v", err)
+	}
+
+	exists := func(rel string) bool {
+		_, err := os.Stat(filepath.Join(outputDir, rel))
+		return err == nil
+	}
+	mustExist := func(rel string) {
+		t.Helper()
+		if !exists(rel) {
+			t.Errorf("expected %s to exist", rel)
+		}
+	}
+	mustAbsent := func(rel string) {
+		t.Helper()
+		if exists(rel) {
+			t.Errorf("expected %s to be pruned", rel)
+		}
+	}
+
+	// Sanity: first compile produced the about handler, its template, the
+	// component handler, and render.go.
+	mustExist("pages_about.go")
+	mustExist(filepath.Join("templates", "pages_about.html"))
+	mustExist("components_badge.go")
+	mustExist("render.go")
+
+	// Drop a transient dev-server binary and reload IPC file into the
+	// output dir; the prune pass must not touch them.
+	write(filepath.Join(outputDir, "dev-server"), "binary")
+	write(filepath.Join(outputDir, ".reload"), "")
+
+	// Delete the about page and the only component, then regenerate.
+	if err := os.Remove(aboutPage); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(badgeComp); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{}); err != nil {
+		t.Fatalf("second compile: %v", err)
+	}
+
+	// Orphaned outputs are gone.
+	mustAbsent("pages_about.go")
+	mustAbsent(filepath.Join("templates", "pages_about.html"))
+	mustAbsent("components_badge.go")
+	// render.go is generated only when components exist; with the last one
+	// gone it must be pruned rather than left referencing removed code.
+	mustAbsent("render.go")
+
+	// Live outputs and always-generated files survive.
+	mustExist("pages_index.go")
+	mustExist(filepath.Join("templates", "pages_index.html"))
+	mustExist("routes.go")
+	mustExist("embed.go")
+
+	// Transient dev artifacts are out of scope for pruning.
+	mustExist("dev-server")
+	mustExist(".reload")
+}

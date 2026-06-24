@@ -175,6 +175,27 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		}
 	}
 
+	// Prune stale outputs: any generated .go (per-file handlers, embed.go,
+	// routes.go, render.go) or template .html left over from a source file
+	// that no longer exists. Without this a deleted page/component leaves
+	// an orphaned handler in package gastro that still references removed
+	// symbols and breaks `go build` until `.gastro/` is wiped by hand.
+	// Static assets are pruned separately by syncStatic.
+	keep := map[string]struct{}{
+		"embed.go":  {},
+		"routes.go": {},
+	}
+	if len(components) > 0 {
+		keep["render.go"] = struct{}{}
+	}
+	for _, relPath := range allFiles {
+		keep[outputGoFile(relPath)] = struct{}{}
+		keep[filepath.Join("templates", outputTemplateFile(relPath))] = struct{}{}
+	}
+	if err := pruneStaleOutputs(outputDir, keep); err != nil {
+		return nil, fmt.Errorf("pruning stale outputs: %w", err)
+	}
+
 	// Count pages vs components.
 	var pageCount, componentCount int
 	for _, r := range allFiles {
@@ -419,10 +440,10 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 	// doesn't parse with the stub FuncMap (rare).
 	dictWarnings := codegen.ValidateDictKeys(transformedBody, file.Uses, propsByPath)
 
-	// Write template file
-	templateName := strings.TrimSuffix(relPath, ".gastro")
-	templateName = strings.ReplaceAll(templateName, "/", "_")
-	templatePath := filepath.Join(outputDir, "templates", templateName+".html")
+	// Write template file. outputTemplateFile mirrors the name transform
+	// the prune pass uses for the keep-set so the two never drift.
+	templateFile := outputTemplateFile(relPath)
+	templatePath := filepath.Join(outputDir, "templates", templateFile)
 	if err := os.WriteFile(templatePath, []byte(transformedBody), 0o644); err != nil {
 		return compileResult{}, err
 	}
@@ -441,13 +462,10 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		return compileResult{}, err
 	}
 
-	// All generated .go files go flat in the output directory (same package)
-	goFileName := strings.TrimSuffix(relPath, ".gastro")
-	goFileName = strings.ReplaceAll(goFileName, "/", "_")
-	goFileName = strings.ReplaceAll(goFileName, "[", "")
-	goFileName = strings.ReplaceAll(goFileName, "]", "")
-	goFileName = strings.ReplaceAll(goFileName, "-", "_")
-	goFilePath := filepath.Join(outputDir, goFileName+".go")
+	// All generated .go files go flat in the output directory (same
+	// package). outputGoFile mirrors the prune pass's keep-set transform
+	// so a live output is never deleted.
+	goFilePath := filepath.Join(outputDir, outputGoFile(relPath))
 	if err := writeGoFile(goFilePath, []byte(handlerCode)); err != nil {
 		return compileResult{}, err
 	}
@@ -476,7 +494,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 
 	tmplMeta := templateMeta{
 		FuncName:     funcName,
-		TemplateFile: templateName + ".html",
+		TemplateFile: templateFile,
 		Uses:         uses,
 	}
 
@@ -554,6 +572,84 @@ func syncStatic(projectDir, outputDir string) error {
 // copyDir recursively copies src into dst using os.CopyFS.
 func copyDir(src, dst string) error {
 	return os.CopyFS(dst, os.DirFS(src))
+}
+
+// outputGoFile maps a source .gastro relative path (e.g.
+// "pages/blog/[slug].gastro") to the basename of the flat per-file Go
+// output written at the .gastro/ root (e.g. "pages_blog_slug.go").
+// compileFile writes the handler under this name and Compile's prune
+// pass builds its keep-set from it, so both share one transform.
+func outputGoFile(relPath string) string {
+	name := strings.TrimSuffix(relPath, ".gastro")
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "[", "")
+	name = strings.ReplaceAll(name, "]", "")
+	name = strings.ReplaceAll(name, "-", "_")
+	return name + ".go"
+}
+
+// outputTemplateFile maps a source .gastro relative path to the basename
+// of the template HTML written under .gastro/templates/ (e.g.
+// "pages_blog_[slug].html"). Unlike outputGoFile it keeps bracket and
+// dash characters because the name is matched verbatim against
+// templateMeta.TemplateFile at runtime.
+func outputTemplateFile(relPath string) string {
+	name := strings.TrimSuffix(relPath, ".gastro")
+	name = strings.ReplaceAll(name, "/", "_")
+	return name + ".html"
+}
+
+// pruneStaleOutputs removes generated files under outputDir that the
+// current Compile run did not produce. keep holds the output-relative
+// names that must survive: root-level .go files by basename, and template
+// .html files keyed as filepath.Join("templates", name).
+//
+// Scope is deliberately narrow — only root-level *.go and templates/*.html,
+// the two file classes a deleted .gastro source can orphan. Transient dev
+// artifacts (the dev-server binary, .reload IPC file, *.go.tmp from an
+// in-flight atomic write) and the static/ copy (managed by syncStatic)
+// carry other names and are never touched.
+//
+// Runs last, after routes.go/render.go are rewritten to drop references to
+// the removed file, so there is no window where a live file points at a
+// pruned one.
+func pruneStaleOutputs(outputDir string, keep map[string]struct{}) error {
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		if _, ok := keep[e.Name()]; ok {
+			continue
+		}
+		if err := os.Remove(filepath.Join(outputDir, e.Name())); err != nil {
+			return err
+		}
+	}
+
+	tmplDir := filepath.Join(outputDir, "templates")
+	tmplEntries, err := os.ReadDir(tmplDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	for _, e := range tmplEntries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".html") {
+			continue
+		}
+		if _, ok := keep[filepath.Join("templates", e.Name())]; ok {
+			continue
+		}
+		if err := os.Remove(filepath.Join(tmplDir, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // embedData is the data passed to embedTmpl.
