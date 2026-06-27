@@ -1,0 +1,35 @@
+# Publish Gastro to the Zed extension registry (zed-industries/extensions).
+#
+# DISABLED until the extension is accepted into the registry. Bootstrapping
+# the registry entry is a one-time manual PR (submodule + extensions.toml);
+# this workflow only automates the *version bumps* afterwards.
+#
+# To enable, once the first registry PR is merged:
+#   1. Fork https://github.com/zed-industries/extensions to your account.
+#   2. Add a `COMMITTER_TOKEN` repo secret: a PAT with `repo` + `workflow` scopes.
+#   3. Confirm `push-to` below points at your fork (e.g. andrioid/extensions).
+#   4. Uncomment the YAML below (strip the leading "# " from each line).
+#
+# On every `v*` tag cut by release-please, this opens a version-bump PR against
+# the registry, so extensions.toml + the submodule pointer stay in sync without
+# manual edits. extension-path defaults to `extensions/gastro`, matching the
+# submodule path created during bootstrap.
+#
+# name: Publish Zed extension
+#
+# on:
+#   push:
+#     tags:
+#       - "v*"
+#
+# jobs:
+#   publish:
+#     name: Bump Zed extension registry
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: huacnlee/zed-extension-action@v2
+#         with:
+#           extension-name: gastro
+#           push-to: andrioid/extensions
+#         env:
+#           COMMITTER_TOKEN: ${{ secrets.COMMITTER_TOKEN }}

@@ -19,6 +19,11 @@
           "type": "json",
           "path": "editors/vscode/package.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "toml",
+          "path": "editors/zed/extension.toml",
+          "jsonpath": "$.version"
         }
       ]
     }
