@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	goformat "go/format"
 	"os"
@@ -434,6 +435,17 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		return compileResult{}, err
 	}
 
+	// Parity with the {{ wrap X }} path (which errors in TransformTemplate):
+	// a bare call to an un-imported PascalCase component is a generate-time
+	// error, not a runtime surprise in New(). See issue #39.
+	if err := codegen.ValidateImportedComponents(transformedBody, file.Uses); err != nil {
+		var uc *codegen.UnknownComponentError
+		if errors.As(err, &uc) && uc.Line > 0 && file.TemplateBodyLine > 0 {
+			return compileResult{}, fmt.Errorf("line %d: %w", file.TemplateBodyLine+uc.Line-1, uc)
+		}
+		return compileResult{}, err
+	}
+
 	// Validate (dict ...) keys against the destination component's Props
 	// schema. Unknown keys produce warnings here; opts.Strict in Compile
 	// promotes them to errors. Falls back to silent no-op if the body
@@ -542,12 +554,27 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		propsTypeName = "__component_" + codegen.DerivePageID(file.Filename) + "_" + propsTypeName
 	}
 
+	propsFields := codegen.ParseStructFields(hoistedTypes)
+	// The attribute-forwarding bag (a field of type gastro.Attrs) is
+	// hoisted verbatim from frontmatter, but render.go is itself package
+	// gastro and imports the runtime under the gastroRuntime alias.
+	// Normalize the type so the inline XProps struct compiles (#41), and
+	// flag the field so Render.X spreads the bag into the props map rather
+	// than nesting it under its own key, where MapToStruct would drop it
+	// (#42).
+	for i := range propsFields {
+		if propsFields[i].Type == "gastro.Attrs" || propsFields[i].Type == "gastroRuntime.Attrs" {
+			propsFields[i].Type = "gastroRuntime.Attrs"
+			propsFields[i].IsAttrs = true
+		}
+	}
+
 	compMeta := &componentMeta{
 		ExportedName:  codegen.ExportedComponentName(funcName),
 		FuncName:      funcName,
 		HasProps:      info.PropsTypeName != "",
 		PropsTypeName: propsTypeName,
-		PropsFields:   codegen.ParseStructFields(hoistedTypes),
+		PropsFields:   propsFields,
 		HasChildren:   hasChildren,
 	}
 
@@ -587,6 +614,11 @@ func outputGoFile(relPath string) string {
 	name = strings.ReplaceAll(name, "-", "_")
 	return name + ".go"
 }
+
+// OutputGoFile is the exported form of outputGoFile. cmd/gastro uses it to
+// reconstruct the generated→source file association when remapping
+// `go build` diagnostics back to the .gastro source they came from.
+func OutputGoFile(relPath string) string { return outputGoFile(relPath) }
 
 // outputTemplateFile maps a source .gastro relative path to the basename
 // of the template HTML written under .gastro/templates/ (e.g.
@@ -1594,12 +1626,15 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+
+	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
 
 // Suppress unused import warnings.
 var _ = fmt.Errorf
 var _ template.HTML
 var _ http.Request
+var _ gastroRuntime.Attrs
 
 // Render is the package-level entry point for rendering components from
 // Go code. It dispatches to the most-recently-constructed Router (set by
@@ -1695,12 +1730,26 @@ type {{ .ExportedName }}Props = {{ .PropsTypeName }}
 func (r *renderAPI) {{ .ExportedName }}({{ if or .HasProps .HasChildren }}props {{ .ExportedName }}Props{{ end }}) (string, error) {
 	propsMap := map[string]any{
 {{- range .PropsFields }}
+{{- if not .IsAttrs }}
 		"{{ .Name }}": props.{{ .Name }},
+{{- end }}
 {{- end }}
 {{- if .HasChildren }}
 		"Children": props.Children,
 {{- end }}
 	}
+{{- range .PropsFields }}
+{{- if .IsAttrs }}
+	// Spread the attribute-forwarding bag into the props map so the
+	// runtime's rest-capture lands the keys on the component's Attrs
+	// field, matching the template dict path. Named props win on collision.
+	for __k, __v := range props.{{ .Name }} {
+		if _, __exists := propsMap[__k]; !__exists {
+			propsMap[__k] = __v
+		}
+	}
+{{- end }}
+{{- end }}
 	if r.req != nil {
 		propsMap["__gastro_request"] = r.req
 	}

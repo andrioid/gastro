@@ -706,3 +706,20 @@ func TestCountLeadingBlankLines(t *testing.T) {
 		}
 	}
 }
+
+func TestHandlerFuncName_FoldsSeparators(t *testing.T) {
+	// Issue #40: snake_case folds to PascalCase like kebab-case, so the
+	// generated identifier no longer leaks an underscore.
+	tests := []struct{ in, want string }{
+		{"components/interest_chips.gastro", "componentInterestChips"},
+		{"components/post-card.gastro", "componentPostCard"},
+		{"components/ui/date_picker.gastro", "componentUiDatePicker"},
+		{"components/card.gastro", "componentCard"},
+		{"pages/blog_index.gastro", "pageBlogIndex"},
+	}
+	for _, tt := range tests {
+		if got := codegen.HandlerFuncName(tt.in); got != tt.want {
+			t.Errorf("HandlerFuncName(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

@@ -1087,6 +1087,33 @@ var Content string
 	}
 }
 
+// TestCompile_BareUnimportedComponentSurfacesError covers issue #39: a bare
+// call to a PascalCase component that was never imported must fail
+// `gastro generate`/`build` with a clear message — parity with the
+// {{ wrap X }} path — rather than only blowing up at runtime in New().
+func TestCompile_BareUnimportedComponentSurfacesError(t *testing.T) {
+	tmp := t.TempDir()
+	pages := filepath.Join(tmp, "pages")
+	if err := os.MkdirAll(pages, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatalf("go.mod: %v", err)
+	}
+	src := "<main>{{ Widget (dict \"X\" \"1\") }}</main>\n"
+	if err := os.WriteFile(filepath.Join(pages, "index.gastro"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write page: %v", err)
+	}
+
+	_, err := compiler.Compile(tmp, t.TempDir(), compiler.CompileOptions{})
+	if err == nil {
+		t.Fatal("expected compile error for bare un-imported component")
+	}
+	if !strings.Contains(err.Error(), "Widget") || !strings.Contains(err.Error(), "not imported") {
+		t.Errorf("error should name Widget and 'not imported'; got: %v", err)
+	}
+}
+
 // TestCompile_PrunesStaleOutputs is the issue #36 reproducer turned into a
 // regression test. Deleting a page/component source used to leave its
 // generated handler .go (and template .html) behind in package gastro,
@@ -1180,4 +1207,32 @@ func TestCompile_PrunesStaleOutputs(t *testing.T) {
 	// Transient dev artifacts are out of scope for pruning.
 	mustExist("dev-server")
 	mustExist(".reload")
+}
+
+// TestCompile_SnakeKebabComponentCollision covers issue #40: with snake_case
+// now folding to PascalCase, interest_chips.gastro and interest-chips.gastro
+// both produce InterestChips and must be reported as a collision.
+func TestCompile_SnakeKebabComponentCollision(t *testing.T) {
+	tmp := t.TempDir()
+	comps := filepath.Join(tmp, "components")
+	if err := os.MkdirAll(comps, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatalf("go.mod: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(comps, "interest_chips.gastro"), []byte("<p>a</p>\n"), 0o644); err != nil {
+		t.Fatalf("write a: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(comps, "interest-chips.gastro"), []byte("<p>b</p>\n"), 0o644); err != nil {
+		t.Fatalf("write b: %v", err)
+	}
+
+	_, err := compiler.Compile(tmp, t.TempDir(), compiler.CompileOptions{Strict: true})
+	if err == nil {
+		t.Fatal("expected collision error for snake/kebab fold to the same name")
+	}
+	if !strings.Contains(err.Error(), "collision") {
+		t.Errorf("error should mention 'collision'; got: %v", err)
+	}
 }

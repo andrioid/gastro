@@ -251,3 +251,43 @@ func TestValidateDictKeys_NonBagComponentStillFlagsUnknown(t *testing.T) {
 		t.Errorf("warning message missing key: %q", warnings[0].Message)
 	}
 }
+
+func TestValidateImportedComponents(t *testing.T) {
+	uses := cardUses() // Card -> components/card.gastro
+
+	// Imported component: no error.
+	if err := codegen.ValidateImportedComponents(`<div>{{ Card (dict "Title" "x") }}</div>`, uses); err != nil {
+		t.Fatalf("imported component should not error: %v", err)
+	}
+
+	// Bare un-imported PascalCase call: hard error, parity with {{ wrap }}.
+	err := codegen.ValidateImportedComponents("<div>\n{{ Widget (dict) }}</div>", uses)
+	if err == nil {
+		t.Fatal("expected error for un-imported component Widget")
+	}
+	uc, ok := err.(*codegen.UnknownComponentError)
+	if !ok {
+		t.Fatalf("expected *UnknownComponentError, got %T: %v", err, err)
+	}
+	if uc.Name != "Widget" {
+		t.Errorf("Name = %q, want Widget", uc.Name)
+	}
+	if uc.Line != 2 {
+		t.Errorf("Line = %d, want 2", uc.Line)
+	}
+	if !strings.Contains(uc.Error(), "not imported") {
+		t.Errorf("message %q should mention 'not imported'", uc.Error())
+	}
+
+	// Lowercase builtins and gastro helpers must not be flagged as
+	// components (they are registered in the stub FuncMap).
+	for _, body := range []string{
+		`{{ len .Items }}`,
+		`<a {{ attrs .Attrs }}>{{ .Label }}</a>`,
+		`{{ if .X }}ok{{ end }}`,
+	} {
+		if err := codegen.ValidateImportedComponents(body, uses); err != nil {
+			t.Errorf("body %q should not error: %v", body, err)
+		}
+	}
+}

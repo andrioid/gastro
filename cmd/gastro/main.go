@@ -452,9 +452,13 @@ func runBuild() error {
 
 	fmt.Println("gastro: building binary...")
 	cmd := exec.Command("go", "build", "-o", "app", ".")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	// Capture combined output so generated-file diagnostics can be remapped
+	// back to .gastro source before the user sees them (issue #38).
+	out, err := cmd.CombinedOutput()
+	if remapped := remapBuildOutput(string(out), "."); remapped != "" {
+		fmt.Fprint(os.Stderr, remapped)
+	}
+	if err != nil {
 		return fmt.Errorf("go build failed: %w", err)
 	}
 

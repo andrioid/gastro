@@ -2,7 +2,9 @@ package codegen
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template/parse"
 
@@ -70,6 +72,55 @@ func dictValidationStubFuncs(uses []gastroParser.UseDeclaration) map[string]any 
 		stubs[u.Name] = ""
 	}
 	return stubs
+}
+
+// undefinedComponentRegex matches the text/template parse error for an
+// undefined PascalCase function — the shape a bare call to an un-imported
+// component produces. Mirrors the runtime enhancer in internal/compiler.
+var undefinedComponentRegex = regexp.MustCompile(`function "([A-Z][a-zA-Z0-9]*)" not defined`)
+
+// parseErrLineRegex extracts the 1-indexed line from a text/template parse
+// error of the form `template: template:LINE: ...` (text/template prefixes
+// the tree name, so the line marker is not at the string start).
+var parseErrLineRegex = regexp.MustCompile(`template:(\d+):`)
+
+// UnknownComponentError reports a bare PascalCase component call whose
+// component was never imported in the frontmatter. Line is 1-indexed
+// within the template body the validator was given (0 if unknown).
+type UnknownComponentError struct {
+	Name string
+	Line int
+}
+
+func (e *UnknownComponentError) Error() string {
+	return fmt.Sprintf("unknown component %q: not imported (add `import %s \"components/<file>.gastro\"` to the frontmatter)", e.Name, e.Name)
+}
+
+// ValidateImportedComponents parses the post-TransformTemplate body with
+// the stub FuncMap and promotes a bare call to an un-imported PascalCase
+// component into an *UnknownComponentError. This gives `gastro generate`
+// the same hard failure the {{ wrap X }} path already produces in
+// TransformTemplate, instead of deferring it to template parsing at New().
+//
+// Only the undefined-PascalCase-function parse error is promoted; any
+// other parse error returns nil and is left to the runtime template parse,
+// which owns full template-syntax diagnostics.
+func ValidateImportedComponents(body string, uses []gastroParser.UseDeclaration) error {
+	_, err := parse.Parse("template", body, "{{", "}}", dictValidationStubFuncs(uses))
+	if err == nil {
+		return nil
+	}
+	m := undefinedComponentRegex.FindStringSubmatch(err.Error())
+	if len(m) < 2 {
+		return nil
+	}
+	line := 0
+	if lm := parseErrLineRegex.FindStringSubmatch(err.Error()); len(lm) > 1 {
+		if n, perr := strconv.Atoi(lm[1]); perr == nil {
+			line = n
+		}
+	}
+	return &UnknownComponentError{Name: m[1], Line: line}
 }
 
 // hasRestBag reports whether a component's Props schema includes an

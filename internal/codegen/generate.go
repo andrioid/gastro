@@ -653,8 +653,9 @@ func ExportedComponentName(funcName string) string {
 
 // StructField represents a field in a parsed Props struct.
 type StructField struct {
-	Name string
-	Type string
+	Name    string
+	Type    string
+	IsAttrs bool
 }
 
 // ParseStructFields extracts field names and types from a hoisted type
@@ -844,9 +845,14 @@ func HandlerFuncName(filename string) string {
 		prefix = "gastro"
 	}
 
-	// Split on / and - to create camelCase segments
+	// Split on /, -, and _ to create PascalCase segments. Folding _ keeps
+	// snake_case filenames consistent with kebab-case: post-card.gastro and
+	// interest_chips.gastro both yield PascalCase identifiers (PostCard,
+	// InterestChips). See issue #40. findComponentNameCollisions routes
+	// through this function, so a_b.gastro and a-b.gastro now collide and
+	// are reported.
 	parts := strings.FieldsFunc(name, func(r rune) bool {
-		return r == '/' || r == '-'
+		return r == '/' || r == '-' || r == '_'
 	})
 
 	var result strings.Builder
