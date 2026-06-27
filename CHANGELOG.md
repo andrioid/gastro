@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.4](https://github.com/andrioid/gastro/compare/v0.3.3...v0.3.4) (2026-06-27)
+
+
+### Bug Fixes
+
+* **codegen:** attr forwarding, un-imported errors, identifier folding, build remap ([d1dd023](https://github.com/andrioid/gastro/commit/d1dd023ed1ed80b13da547519eff77919afd5d5b))
+* **zed:** run extracted LSP binary, not the extraction directory ([6a55bf7](https://github.com/andrioid/gastro/commit/6a55bf778b9fdca785df088dc595affbadb3367b))
+
 ## [0.3.3](https://github.com/andrioid/gastro/compare/v0.3.2...v0.3.3) (2026-06-24)
 
 
