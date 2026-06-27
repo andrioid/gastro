@@ -48,7 +48,6 @@ impl GastroExtension {
         } else {
             ".tar.gz"
         };
-        let binary_path = format!("gastro{ext}");
 
         zed::set_language_server_installation_status(
             language_server_id,
@@ -76,16 +75,35 @@ impl GastroExtension {
                 )
             })?;
 
-        zed::set_language_server_installation_status(
-            language_server_id,
-            &zed::LanguageServerInstallationStatus::Downloading,
-        );
+        // download_file extracts archives into a *directory*. The release
+        // tarball/zip contains a top-level `gastro` binary, so it lands at
+        // `<version_dir>/gastro`. Versioning the dir lets us skip re-downloads
+        // and run the extracted binary rather than the directory itself.
+        let version_dir = format!("gastro-{}", release.version);
+        let binary_path = format!("{version_dir}/gastro{ext}");
 
-        zed::download_file(&asset.download_url, &binary_path, archive_type)
-            .map_err(|e| format!("failed to download {asset_name}: {e}"))?;
+        if !fs::metadata(&binary_path).map_or(false, |m| m.is_file()) {
+            zed::set_language_server_installation_status(
+                language_server_id,
+                &zed::LanguageServerInstallationStatus::Downloading,
+            );
 
-        zed::make_file_executable(&binary_path)
-            .map_err(|e| format!("failed to make {binary_path} executable: {e}"))?;
+            zed::download_file(&asset.download_url, &version_dir, archive_type)
+                .map_err(|e| format!("failed to download {asset_name}: {e}"))?;
+
+            zed::make_file_executable(&binary_path)
+                .map_err(|e| format!("failed to make {binary_path} executable: {e}"))?;
+
+            // Remove stale versioned download directories.
+            if let Ok(entries) = fs::read_dir(".") {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if name.starts_with("gastro-") && name != version_dir {
+                        fs::remove_dir_all(entry.path()).ok();
+                    }
+                }
+            }
+        }
 
         self.cached_binary_path = Some(binary_path.clone());
         Ok(binary_path)
