@@ -581,4 +581,5 @@ router = gastro.New(
 http.ListenAndServe(":4242", router.Handler())
 ```
 
-See `examples/sse/` for the full version.
+For pages that should stay current without hand-written streams, see
+[Live pages](sse.md#live-pages) and `examples/sse/`.

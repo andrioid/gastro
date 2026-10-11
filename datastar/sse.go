@@ -12,7 +12,10 @@
 //     in user-controlled strings can never start a new SSE field or event;
 //   - the version-matched Datastar browser client, embedded and served at a
 //     content-hashed URL ([ClientHandler], [ClientPattern]) and inserted into
-//     templates with {{ datastarScript }} ([Funcs]).
+//     templates with {{ datastarScript }} ([Funcs]);
+//   - live pages ([LivePages]): one stream per open page that re-renders the
+//     page through its GET handler after every change signal ([Notifier])
+//     and morphs the page's live root.
 //
 // The intended architecture is CQRS: each page opens one long-lived
 // [SSE] stream (the query side) that pushes fat morphs of the page, while

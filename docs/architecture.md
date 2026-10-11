@@ -288,8 +288,12 @@ SDK and its dependency tree never reach adopters of core. It adds error
 returns where the SDK panics, a CR/LF guard against SSE field injection,
 and the version-matched Datastar browser client, embedded and served at a
 content-hashed path (`ClientPattern`, `ClientHandler()`, and the
-`{{ datastarScript }}` template helper from `Funcs()`). See
-[sse.md](sse.md) for usage.
+`{{ datastarScript }}` template helper from `Funcs()`). `LivePages`
+(`live.go`) is the live-page stream: one render goroutine per (page URL,
+identity) group subscribed to a `Signal` (`Notifier`, `notifier.go`),
+re-rendering the page as an internal GET through the router and fanning the
+cut-out live root to every stream in the group. See
+[sse.md](sse.md#live-pages) for usage.
 
 ### `internal/lsp/`
 

@@ -83,3 +83,29 @@ func ExampleClientHandler() {
 	fmt.Fprintln(os.Stdout, script == template.HTML(`<script type="module" src="`+datastar.ClientPath+`"></script>`))
 	// Output: true
 }
+
+// ExampleLivePages keeps every open page current: a command writes and
+// calls Notify; each page's stream re-renders the page and morphs its live
+// root. With gastro, register live.Funcs() with WithFuncs, mount
+// live.Handler() with WithHandler, and set live.Pages = router.Handler().
+func ExampleLivePages() {
+	var changes datastar.Notifier
+	live := &datastar.LivePages{Signal: &changes, Root: "app", Compression: true}
+
+	layout := template.Must(template.New("layout").Funcs(live.Funcs()).Parse(
+		`<body>{{ liveRoot .Body }}{{ liveScript }}</body>`))
+
+	mux := http.NewServeMux()
+	mux.Handle(live.Pattern(), live.Handler())
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		_ = layout.Execute(w, map[string]any{"Body": template.HTML(`<p>hello</p>`)})
+	})
+	mux.HandleFunc("POST /touch", func(w http.ResponseWriter, r *http.Request) {
+		changes.Notify() // after the write
+		w.WriteHeader(http.StatusNoContent)
+	})
+	live.Pages = mux
+
+	fmt.Println(live.Pattern())
+	// Output: GET /_gastro/live
+}
