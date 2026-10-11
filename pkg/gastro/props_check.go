@@ -124,13 +124,13 @@ func (e *PropTypeError) Error() string {
 }
 
 // CheckPropTypes checks a template dict against the Props struct T without
-// coercion (gastro --typecheck-props). A value is accepted when it is
-// assignable to the field type, or when it is a value of a predeclared
-// basic type (what template literals evaluate to) of the same kind as the
-// field and converts exactly: "x" into a string-kinded type such as
-// template.HTML, 3 into int64, 2 into float64. Rejected, among others:
-// "3" into int, 3 into string, "true" into bool, 2.5 into int, and nil
-// into a type that cannot be nil.
+// coercion (on unless gastro --no-typecheck-props). A value is accepted
+// when it is assignable to the field type, or when it is a value of a
+// predeclared basic type (what template literals evaluate to) of the same
+// kind as the field and converts exactly: "x" into a string-kinded type
+// such as template.HTML, 3 into int64, 2 into float64. Rejected, among
+// others: "3" into int, 3 into string, "true" into bool, 2.5 into int,
+// and nil into a type that cannot be nil.
 //
 // Keys that are not fields of T, and the gastro.Attrs bag field, are not
 // checked: the bag captures them. It returns a *PropTypeError or nil.
@@ -242,7 +242,7 @@ func convertsExactly(v reflect.Value, ft reflect.Type) bool {
 }
 
 // PropsViolation applies gastro's policy for a broken props contract (a
-// required prop holding its zero value, or a --typecheck-props mismatch).
+// required prop holding its zero value, or a prop type mismatch).
 // In dev mode it returns the violation as an error, which fails the
 // render. In production it logs a warning through log/slog and returns
 // nil, so the render proceeds with the props as decoded. A nil err is a

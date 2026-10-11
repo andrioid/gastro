@@ -275,24 +275,15 @@ The runtime check is exported so Go code can apply the same contract:
 `gastro.PropsViolation(dev bool, component string, err error) error`
 applies the dev-error / production-log policy.
 
-## Prop types and `--typecheck-props`
+## Prop types
 
-By default, values passed through `(dict ...)` are converted to the field
-type leniently:
-
-| Target Type | Accepted Values |
-|-------------|-----------------|
-| `string` | Any value (converted via `fmt.Sprintf`) |
-| `bool` | `bool`, `string` ("true", "false") |
-| `int` | `int`, `int64`, `float64`, `string` (parsed) |
-| `float64` | `float64`, `float32`, `int`, `string` (parsed) |
-
-Pass `--typecheck-props` to `gastro generate`, `build`, `check`, `dev`, or
-`watch` to turn off the silent coercion (it becomes the default in v0.5.0):
+Values passed through `(dict ...)` are checked against the Props field
+types, with no silent coercion:
 
 - **When generating**, literal dict values — strings, numbers, booleans,
   and `nil` — must be assignable to the field type, following Go's rules
-  for untyped constants. `(dict "Count" "three")` into `Count int` fails:
+  for untyped constants. `(dict "Count" "three")` into `Count int` fails
+  `gastro generate`, `build`, `check`, and the dev loops:
 
   ```
   pages/index.gastro:4:23: error: prop "Count" on component Card: cannot use "three" (untyped string constant) as int value
@@ -308,13 +299,43 @@ Pass `--typecheck-props` to `gastro generate`, `build`, `check`, `dev`, or
   `string`, `"true"` into `bool`, and `2.5` into `int` are mismatches. A
   mismatch follows the same policy as an empty required prop: an error in
   dev mode, a `log/slog` warning in production (where the lenient
-  conversion above then applies).
+  conversion below then applies).
 
-The flag reaches the runtime through the generated code: with it, every
-component that has a Props struct calls `gastro.CheckPropTypes[Props]` on
-its dict before decoding it. The generated code therefore differs with and
-without the flag, so run `gastro check` with the same setting as
-`gastro generate`, or it reports drift.
+The runtime check lives in the generated code: every component that has a
+Props struct calls `gastro.CheckPropTypes[Props]` on its dict before
+decoding it.
+
+### Opting out with `--no-typecheck-props`
+
+Pass `--no-typecheck-props` to `gastro generate`, `build`, `check`, `dev`,
+or `watch` to turn both checks off. Dict values are then converted to the
+field type leniently:
+
+| Target Type | Accepted Values |
+|-------------|-----------------|
+| `string` | Any value (converted via `fmt.Sprintf`) |
+| `bool` | `bool`, `string` ("true", "false") |
+| `int` | `int`, `int64`, `float64`, `string` (parsed) |
+| `float64` | `float64`, `float32`, `int`, `string` (parsed) |
+
+The generated code differs with and without the flag, so run
+`gastro check` with the same setting as `gastro generate`, or it reports
+drift. The opt-out lets you upgrade a project before its mismatches are
+fixed; prefer fixing the values.
+
+### `Children` is reserved
+
+A Props struct cannot declare a field named `Children` (or embed a type
+named `Children`): gastro passes the content of a `{{ wrap }}` block to the
+component as `.Children` (see [Children](#children)), so the name is
+taken. `gastro generate` and `check` report the field:
+
+```
+components/card.gastro:4:2: error: Props field "Children" is reserved for the {{ wrap }} slot: gastro passes the wrapped content to the component as .Children; rename the field (e.g. Items or Content)
+```
+
+Rename the field. To render wrapped content, use `{{ .Children }}`
+without declaring it.
 
 ## Children
 
@@ -463,8 +484,8 @@ The validator skips two cases by design so it doesn't false-positive:
    ignores extra keys.
 
 Unknown props, omitted required props, bare calls to a component that
-declares Props, calls to a component that is not imported, and (with
-`--typecheck-props`) literal values of the wrong type are errors
+declares Props, calls to a component that is not imported, and (unless
+`--no-typecheck-props`) literal values of the wrong type are errors
 everywhere: `gastro generate`, `gastro build`, `gastro check`, and the dev
 loops all fail and report every such error in the project at once, each as
 `file:line:col`. Under `gastro dev` / `gastro watch` the errors are also

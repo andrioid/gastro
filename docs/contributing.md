@@ -144,7 +144,7 @@ Gastro intentionally supports two project shapes as peer stories:
 
 - **Framework mode** — a project scaffolded by `gastro new`. Entry point is
   `gastro dev`, which by design takes only `--watch` and
-  `--typecheck-props`.
+  `--no-typecheck-props`.
 - **Library mode** — gastro added to an existing Go service via
   `go get -tool github.com/andrioid/gastro/cmd/gastro`. Entry point is
   `gastro watch --run …`, which the user configures.

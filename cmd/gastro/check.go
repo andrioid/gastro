@@ -16,10 +16,10 @@ import (
 // runCheck verifies that the on-disk .gastro/ directory matches what
 // `gastro generate` would produce right now. Intended for CI:
 //
-//	gastro check [--typecheck-props]
+//	gastro check [--no-typecheck-props]
 //
-// Pass the same --typecheck-props setting as `gastro generate`: the flag
-// changes the generated components, so a mismatch reports drift.
+// Pass the same --no-typecheck-props setting as `gastro generate`: the
+// flag changes the generated components, so a mismatch reports drift.
 //
 // Exit codes:
 //

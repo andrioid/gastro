@@ -23,11 +23,12 @@ type CompileOptions struct {
 	// Version is stamped into every generated file's header. Empty
 	// stamps the running binary's version (buildinfo.Version).
 	Version string
-	// TypecheckProps (--typecheck-props) checks literal dict values
-	// against component Props field types at generate time and emits
-	// strict render-time type checks (gastroRuntime.CheckPropTypes) into
+	// NoTypecheckProps (--no-typecheck-props) turns off the prop type
+	// checks that are on by default: literal dict values checked against
+	// component Props field types at generate time, and strict
+	// render-time type checks (gastroRuntime.CheckPropTypes) emitted into
 	// every component, so the generated code differs with the flag.
-	TypecheckProps bool
+	NoTypecheckProps bool
 }
 
 // CompileResult contains the output of a successful compilation.
@@ -493,6 +494,10 @@ func compileFile(absPath, relPath, absProjectDir string, opts CompileOptions, pr
 		if errors.As(err, &hoistErr) {
 			return nil, []Diagnostic{pos.atLine(file.FrontmatterSourceLine(hoistErr.Line), codegen.SeverityError, hoistErr.Message())}
 		}
+		var reservedErr *codegen.ReservedPropsFieldError
+		if errors.As(err, &reservedErr) {
+			return nil, []Diagnostic{pos.at(file.FrontmatterSourceLine(reservedErr.Line), reservedErr.Col, codegen.SeverityError, reservedErr.Message())}
+		}
 		return nil, []Diagnostic{pos.at(file.FrontmatterLine, 1, codegen.SeverityError, err.Error())}
 	}
 
@@ -505,7 +510,8 @@ func compileFile(absPath, relPath, absProjectDir string, opts CompileOptions, pr
 	// #39) and (dict ...) keys against each component's Props schema.
 	// Positions are template-body relative; the body starts at column 1
 	// of file.TemplateBodyLine.
-	validateOpts := codegen.ValidateDictKeysOptions{TypecheckProps: opts.TypecheckProps}
+	typecheckProps := !opts.NoTypecheckProps
+	validateOpts := codegen.ValidateDictKeysOptions{TypecheckProps: typecheckProps}
 	for _, d := range codegen.ValidateTemplate(file.TemplateBody, file.Uses, propsByPath, validateOpts) {
 		diags = append(diags, pos.at(file.TemplateBodyLine+d.StartLine-1, d.StartCol, d.Severity, d.Message))
 	}
@@ -532,7 +538,7 @@ func compileFile(absPath, relPath, absProjectDir string, opts CompileOptions, pr
 	}
 
 	file.TemplateBody = transformedBody
-	handlerCode, err := codegen.GenerateHandler(file, info, isComponent, codegen.GenerateOptions{MangleHoisted: true, Version: opts.Version, TypecheckProps: opts.TypecheckProps})
+	handlerCode, err := codegen.GenerateHandler(file, info, isComponent, codegen.GenerateOptions{MangleHoisted: true, Version: opts.Version, TypecheckProps: typecheckProps})
 	if err != nil {
 		return nil, append(diags, pos.at(file.FrontmatterLine, 1, codegen.SeverityError, err.Error()))
 	}

@@ -76,8 +76,8 @@
 - `gastro list [--json]` — list components with their Props signatures and pages with their routes.
 - `gastro fmt [--check]` — format `.gastro` sources.
 - `gastro check` — verify `./.gastro/` is up to date (CI drift gate).
-- `--typecheck-props` (on `generate`, `build`, `check`, `dev`, `watch`) — strict
-  prop value types instead of silent coercion; use the same setting for `generate` and `check`.
+- `--no-typecheck-props` (on `generate`, `build`, `check`, `dev`, `watch`) — turn off the
+  default prop value type checks (back to silent coercion); use the same setting for `generate` and `check`.
 - `gastro lsp` — language server for editors (pair with `gopls` for frontmatter).
 
 ## Documentation

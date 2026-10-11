@@ -263,7 +263,13 @@ mandatory: a `(dict ...)` that omits it fails `gastro generate`, and a zero
 value at render time fails the render in dev mode (production logs a
 warning and renders).
 
-Without `--typecheck-props`, gastro coerces prop values to match struct
+Prop values are type-checked by default: literal dict values must be
+assignable to the field type at generate time (`(dict "Count" "three")`
+into `Count int` fails `gastro generate`), and render-time values must
+convert without coercion (dev: error, production: logged warning).
+
+`--no-typecheck-props` (on `generate`, `build`, `check`, `dev`, `watch`)
+turns the checks off; gastro then coerces prop values to match struct
 field types:
 
 | Target type | Accepted values |
@@ -273,10 +279,8 @@ field types:
 | `int` | `int`, `int64`, `float64`, `float32`, `string` (parsed) |
 | `float64` | `float64`, `float32`, `int`, `string` (parsed) |
 
-With `--typecheck-props`, literal dict values must be assignable to the
-field type at generate time, and render-time values must convert without
-coercion (dev: error, production: logged warning). See
-`docs/components.md`.
+A Props field named `Children` is rejected: the name is reserved for the
+`{{ wrap }}` slot (`{{ .Children }}`). See `docs/components.md`.
 
 ### Propless components
 

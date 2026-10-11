@@ -131,6 +131,13 @@ func AnalyzeFrontmatter(frontmatter string) (*FrontmatterInfo, error) {
 		}
 		propsTypeCount++
 		propsIsStruct = hoistedDeclIsStruct(d)
+		// Cheap gate: only reparse when the rendered decl mentions the
+		// reserved name at all.
+		if propsIsStruct && strings.Contains(d.SourceText, ReservedChildrenField) {
+			if err := findReservedPropsField(frontmatter); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -242,6 +249,101 @@ func hoistedDeclIsStruct(d HoistedDecl) bool {
 	// signal because go/printer never breaks `struct{` across lines
 	// and we only emit type decls via that path.
 	return strings.Contains(d.SourceText, "struct {") || strings.Contains(d.SourceText, "struct{")
+}
+
+// ReservedChildrenField is the name gastro gives the {{ wrap }} slot: the
+// generated component passes the wrapped content to the template as
+// .Children, so a Props field of that name would be declared twice.
+const ReservedChildrenField = "Children"
+
+// ReservedPropsFieldError reports a Props field named Children. Line is
+// 1-indexed within the frontmatter, Col the 1-indexed byte column of the
+// field name.
+type ReservedPropsFieldError struct {
+	Line int
+	Col  int
+}
+
+func (e *ReservedPropsFieldError) Error() string {
+	return fmt.Sprintf("%d:%d: %s", e.Line, e.Col, e.Message())
+}
+
+// Message describes the error without its position, for callers that
+// report the position themselves.
+func (e *ReservedPropsFieldError) Message() string {
+	return fmt.Sprintf("Props field %q is reserved for the {{ wrap }} slot: gastro passes the wrapped content to the component as .%s; rename the field (e.g. Items or Content)",
+		ReservedChildrenField, ReservedChildrenField)
+}
+
+// findReservedPropsField returns a *ReservedPropsFieldError for the first
+// field of the frontmatter's `type Props struct` named Children (declared
+// or embedded), or nil. It parses the frontmatter with func decls blanked
+// out, as the hoister does, so positions match the original source.
+func findReservedPropsField(frontmatter string) error {
+	body, _, err := extractFuncDecls(frontmatter, HoistOptions{})
+	if err != nil {
+		return nil
+	}
+	const prefix = "package __gastro\nfunc __h() {\n"
+	prefixLineCount := strings.Count(prefix, "\n")
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "frontmatter.go", prefix+body+wrapperSuffix, parser.SkipObjectResolution)
+	if err != nil || len(file.Decls) == 0 {
+		return nil
+	}
+	fn, ok := file.Decls[0].(*ast.FuncDecl)
+	if !ok || fn.Body == nil {
+		return nil
+	}
+	for _, stmt := range fn.Body.List {
+		ds, ok := stmt.(*ast.DeclStmt)
+		if !ok {
+			continue
+		}
+		gd, ok := ds.Decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok || ts.Name.Name != "Props" {
+				continue
+			}
+			st, ok := ts.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+			for _, field := range st.Fields.List {
+				names := field.Names
+				if len(names) == 0 {
+					if embedded := embeddedFieldName(field.Type); embedded != nil {
+						names = []*ast.Ident{embedded}
+					}
+				}
+				for _, name := range names {
+					if name.Name == ReservedChildrenField {
+						pos := fset.Position(name.Pos())
+						return &ReservedPropsFieldError{Line: pos.Line - prefixLineCount, Col: pos.Column}
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// embeddedFieldName returns the identifier that names an embedded field
+// (T, *T, pkg.T, *pkg.T), or nil.
+func embeddedFieldName(typ ast.Expr) *ast.Ident {
+	switch t := typ.(type) {
+	case *ast.Ident:
+		return t
+	case *ast.StarExpr:
+		return embeddedFieldName(t.X)
+	case *ast.SelectorExpr:
+		return t.Sel
+	}
+	return nil
 }
 
 // validateFrontmatter checks for consistency between gastro markers and type

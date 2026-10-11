@@ -163,18 +163,21 @@ func TestGenerateAndCheck_OmittedRequiredPropFails(t *testing.T) {
 	}
 }
 
-func TestGenerateAndCheck_TypecheckPropsFlag(t *testing.T) {
+func TestGenerateAndCheck_TypecheckPropsByDefault(t *testing.T) {
 	t.Parallel()
 	dir := writeProject(t, requiredCardProject(`"Title" "x" "Count" "three"`))
 
-	if _, stderr, code := runGastroCmd(t, isolatedEnv, dir, "generate"); code != 0 {
-		t.Fatalf("without --typecheck-props generate passes; exit %d: %s", code, stderr)
+	// Opted out, the literal passes and check agrees with the tree.
+	for _, cmd := range []string{"generate", "check"} {
+		if _, stderr, code := runGastroCmd(t, isolatedEnv, dir, cmd, "--no-typecheck-props"); code != 0 {
+			t.Fatalf("gastro %s --no-typecheck-props: expected the literal to pass; exit %d, stderr:\n%s", cmd, code, stderr)
+		}
 	}
 	const want = `pages/index.gastro:4:41: error: prop "Count" on component Card: cannot use "three" (untyped string constant) as int value`
 	for _, cmd := range []string{"generate", "check"} {
-		_, stderr, code := runGastroCmd(t, isolatedEnv, dir, cmd, "--typecheck-props")
+		_, stderr, code := runGastroCmd(t, isolatedEnv, dir, cmd)
 		if code == 0 || !strings.Contains(stderr, want) {
-			t.Errorf("gastro %s --typecheck-props: expected %q; exit %d, stderr:\n%s", cmd, want, code, stderr)
+			t.Errorf("gastro %s: expected %q; exit %d, stderr:\n%s", cmd, want, code, stderr)
 		}
 	}
 }

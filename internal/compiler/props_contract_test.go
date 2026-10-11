@@ -98,27 +98,53 @@ func TestCompile_RequiredCheckOnlyEmittedForRequiredProps(t *testing.T) {
 func TestCompile_TypecheckPropsLiteralMismatch(t *testing.T) {
 	projectDir := writePropsProject(t, "\tCount int\n", `<main>{{ Card (dict "Count" "three") }}</main>`)
 
-	if _, err := compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{Strict: true}); err != nil {
-		t.Fatalf("without --typecheck-props the literal passes: %v", err)
-	}
-
-	_, err := compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{TypecheckProps: true})
+	// On by default.
+	_, err := compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{})
 	d := findDiagnostic(t, err, `prop "Count" on component Card: cannot use "three"`)
 	if d.File != "pages/index.gastro" || d.Line != 4 || d.Col != 29 {
 		t.Errorf("diagnostic at %s:%d:%d, want pages/index.gastro:4:29", d.File, d.Line, d.Col)
+	}
+
+	if _, err := compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{Strict: true, NoTypecheckProps: true}); err != nil {
+		t.Fatalf("with NoTypecheckProps the literal passes: %v", err)
 	}
 }
 
 func TestCompile_TypecheckPropsEmitsRuntimeCheck(t *testing.T) {
 	projectDir := writePropsProject(t, "\tCount int\n", `{{ Card (dict "Count" 3) }}`)
-	for _, flag := range []bool{false, true} {
+	for _, off := range []bool{false, true} {
 		out := t.TempDir()
-		if _, err := compiler.Compile(projectDir, out, compiler.CompileOptions{TypecheckProps: flag}); err != nil {
+		if _, err := compiler.Compile(projectDir, out, compiler.CompileOptions{NoTypecheckProps: off}); err != nil {
 			t.Fatalf("compile: %v", err)
 		}
 		src := readGeneratedComponent(t, out)
-		if got := strings.Contains(src, "gastroRuntime.CheckPropTypes["); got != flag {
-			t.Errorf("TypecheckProps=%v: CheckPropTypes emitted = %v", flag, got)
+		if got := strings.Contains(src, "gastroRuntime.CheckPropTypes["); got == off {
+			t.Errorf("NoTypecheckProps=%v: CheckPropTypes emitted = %v", off, got)
+		}
+	}
+}
+
+func TestCompile_PropsFieldNamedChildrenRejected(t *testing.T) {
+	for _, fields := range []string{
+		"\tTitle string\n\tChildren string\n",
+		"\tTitle,  Children string\n",
+		"\tTitle string\n\tChildren\n",
+	} {
+		projectDir := writePropsProject(t, fields, `{{ Card (dict "Title" "x") }}`)
+		_, err := compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{})
+		d := findDiagnostic(t, err, `Props field "Children" is reserved`)
+		if !d.IsError() {
+			t.Errorf("fields %q: want an error, got %+v", fields, d)
+		}
+		if !strings.Contains(d.Message, "{{ wrap }}") || !strings.Contains(d.Message, "rename") {
+			t.Errorf("fields %q: message should name the wrap slot and suggest a rename: %q", fields, d.Message)
+		}
+		wantLine, wantCol := 4, 2
+		if strings.HasPrefix(fields, "\tTitle,") {
+			wantLine, wantCol = 3, 10
+		}
+		if d.File != "components/card.gastro" || d.Line != wantLine || d.Col != wantCol {
+			t.Errorf("fields %q: diagnostic at %s:%d:%d, want components/card.gastro:%d:%d", fields, d.File, d.Line, d.Col, wantLine, wantCol)
 		}
 	}
 }

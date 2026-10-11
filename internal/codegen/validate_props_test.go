@@ -116,7 +116,7 @@ func TestValidateTemplate_TypecheckLiteralMismatch(t *testing.T) {
 	typecheck := codegen.ValidateDictKeysOptions{TypecheckProps: true}
 
 	if diags := codegen.ValidateTemplate(body, cardUses(), typedCardSchema(), codegen.ValidateDictKeysOptions{}); len(diags) != 0 {
-		t.Fatalf("without --typecheck-props the literal passes, got %+v", diags)
+		t.Fatalf("with TypecheckProps off the literal passes, got %+v", diags)
 	}
 
 	diags := codegen.ValidateTemplate(body, cardUses(), typedCardSchema(), typecheck)
