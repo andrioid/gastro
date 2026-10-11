@@ -5,7 +5,7 @@
 
 A file-based component framework for Go. `.gastro` files combine Go frontmatter
 with `html/template` markup in a single file, compiled to type-safe Go code with
-file-based routing. Test.
+file-based routing.
 
 Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 
