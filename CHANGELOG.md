@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/andrioid/gastro/compare/v0.3.4...v0.4.0) (2026-10-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* requires Go 1.27; pages are GET-only; WithOverride is replaced by WithHandler; Render.X is replaced by router.Render; pkg/gastro/datastar moved to the github.com/andrioid/gastro/datastar module; diagnostics fail in every mode. Migration guide: docs/migrations/v0.4.md
+
+### Features
+
+* gastro v0.4.0 ([61485b5](https://github.com/andrioid/gastro/commit/61485b5b13c506b5c71f98cebc9f445ca88b7597))
+
 ## [0.3.4](https://github.com/andrioid/gastro/compare/v0.3.3...v0.3.4) (2026-07-06)
 
 
