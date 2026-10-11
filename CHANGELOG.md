@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.5.0](https://github.com/andrioid/gastro/compare/v0.4.0...v0.5.0) (2026-10-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* prop type checks are on by default. A mistyped dict literal such as (dict "Count" "three") into Count int now fails gastro generate/check/build and the dev loops, and mistyped render-time values fail the render in dev mode. The --typecheck-props flag is removed; drop it from scripts. Pass --no-typecheck-props to generate and check alike to keep the v0.4 lenient behaviour. compiler.CompileOptions.TypecheckProps is replaced by NoTypecheckProps.
+
+### Features
+
+* **datastar:** live pages and a coalescing Notifier ([a42da64](https://github.com/andrioid/gastro/commit/a42da645c012a1d3f5a0806e4abbba25b7b824a1))
+* type-check component props by default ([ceafaf9](https://github.com/andrioid/gastro/commit/ceafaf97d5940359ecf7b2929ed922858e1cfd94))
+
+
+### Bug Fixes
+
+* **analysis:** don't treat header mutations as response writes ([b008a5b](https://github.com/andrioid/gastro/commit/b008a5b3ab2c332eaa8120683a930ed7b730e4f0))
+
+
+### Documentation
+
+* **examples:** make examples/sse a live page; v0.5 plan status ([0776033](https://github.com/andrioid/gastro/commit/077603302a6af9f45b582035b1518a7299037cfd))
+
 ## [0.4.0](https://github.com/andrioid/gastro/compare/v0.3.4...v0.4.0) (2026-10-11)
 
 
