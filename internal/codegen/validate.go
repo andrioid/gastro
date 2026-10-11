@@ -97,7 +97,7 @@ const (
 	SeverityError DiagnosticSeverity = 1
 	// SeverityWarning is advisory — surfaced in the editor and as a
 	// codegen warning; only strict builds fail on it. Today: deprecated
-	// key hints, missing-prop notices.
+	// key hints.
 	SeverityWarning DiagnosticSeverity = 2
 )
 
@@ -121,20 +121,15 @@ type TemplateDiagnostic struct {
 	Message   string
 }
 
-// ValidateDictKeysOptions controls which classes of diagnostics
-// ValidateDictKeysFromAST emits. The codegen-side caller leaves
-// EmitMissingProps off (matching today's `gastro generate` behaviour
-// of not warning about partial dicts — a component with
-// zero-valued defaults can be intentionally invoked with no props).
-// The LSP-side caller turns it on so the editor surfaces
-// missing-prop hints as warnings. Both still share the unknown-prop
-// and deprecated-key paths.
+// ValidateDictKeysOptions controls optional classes of diagnostics
+// ValidateDictKeysFromAST emits. Codegen and the LSP pass the same
+// options for the same project, so they cannot drift.
 type ValidateDictKeysOptions struct {
-	// EmitMissingProps adds a SeverityWarning diagnostic anchored on
-	// the component name for every Props field that the caller did
-	// not pass in the dict. Off by default to preserve
-	// `gastro generate` behaviour; the LSP turns it on.
-	EmitMissingProps bool
+	// TypecheckProps (gastro --typecheck-props) checks literal dict
+	// values — strings, numbers, booleans and nil — against the field
+	// type and reports mismatches as errors. Non-literal values are left
+	// to the render-time check (gastroRuntime.CheckPropTypes).
+	TypecheckProps bool
 }
 
 // ValidateDictKeysFromAST validates dict keys on a pre-parsed tree. It is
@@ -163,13 +158,16 @@ type ValidateDictKeysOptions struct {
 //     struct but was called bare (no `(dict ...)` argument). At runtime
 //     this would surface as "wrong number of args"; we catch it here
 //     so editors and `gastro build` reject it before deployment.
-//     Anchored on the component name. Always emitted regardless of
-//     opts.EmitMissingProps.
+//     Anchored on the component name.
+//   - SeverityError, "missing required prop": a field tagged
+//     gastro:"required" was not passed in the dict, anchored on the
+//     component name. Optional fields (the default) never produce a
+//     diagnostic when omitted. A {{ wrap }} call supplies Children.
+//   - SeverityError, prop type mismatch (only when opts.TypecheckProps):
+//     a literal value is not assignable to the field type, anchored on
+//     the value.
 //   - SeverityWarning, deprecated-key hint: the legacy "__children"
 //     key was passed; runtime no longer recognises it.
-//   - SeverityWarning, "missing prop" (only when opts.EmitMissingProps):
-//     a Props field was not passed in the dict, anchored on the
-//     component name in the source.
 //
 // Calls whose dict has any non-literal-string key are skipped entirely:
 // when a template builds a dict dynamically (rare but legal) we can't
@@ -259,22 +257,30 @@ func ValidateDictKeysFromAST(
 		}
 		openSchema := hasRestBag(schema)
 
-		var literalKeys []*parse.StringNode
+		var (
+			literalKeys []*parse.StringNode
+			values      []parse.Node
+		)
 		if dictPipe != nil {
 			dictCmd := dictPipe.Cmds[0]
 			// Dict args after the "dict" identifier are alternating key/value:
 			// dict "K1" v1 "K2" v2 ...
 			// Bail out if any odd-indexed arg isn't a string literal — the
 			// dict is dynamic and we can't validate it without false
-			// positives. We still want to fire missing-prop warnings for
-			// the bare-call case (no dict at all), so this early return
-			// only applies when the dict is present-but-dynamic.
+			// positives. A wrap call without a dict still reaches the
+			// missing-required check below, so this early return only
+			// applies when the dict is present-but-dynamic.
 			for i := 1; i < len(dictCmd.Args); i += 2 {
 				str, ok := dictCmd.Args[i].(*parse.StringNode)
 				if !ok {
 					return
 				}
 				literalKeys = append(literalKeys, str)
+				var value parse.Node
+				if i+1 < len(dictCmd.Args) {
+					value = dictCmd.Args[i+1]
+				}
+				values = append(values, value)
 			}
 		} else if head.Ident != "wrap" {
 			// Pure bare call ({{ Card }}) — no dict pipe. Always an error
@@ -297,19 +303,21 @@ func ValidateDictKeysFromAST(
 					compName, firstFieldName(schema),
 				),
 			})
-			if !opts.EmitMissingProps {
-				// Without missing-prop emission the only thing left to do
-				// would be unknown-key validation, but there are no keys.
-				return
-			}
+			// Missing required props are implied by this error, and
+			// there are no keys to validate.
+			return
 		}
-		validNames := make(map[string]bool, len(schema))
+		fieldsByName := make(map[string]StructField, len(schema))
 		for _, f := range schema {
-			validNames[f.Name] = true
+			fieldsByName[f.Name] = f
 		}
 
-		providedKeys := make(map[string]bool, len(literalKeys))
-		for _, key := range literalKeys {
+		providedKeys := make(map[string]bool, len(literalKeys)+1)
+		if head.Ident == "wrap" {
+			// The wrap transform injects the block body as Children.
+			providedKeys["Children"] = true
+		}
+		for i, key := range literalKeys {
 			name := key.Text
 			providedKeys[name] = true
 			switch kind, _ := SyntheticPropKey(name); kind {
@@ -331,7 +339,15 @@ func ValidateDictKeysFromAST(
 				})
 				continue
 			}
-			if validNames[name] || openSchema {
+			if field, ok := fieldsByName[name]; ok {
+				if opts.TypecheckProps {
+					if d, bad := literalTypeMismatch(body, compName, field, values[i]); bad {
+						diags = append(diags, d)
+					}
+				}
+				continue
+			}
+			if openSchema {
 				continue
 			}
 			start, end := stringNodePosRange(body, key)
@@ -348,27 +364,24 @@ func ValidateDictKeysFromAST(
 			})
 		}
 
-		// Missing-prop warnings are anchored on the component name in
+		// Missing required props are anchored on the component name in
 		// the source so the editor can underline the call site itself.
-		// Off by default — partial dicts are sometimes intentional, and
-		// surfacing them as warnings in `gastro generate` would noise up
-		// CI runs that strict-mode-block on any warning.
-		if opts.EmitMissingProps {
-			nameStart := nodeLineCol(body, int(compIdent.Position()))
-			nameEnd := nodeLineCol(body, int(compIdent.Position())+len(compIdent.Ident))
-			for _, f := range schema {
-				if providedKeys[f.Name] {
-					continue
-				}
-				diags = append(diags, TemplateDiagnostic{
-					StartLine: nameStart.Line,
-					StartCol:  nameStart.Col,
-					EndLine:   nameEnd.Line,
-					EndCol:    nameEnd.Col,
-					Severity:  SeverityWarning,
-					Message:   fmt.Sprintf("missing prop %q on component %s", f.Name, compName),
-				})
+		// Optional fields are never reported: a zero value is a valid
+		// default (D5).
+		nameStart := nodeLineCol(body, int(compIdent.Position()))
+		nameEnd := nodeLineCol(body, int(compIdent.Position())+len(compIdent.Ident))
+		for _, f := range schema {
+			if !f.Required || providedKeys[f.Name] {
+				continue
 			}
+			diags = append(diags, TemplateDiagnostic{
+				StartLine: nameStart.Line,
+				StartCol:  nameStart.Col,
+				EndLine:   nameEnd.Line,
+				EndCol:    nameEnd.Col,
+				Severity:  SeverityError,
+				Message:   fmt.Sprintf("missing required prop %q on component %s", f.Name, compName),
+			})
 		}
 	})
 	return diags

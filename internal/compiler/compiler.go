@@ -23,6 +23,11 @@ type CompileOptions struct {
 	// Version is stamped into every generated file's header. Empty
 	// stamps the running binary's version (buildinfo.Version).
 	Version string
+	// TypecheckProps (--typecheck-props) checks literal dict values
+	// against component Props field types at generate time and emits
+	// strict render-time type checks (gastroRuntime.CheckPropTypes) into
+	// every component, so the generated code differs with the flag.
+	TypecheckProps bool
 }
 
 // CompileResult contains the output of a successful compilation.
@@ -96,7 +101,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	outputs := make([]*fileOutput, 0, len(allFiles))
 	for _, relPath := range allFiles {
 		absPath := filepath.Join(projectDir, relPath)
-		out, fileDiags := compileFile(absPath, relPath, absProjectDir, opts.Version, propsByPath, knownComponents)
+		out, fileDiags := compileFile(absPath, relPath, absProjectDir, opts, propsByPath, knownComponents)
 		diags = append(diags, fileDiags...)
 		if out != nil {
 			outputs = append(outputs, out)
@@ -400,7 +405,7 @@ func gatherComponentSchemas(componentFiles []string, projectDir string) (map[str
 // output, or nil when any error-severity diagnostic was found, plus every
 // diagnostic for the file. Nothing is written: Compile writes the outputs
 // once the whole project compiled cleanly.
-func compileFile(absPath, relPath, absProjectDir, version string, propsByPath map[string][]codegen.StructField, knownComponents map[string]bool) (*fileOutput, []Diagnostic) {
+func compileFile(absPath, relPath, absProjectDir string, opts CompileOptions, propsByPath map[string][]codegen.StructField, knownComponents map[string]bool) (*fileOutput, []Diagnostic) {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, []Diagnostic{{File: relPath, Line: 1, Col: 1, Severity: codegen.SeverityError, Message: err.Error()}}
@@ -456,7 +461,8 @@ func compileFile(absPath, relPath, absProjectDir, version string, propsByPath ma
 	// #39) and (dict ...) keys against each component's Props schema.
 	// Positions are template-body relative; the body starts at column 1
 	// of file.TemplateBodyLine.
-	for _, d := range codegen.ValidateTemplate(file.TemplateBody, file.Uses, propsByPath) {
+	validateOpts := codegen.ValidateDictKeysOptions{TypecheckProps: opts.TypecheckProps}
+	for _, d := range codegen.ValidateTemplate(file.TemplateBody, file.Uses, propsByPath, validateOpts) {
 		diags = append(diags, pos.at(file.TemplateBodyLine+d.StartLine-1, d.StartCol, d.Severity, d.Message))
 	}
 	if slices.ContainsFunc(diags, Diagnostic.IsError) {
@@ -482,7 +488,7 @@ func compileFile(absPath, relPath, absProjectDir, version string, propsByPath ma
 	}
 
 	file.TemplateBody = transformedBody
-	handlerCode, err := codegen.GenerateHandler(file, info, isComponent, codegen.GenerateOptions{MangleHoisted: true, Version: version})
+	handlerCode, err := codegen.GenerateHandler(file, info, isComponent, codegen.GenerateOptions{MangleHoisted: true, Version: opts.Version, TypecheckProps: opts.TypecheckProps})
 	if err != nil {
 		return nil, append(diags, pos.at(file.FrontmatterLine, 1, codegen.SeverityError, err.Error()))
 	}
@@ -1028,7 +1034,7 @@ func (__r *Router) __gastro_componentClosuresForRequest(name string, r *http.Req
 {{- range .Uses}}
 {{- if .Propless}}
 		// Propless component: variadic wrapper so bare calls work.
-		fm["{{ .Name }}"] = func(p ...map[string]any) template.HTML {
+		fm["{{ .Name }}"] = func(p ...map[string]any) (template.HTML, error) {
 			var props map[string]any
 			if len(p) > 0 && p[0] != nil {
 				props = p[0]
@@ -1039,7 +1045,7 @@ func (__r *Router) __gastro_componentClosuresForRequest(name string, r *http.Req
 			return __r.{{ .FuncName }}(props)
 		}
 {{- else}}
-		fm["{{ .Name }}"] = func(p map[string]any) template.HTML {
+		fm["{{ .Name }}"] = func(p map[string]any) (template.HTML, error) {
 			if p == nil {
 				p = map[string]any{}
 			}
@@ -1076,7 +1082,7 @@ func (__r *Router) __gastro_buildFuncMap(name string, userFuncs template.FuncMap
 {{- range .Uses}}
 {{- if .Propless}}
 		// Propless component: variadic wrapper so bare calls work.
-		fm["{{ .Name }}"] = func(p ...map[string]any) template.HTML {
+		fm["{{ .Name }}"] = func(p ...map[string]any) (template.HTML, error) {
 			var props map[string]any
 			if len(p) > 0 && p[0] != nil {
 				props = p[0]
@@ -1089,10 +1095,14 @@ func (__r *Router) __gastro_buildFuncMap(name string, userFuncs template.FuncMap
 		fm["{{ .Name }}"] = __r.{{ .FuncName }}
 {{- end}}
 {{- end}}
-		fm["__gastro_render_children"] = func(n string, data any) template.HTML {
+		// Errors propagate so a component failing inside a wrap slot
+		// (a dev-mode props violation) fails the enclosing render.
+		fm["__gastro_render_children"] = func(n string, data any) (template.HTML, error) {
 			var __buf bytes.Buffer
-			__r.__gastro_getTemplate("{{$fn}}").ExecuteTemplate(&__buf, n, data)
-			return template.HTML(__buf.String())
+			if err := __r.__gastro_getTemplate("{{$fn}}").ExecuteTemplate(&__buf, n, data); err != nil {
+				return "", err
+			}
+			return template.HTML(__buf.String()), nil
 		}
 {{- end}}{{end}}
 	}
@@ -1283,10 +1293,12 @@ func (__r *Router) __gastro_executeForRequest(name string, r *http.Request, w io
 	// helpers. (The parse-time wrap closure in __gastro_buildFuncMap
 	// targets the registry copy, which doesn't carry per-request funcs;
 	// overriding here is what makes nested wrap propagation work.)
-	extra["__gastro_render_children"] = func(n string, d any) template.HTML {
+	extra["__gastro_render_children"] = func(n string, d any) (template.HTML, error) {
 		var buf bytes.Buffer
-		_ = tmpl.ExecuteTemplate(&buf, n, d)
-		return template.HTML(buf.String())
+		if err := tmpl.ExecuteTemplate(&buf, n, d); err != nil {
+			return "", err
+		}
+		return template.HTML(buf.String()), nil
 	}
 	tmpl.Funcs(extra)
 	return tmpl.Execute(w, data)
@@ -1742,7 +1754,10 @@ func (r *renderAPI) {{ .ExportedName }}({{ if or .HasProps .HasChildren }}props 
 	if rt == nil {
 		return "", fmt.Errorf("gastro: Render.{{ .ExportedName }}: no router constructed yet (call gastro.New() first)")
 	}
-	result := rt.{{ .FuncName }}(propsMap)
+	result, err := rt.{{ .FuncName }}(propsMap)
+	if err != nil {
+		return "", fmt.Errorf("gastro: render {{ .ExportedName }}: %w", err)
+	}
 	if result == "" {
 		return "", fmt.Errorf("gastro: render {{ .ExportedName }} failed")
 	}

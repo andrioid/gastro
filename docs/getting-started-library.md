@@ -77,8 +77,8 @@ Name := p.Name
 Generate the Go code (creates `internal/web/.gastro/`):
 
 ```sh
-go tool gastro generate --project ./internal/web
-# or, with GASTRO_PROJECT set: just `go tool gastro generate`
+GASTRO_PROJECT=./internal/web go tool gastro generate
+# or, with GASTRO_PROJECT exported: just `go tool gastro generate`
 ```
 
 Wire one component into your existing handler:

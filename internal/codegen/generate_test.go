@@ -80,7 +80,7 @@ CSSClass := "card"`,
 
 	// Should have render method on *Router (so it can read the per-router
 	// template registry and dependency map), not a free function or an HTTP handler.
-	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) (template.HTML, error)`)
 	assertNotContains(t, output, `http.ResponseWriter`)
 
 	// Should extract Children from props map (renamed from "__children" in A5)
@@ -149,7 +149,7 @@ Tag := props.Tag`,
 	assertContains(t, output, `__router.__gastro_getTemplate("componentCard")`)
 
 	// Should still have component render method (not HTTP handler)
-	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) (template.HTML, error)`)
 	assertNotContains(t, output, `http.ResponseWriter`)
 
 	// Should still handle props and children (A5 renamed the dict key from
@@ -187,7 +187,7 @@ CSSClass := "card"`,
 	assertNotContains(t, output, `gastro.Props`)
 
 	// Should still have component method
-	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) (template.HTML, error)`)
 	assertContains(t, output, `MapToStruct[__component_card_Props](propsMap)`)
 }
 

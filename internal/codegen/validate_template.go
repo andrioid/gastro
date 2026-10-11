@@ -15,7 +15,7 @@ import (
 //
 //   - SeverityError for each call to a PascalCase component that is not
 //     imported in the frontmatter;
-//   - every dict-key finding from ValidateDictKeysFromAST.
+//   - every dict-key finding from ValidateDictKeysFromAST, with opts.
 //
 // Validating the source rather than the transformed body keeps positions
 // exact: TransformTemplate moves {{ wrap }} children into a trailing
@@ -25,7 +25,7 @@ import (
 // function names are not resolved while parsing. A body that does not
 // parse yields no findings: template syntax errors are reported by the
 // runtime parse, which owns them.
-func ValidateTemplate(body string, uses []gastroParser.UseDeclaration, propsByPath map[string][]StructField) []TemplateDiagnostic {
+func ValidateTemplate(body string, uses []gastroParser.UseDeclaration, propsByPath map[string][]StructField, opts ValidateDictKeysOptions) []TemplateDiagnostic {
 	src := maskForValidation(body)
 
 	treeSet := map[string]*parse.Tree{}
@@ -70,7 +70,7 @@ func ValidateTemplate(body string, uses []gastroParser.UseDeclaration, propsByPa
 					id.Ident, id.Ident),
 			})
 		})
-		diags = append(diags, ValidateDictKeysFromAST(src, tree, uses, propsByPath, ValidateDictKeysOptions{})...)
+		diags = append(diags, ValidateDictKeysFromAST(src, tree, uses, propsByPath, opts)...)
 	}
 	slices.SortStableFunc(diags, func(a, b TemplateDiagnostic) int {
 		if a.StartLine != b.StartLine {

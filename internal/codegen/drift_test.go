@@ -16,17 +16,14 @@ import (
 // "single source of truth" decision. Every fixture under
 // testdata/drift/ is run through both:
 //
-//  1. codegen.ValidateDictKeysFromAST (the canonical validator), with
-//     EmitMissingProps off — matching the behaviour `gastro generate`
-//     gets today.
-//  2. lsptemplate.Diagnose (the LSP entry point), which delegates to
-//     the same codegen function with EmitMissingProps on.
+//  1. codegen.ValidateDictKeysFromAST (the canonical validator), as
+//     `gastro generate` runs it.
+//  2. lsptemplate.DiagnoseComponentProps (the LSP entry point), which
+//     delegates to the same codegen function.
 //
 // Both paths are then normalised to (line, severity-class, message
-// prefix) tuples and asserted equivalent on the *intersection* — i.e.
-// every diagnostic the codegen path emits MUST also appear in the LSP
-// output (and vice versa), modulo the LSP-only missing-prop warnings
-// that codegen explicitly opts out of.
+// prefix) tuples and asserted equal: every diagnostic the codegen path
+// emits MUST also appear in the LSP output, and vice versa.
 //
 // If a future change adds a new validation rule to one path without
 // the other (the exact drift class that bit git-pm before Phase 2),
@@ -106,7 +103,7 @@ func TestDictKeyDriftCorpus(t *testing.T) {
 				t.Fatalf("parse template body: %v", err)
 			}
 
-			// Codegen path: position-rich diagnostics with EmitMissingProps off.
+			// Codegen path: position-rich diagnostics.
 			codegenDiags := codegen.ValidateDictKeysFromAST(
 				parsedPage.TemplateBody,
 				tree,
@@ -123,17 +120,13 @@ func TestDictKeyDriftCorpus(t *testing.T) {
 				propsByAlias,
 			)
 
-			// Normalise. The LSP path emits missing-prop warnings
-			// that codegen opts out of; filter them so we compare
-			// the intersection. Everything else MUST match.
 			codegenSet := normaliseCodegen(codegenDiags)
-			lspSet := normaliseLSPSkippingMissingProp(lspDiags)
+			lspSet := normaliseLSP(lspDiags)
 
 			if !equalNormalised(codegenSet, lspSet) {
 				t.Errorf("DRIFT detected on fixture %s\n"+
 					"  codegen verdicts: %v\n"+
-					"  lsp     verdicts: %v\n"+
-					"  (missing-prop warnings filtered from LSP set; codegen opts out by default)",
+					"  lsp     verdicts: %v",
 					page, codegenSet, lspSet)
 			}
 		})
@@ -159,17 +152,9 @@ func normaliseCodegen(diags []codegen.TemplateDiagnostic) []normalisedDiag {
 	return out
 }
 
-func normaliseLSPSkippingMissingProp(diags []lsptemplate.Diagnostic) []normalisedDiag {
+func normaliseLSP(diags []lsptemplate.Diagnostic) []normalisedDiag {
 	out := make([]normalisedDiag, 0, len(diags))
 	for _, d := range diags {
-		if strings.HasPrefix(d.Message, "missing prop") {
-			// Codegen-side opts out; comparing on this would make
-			// the parity test require a permanent asymmetry list.
-			// Instead: filter LSP missing-prop warnings out of the
-			// drift set entirely; they're tested separately in
-			// internal/lsp/template/completions_test.go.
-			continue
-		}
 		out = append(out, normalisedDiag{
 			line:     d.StartLine + 1, // LSP uses 0-indexed lines; codegen uses 1-indexed
 			severity: d.Severity,

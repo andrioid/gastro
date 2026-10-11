@@ -20,9 +20,10 @@ import (
 )
 
 // devFlagRejectionMessage is the canonical multi-line error printed when
-// `gastro dev` is invoked with any flag. The plan (\u00a73 Q5 + \u00a74) defines
-// this as the single source of truth so the test (TestDev_RejectsUnknownFlags)
-// asserts against the exact constant the production code uses.
+// `gastro dev` is invoked with an unsupported flag. The plan (\u00a73 Q5 + \u00a74)
+// defines this as the single source of truth so the test
+// (TestDev_RejectsUnknownFlags) asserts against the exact constant the
+// production code uses.
 //
 // First line is the colon-prefixed error so it groups with the rest of the
 // CLI's "gastro <cmd>: ..." output. The follow-up lines spell out the
@@ -30,30 +31,39 @@ import (
 // `air` / `wgo` / similar.
 func devFlagRejectionMessage(flag string) string {
 	return fmt.Sprintf("gastro dev: unknown flag %s\n"+
-		"gastro dev takes no flags. For custom build/asset/run commands, use:\n"+
+		"gastro dev only takes --watch GLOB and --typecheck-props. For custom build/asset/run commands, use:\n"+
 		"  gastro watch --asset '...' --build '...' --run '...'", flag)
 }
 
 // validateDevArgs implements the Q5 flag-rejection contract. Returns nil
-// when args is empty; an error containing devFlagRejectionMessage otherwise.
-// The first looks-like-a-flag arg drives the message because reporting more
-// than one would obscure the suggested fix.
-//
-// Exception: --watch GLOB is allowed (and only this flag). It registers an
-// additional glob pattern with the dev-mode watcher (Phase 4, see
-// docs/dev-mode.md). The flag is repeatable; comma-separated values are
-// also accepted.
+// when args only holds supported flags; an error containing
+// devFlagRejectionMessage otherwise. The first unsupported arg drives the
+// message because reporting more than one would obscure the suggested
+// fix.
 func validateDevArgs(args []string) error {
-	_, err := parseDevWatchFlags(args)
+	_, err := parseDevFlags(args)
 	return err
 }
 
-// parseDevWatchFlags extracts `--watch GLOB[,GLOB...]` repetitions from a
-// `gastro dev` argv. Any other flag-like or positional argument is
-// rejected with the devFlagRejectionMessage. Returns the deduplicated
-// list of glob patterns to forward to devloop.Config.ExtraWatch.
-func parseDevWatchFlags(args []string) ([]string, error) {
-	var out []string
+// devFlags is the parsed argv of `gastro dev`.
+type devFlags struct {
+	compileFlags
+	// Watch holds the deduplicated --watch globs, forwarded to
+	// devloop.Config.ExtraWatch.
+	Watch []string
+}
+
+// parseDevFlags parses a `gastro dev` argv. Two flags are accepted:
+//
+//   - --watch GLOB[,GLOB...] registers additional glob patterns with the
+//     dev-mode watcher (Phase 4, see docs/dev-mode.md). Repeatable;
+//     comma-separated values are also accepted.
+//   - --typecheck-props, as on `gastro generate`.
+//
+// Any other flag-like or positional argument is rejected with the
+// devFlagRejectionMessage.
+func parseDevFlags(args []string) (devFlags, error) {
+	var out devFlags
 	seen := map[string]bool{}
 	i := 0
 	for i < len(args) {
@@ -61,18 +71,23 @@ func parseDevWatchFlags(args []string) ([]string, error) {
 		var value string
 		var hasValue bool
 
+		if a == "--typecheck-props" {
+			out.TypecheckProps = true
+			i++
+			continue
+		}
 		if eq := strings.IndexByte(a, '='); eq > 0 && strings.HasPrefix(a, "--") {
 			value = a[eq+1:]
 			a = a[:eq]
 			hasValue = true
 		}
 		if a != "--watch" {
-			return nil, errors.New(devFlagRejectionMessage(a))
+			return devFlags{}, errors.New(devFlagRejectionMessage(a))
 		}
 
 		if !hasValue {
 			if i+1 >= len(args) {
-				return nil, errors.New("--watch needs a value")
+				return devFlags{}, errors.New("--watch needs a value")
 			}
 			value = args[i+1]
 			i++
@@ -85,7 +100,7 @@ func parseDevWatchFlags(args []string) ([]string, error) {
 				continue
 			}
 			seen[g] = true
-			out = append(out, g)
+			out.Watch = append(out.Watch, g)
 		}
 	}
 	return out, nil
@@ -96,6 +111,7 @@ func parseDevWatchFlags(args []string) ([]string, error) {
 // tailwindcss-then-go-build); Run is single because exactly one
 // long-running process makes sense per watch session.
 type watchFlags struct {
+	compileFlags
 	Run        string
 	Build      []string
 	Asset      []string
@@ -228,6 +244,8 @@ func parseWatchArgs(args []string) (watchFlags, error) {
 			}
 		case "--quiet", "-q":
 			fl.Quiet = true
+		case "--typecheck-props":
+			fl.TypecheckProps = true
 		case "--help", "-h":
 			return fl, errHelp
 		default:
@@ -290,6 +308,9 @@ Optional:
                           node_modules, .git, or tmp (matched anywhere
                           in the watched tree).
       --debounce DUR      Coalesce burst changes (default 200ms)
+      --typecheck-props   Check component dict values against the Props
+                          field types: literals on regenerate, every value
+                          at render time (dev: error, production: log)
   -q, --quiet             Suppress per-change logs
   -h, --help              Show this help
 
@@ -501,7 +522,7 @@ func runWatchLoop(ctx context.Context, flags watchFlags) error {
 		WatchGoFiles:  true,
 		ExtraExcludes: flags.Excludes,
 		ExtraWatch:    flags.ExtraWatch,
-		Generate:      generateForDevLoop,
+		Generate:      generateForDevLoop(flags.compileFlags),
 		OnRestart:     startApp,
 		PreReload:     runAssets,
 		OnReload:      writeReloadSignal,

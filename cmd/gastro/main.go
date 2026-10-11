@@ -80,24 +80,32 @@ func main() {
 		return
 	case "generate":
 		applyGastroProject()
-		if _, err := runGenerate(true); err != nil {
+		flags, err := parseCompileFlags("generate", os.Args[2:])
+		if err == nil {
+			_, err = runGenerate(flags.compileOptions(true))
+		}
+		if err != nil {
 			reportFailure("generate", err)
 			os.Exit(1)
 		}
 	case "build":
 		applyGastroProject()
-		if err := runBuild(); err != nil {
+		flags, err := parseCompileFlags("build", os.Args[2:])
+		if err == nil {
+			err = runBuild(flags)
+		}
+		if err != nil {
 			reportFailure("build", err)
 			os.Exit(1)
 		}
 	case "dev":
-		devWatch, err := parseDevWatchFlags(os.Args[2:])
+		devFlags, err := parseDevFlags(os.Args[2:])
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
 		applyGastroProject()
-		if err := runDev(devWatch); err != nil {
+		if err := runDev(devFlags); err != nil {
 			fmt.Fprintf(os.Stderr, "gastro dev: %v\n", err)
 			os.Exit(1)
 		}
@@ -127,7 +135,11 @@ func main() {
 		}
 	case "check":
 		applyGastroProject()
-		if err := runCheck(); err != nil {
+		flags, err := parseCompileFlags("check", os.Args[2:])
+		if err == nil {
+			err = runCheck(flags)
+		}
+		if err != nil {
 			if err == errDrift {
 				// Drift: the diff has already been printed by runCheck.
 				os.Exit(1)
@@ -193,10 +205,41 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  list        List all components and pages with their props (--json for machine output)")
 	fmt.Fprintln(os.Stderr, "  version     Print version")
 	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "Flags for generate, build, check, dev and watch:")
+	fmt.Fprintln(os.Stderr, "  --typecheck-props  Check component dict values against the Props field")
+	fmt.Fprintln(os.Stderr, "                     types: literals when generating, every value when")
+	fmt.Fprintln(os.Stderr, "                     rendering (dev: error, production: logged warning).")
+	fmt.Fprintln(os.Stderr, "                     Use the same setting for generate and check.")
+	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Environment:")
 	fmt.Fprintln(os.Stderr, "  GASTRO_PROJECT   Path to the gastro project root. When set, the CLI")
 	fmt.Fprintln(os.Stderr, "                   chdir's here before running project-level commands.")
 	fmt.Fprintln(os.Stderr, "                   Useful for nested projects (e.g. internal/web/).")
+}
+
+// compileFlags are the compile options shared by generate, build, check,
+// dev and watch.
+type compileFlags struct {
+	TypecheckProps bool
+}
+
+func (f compileFlags) compileOptions(strict bool) compiler.CompileOptions {
+	return compiler.CompileOptions{Strict: strict, TypecheckProps: f.TypecheckProps}
+}
+
+// parseCompileFlags parses the argv of generate, build and check, which
+// take only the shared compile flags.
+func parseCompileFlags(cmd string, args []string) (compileFlags, error) {
+	var f compileFlags
+	for _, a := range args {
+		switch a {
+		case "--typecheck-props":
+			f.TypecheckProps = true
+		default:
+			return f, fmt.Errorf("unknown flag %s (gastro %s accepts --typecheck-props)", a, cmd)
+		}
+	}
+	return f, nil
 }
 
 var skipDirs = map[string]bool{
@@ -426,12 +469,12 @@ func collectGastroFiles(root string) ([]string, error) {
 	return files, err
 }
 
-func runGenerate(strict bool) (*compiler.CompileResult, error) {
+func runGenerate(opts compiler.CompileOptions) (*compiler.CompileResult, error) {
 	projectDir := "."
 	outputDir := filepath.Join(projectDir, ".gastro")
 
 	start := time.Now()
-	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{Strict: strict})
+	result, err := compiler.Compile(projectDir, outputDir, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -446,19 +489,21 @@ func runGenerate(strict bool) (*compiler.CompileResult, error) {
 	return result, nil
 }
 
-// generateForDevLoop is the Generate hook of `gastro dev` and `gastro
-// watch`. A failed generation is also sent to the browser as a
+// generateForDevLoop returns the Generate hook of `gastro dev` and
+// `gastro watch`. A failed generation is also sent to the browser as a
 // build-error devreload event; Compile leaves .gastro/ untouched on
 // failure, so the running server keeps serving the last good build.
-func generateForDevLoop() ([]string, error) {
-	result, err := runGenerate(false)
-	if err != nil {
-		if werr := writeBuildErrorSignal("$ gastro generate\n" + err.Error()); werr != nil {
-			fmt.Fprintf(os.Stderr, "gastro: failed to write build-error signal: %v\n", werr)
+func generateForDevLoop(flags compileFlags) func() ([]string, error) {
+	return func() ([]string, error) {
+		result, err := runGenerate(flags.compileOptions(false))
+		if err != nil {
+			if werr := writeBuildErrorSignal("$ gastro generate\n" + err.Error()); werr != nil {
+				fmt.Fprintf(os.Stderr, "gastro: failed to write build-error signal: %v\n", werr)
+			}
+			return nil, err
 		}
-		return nil, err
+		return result.EmbedDeps, nil
 	}
-	return result.EmbedDeps, nil
 }
 
 // reportFailure prints a command failure. Compile diagnostics are printed
@@ -474,8 +519,8 @@ func reportFailure(cmd string, err error) {
 	fmt.Fprintf(os.Stderr, "gastro %s: %v\n", cmd, err)
 }
 
-func runBuild() error {
-	if _, err := runGenerate(true); err != nil {
+func runBuild(flags compileFlags) error {
+	if _, err := runGenerate(flags.compileOptions(true)); err != nil {
 		return err
 	}
 
@@ -556,7 +601,7 @@ func findAvailablePort(startPort int) (string, error) {
 	return "", fmt.Errorf("no available port found in range %d-%d", startPort, startPort+9)
 }
 
-func runDev(extraWatch []string) error {
+func runDev(flags devFlags) error {
 	port := os.Getenv("PORT")
 	if port == "" {
 		p, err := findAvailablePort(4242)
@@ -630,10 +675,10 @@ func runDev(extraWatch []string) error {
 	// observable behaviour matches what `gastro dev` shipped before the
 	// devloop extraction.
 	loopErr := devloop.Run(ctx, devloop.Config{
-		Generate:   generateForDevLoop,
+		Generate:   generateForDevLoop(flags.compileFlags),
 		OnRestart:  startApp,
 		OnReload:   writeReloadSignal,
-		ExtraWatch: extraWatch,
+		ExtraWatch: flags.Watch,
 	})
 
 	// Cleanup: kill the running app process. devloop.Run has already

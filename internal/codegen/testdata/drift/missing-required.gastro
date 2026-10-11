@@ -1,0 +1,6 @@
+---
+import (
+	Layout "components/missing-required.layout.gastro"
+)
+---
+{{ Layout (dict "Subtitle" "only the optional prop") }}

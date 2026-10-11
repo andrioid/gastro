@@ -78,6 +78,13 @@ Templates parse but fail at `Execute` time — typically because a
 panicked, or the underlying `io.Writer` failed (closed connection,
 broken pipe).
 
+In dev mode, a component whose props break their contract — a
+`gastro:"required"` prop holding its zero value, or a value of the wrong
+type under `--typecheck-props` — also fails the render this way, including
+from inside a `{{ wrap }}` slot. In production the same violation is
+logged with `log/slog` and the component renders; see
+[Components](components.md#required-and-optional-props).
+
 The page handler routes the error through `__router.__gastro_handleError`,
 which dispatches to either:
 

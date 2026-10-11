@@ -25,12 +25,14 @@ gastro dev
 ```
 
 `gastro dev` watches `components/`, `pages/`, and `static/`, regenerates code
-as needed, and serves the app on `:4242` (or `$PORT`). It takes one flag
+as needed, and serves the app on `:4242` (or `$PORT`). It takes two flags
 only — `--watch GLOB` (see [Watching extra files](#watching-extra-files)
-below) — the rest of the build/run surface is intentionally hidden behind
-the scaffold's batteries-included experience. If you find yourself wanting
-to customise the build or run command, that's the signal to switch to
-`gastro watch`.
+below) and `--typecheck-props` (strict prop type checks, see
+[Components](components.md#prop-types-and---typecheck-props)) — the rest of
+the build/run surface is intentionally hidden behind the scaffold's
+batteries-included experience. If you find yourself wanting to customise
+the build or run command, that's the signal to switch to `gastro watch`,
+which accepts `--typecheck-props` too.
 
 ## Quick start (library mode)
 

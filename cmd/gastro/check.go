@@ -16,7 +16,10 @@ import (
 // runCheck verifies that the on-disk .gastro/ directory matches what
 // `gastro generate` would produce right now. Intended for CI:
 //
-//	gastro check
+//	gastro check [--typecheck-props]
+//
+// Pass the same --typecheck-props setting as `gastro generate`: the flag
+// changes the generated components, so a mismatch reports drift.
 //
 // Exit codes:
 //
@@ -27,7 +30,7 @@ import (
 // Drift detection is byte-level: files are compared verbatim. Missing files
 // (in either direction) are reported. The generated tree is produced in a
 // temporary directory and discarded after the comparison.
-func runCheck() error {
+func runCheck(flags compileFlags) error {
 	projectDir := "."
 	existingDir := filepath.Join(projectDir, ".gastro")
 
@@ -45,7 +48,7 @@ func runCheck() error {
 	defer os.RemoveAll(tmpDir)
 
 	// Strict: any diagnostic, warning or error, fails the check.
-	if _, err := compiler.Compile(projectDir, tmpDir, compiler.CompileOptions{Strict: true}); err != nil {
+	if _, err := compiler.Compile(projectDir, tmpDir, flags.compileOptions(true)); err != nil {
 		return fmt.Errorf("generate to temp dir: %w", err)
 	}
 

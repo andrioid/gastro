@@ -131,3 +131,61 @@ func TestBuild_FailsWithPositionedDiagnostics(t *testing.T) {
 		t.Fatalf("expected gastro build to fail with the positioned error; exit %d, stderr:\n%s", code, stderr)
 	}
 }
+
+// requiredCardProject: Card's Title is gastro:"required", Count is an
+// optional int; the page passes dict.
+func requiredCardProject(dict string) map[string]string {
+	return map[string]string{
+		"components/card.gastro": "---\ntype Props struct {\n\tTitle string `gastro:\"required\"`\n\tCount int\n}\n" +
+			"Title := gastro.Props().Title\nCount := gastro.Props().Count\n---\n<div>{{ .Title }} {{ .Count }}</div>\n",
+		"pages/index.gastro": "---\nimport Card \"components/card.gastro\"\n---\n<main>{{ Card (dict " + dict + ") }}</main>\n",
+	}
+}
+
+func TestGenerateAndCheck_OmittedRequiredPropFails(t *testing.T) {
+	t.Parallel()
+	dir := writeProject(t, requiredCardProject(`"Title" "x"`))
+	if _, stderr, code := runGastroCmd(t, isolatedEnv, dir, "generate"); code != 0 {
+		t.Fatalf("generate with the required prop passed failed (%d): %s", code, stderr)
+	}
+
+	// Drop the required key.
+	page := filepath.Join(dir, "pages", "index.gastro")
+	if err := os.WriteFile(page, []byte("---\nimport Card \"components/card.gastro\"\n---\n<main>{{ Card (dict \"Count\" 1) }}</main>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const want = `pages/index.gastro:4:10: error: missing required prop "Title" on component Card`
+	for _, cmd := range []string{"generate", "check"} {
+		_, stderr, code := runGastroCmd(t, isolatedEnv, dir, cmd)
+		if code == 0 || !strings.Contains(stderr, want) {
+			t.Errorf("gastro %s: expected failure with %q; exit %d, stderr:\n%s", cmd, want, code, stderr)
+		}
+	}
+}
+
+func TestGenerateAndCheck_TypecheckPropsFlag(t *testing.T) {
+	t.Parallel()
+	dir := writeProject(t, requiredCardProject(`"Title" "x" "Count" "three"`))
+
+	if _, stderr, code := runGastroCmd(t, isolatedEnv, dir, "generate"); code != 0 {
+		t.Fatalf("without --typecheck-props generate passes; exit %d: %s", code, stderr)
+	}
+	const want = `pages/index.gastro:4:41: error: prop "Count" on component Card: cannot use "three" (untyped string constant) as int value`
+	for _, cmd := range []string{"generate", "check"} {
+		_, stderr, code := runGastroCmd(t, isolatedEnv, dir, cmd, "--typecheck-props")
+		if code == 0 || !strings.Contains(stderr, want) {
+			t.Errorf("gastro %s --typecheck-props: expected %q; exit %d, stderr:\n%s", cmd, want, code, stderr)
+		}
+	}
+}
+
+func TestCompileCommands_RejectUnknownFlags(t *testing.T) {
+	t.Parallel()
+	dir := writeProject(t, cardProject())
+	for _, cmd := range []string{"generate", "build", "check"} {
+		_, stderr, code := runGastroCmd(t, isolatedEnv, dir, cmd, "--typecheck")
+		if code == 0 || !strings.Contains(stderr, "unknown flag --typecheck") {
+			t.Errorf("gastro %s --typecheck: expected an unknown-flag error; exit %d, stderr:\n%s", cmd, code, stderr)
+		}
+	}
+}
