@@ -50,9 +50,9 @@ type GenerateOptions struct {
 	// running binary's version.
 	Version string
 
-	// TypecheckProps (gastro --typecheck-props) emits a strict
-	// gastroRuntime.CheckPropTypes call into every component with a
-	// Props struct, ahead of the lenient MapToStruct decode.
+	// TypecheckProps emits a strict gastroRuntime.CheckPropTypes call
+	// into every component with a Props struct, ahead of the lenient
+	// MapToStruct decode. The CLI sets it unless --no-typecheck-props.
 	TypecheckProps bool
 }
 
@@ -277,7 +277,7 @@ type generateData struct {
 	// components without gastro:"required" fields pay nothing for it.
 	HasRequiredProps bool
 	// TypecheckProps emits the strict CheckPropTypes call (component
-	// with a Props struct, --typecheck-props).
+	// with a Props struct, unless --no-typecheck-props).
 	TypecheckProps bool
 	HoistedDecls   string    // rendered text block of all hoisted package-scope decls
 	Uses           []UseInfo // component imports used by this page
@@ -431,9 +431,9 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) (template.HTML,
 	{{- if .PropsTypeName }}
 	{{- if .TypecheckProps }}
 
-	// --typecheck-props: dict values must be assignable to the Props
-	// field types without coercion. Dict path only; Router.Render is
-	// typed at compile time.
+	// Prop type check (gastro --no-typecheck-props turns it off): dict
+	// values must be assignable to the Props field types without
+	// coercion. Dict path only; Router.Render is typed at compile time.
 	if __err := gastroRuntime.PropsViolation(__router.isDev, "{{ .ExportedName }}", gastroRuntime.CheckPropTypes[{{ .PropsTypeName }}](propsMap)); __err != nil {
 		return "", __err
 	}

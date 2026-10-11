@@ -591,8 +591,9 @@ var dictKeyRegex = regexp.MustCompile(`"((?:[A-Z][a-zA-Z0-9]*|__[a-z][a-zA-Z0-9]
 // which is the single source of truth for dict-key validation: see
 // internal/codegen/validate.go and internal/codegen/synthetic.go. Both the
 // `gastro generate` command and this LSP entry point produce identical
-// verdicts. Literal value type checks (--typecheck-props) are a CLI
-// option the editor does not know about, so they stay off here.
+// verdicts. Literal value type checks are on in the CLI by default but
+// can be turned off with --no-typecheck-props, a setting the editor does
+// not know about, so they stay off here.
 //
 // When the tree is nil (the template fails to parse with text/template/parse,
 // which is the case for `{{ wrap X }}...{{ end }}` blocks because the Go

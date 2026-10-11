@@ -206,10 +206,11 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  version     Print version")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Flags for generate, build, check, dev and watch:")
-	fmt.Fprintln(os.Stderr, "  --typecheck-props  Check component dict values against the Props field")
-	fmt.Fprintln(os.Stderr, "                     types: literals when generating, every value when")
-	fmt.Fprintln(os.Stderr, "                     rendering (dev: error, production: logged warning).")
-	fmt.Fprintln(os.Stderr, "                     Use the same setting for generate and check.")
+	fmt.Fprintln(os.Stderr, "  --no-typecheck-props  Turn off the component prop type checks that are on")
+	fmt.Fprintln(os.Stderr, "                        by default: literal dict values against the Props")
+	fmt.Fprintln(os.Stderr, "                        field types when generating, every value when")
+	fmt.Fprintln(os.Stderr, "                        rendering (dev: error, production: logged warning).")
+	fmt.Fprintln(os.Stderr, "                        Use the same setting for generate and check.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Environment:")
 	fmt.Fprintln(os.Stderr, "  GASTRO_PROJECT   Path to the gastro project root. When set, the CLI")
@@ -220,11 +221,11 @@ func printUsage() {
 // compileFlags are the compile options shared by generate, build, check,
 // dev and watch.
 type compileFlags struct {
-	TypecheckProps bool
+	NoTypecheckProps bool
 }
 
 func (f compileFlags) compileOptions(strict bool) compiler.CompileOptions {
-	return compiler.CompileOptions{Strict: strict, TypecheckProps: f.TypecheckProps}
+	return compiler.CompileOptions{Strict: strict, NoTypecheckProps: f.NoTypecheckProps}
 }
 
 // parseCompileFlags parses the argv of generate, build and check, which
@@ -233,10 +234,10 @@ func parseCompileFlags(cmd string, args []string) (compileFlags, error) {
 	var f compileFlags
 	for _, a := range args {
 		switch a {
-		case "--typecheck-props":
-			f.TypecheckProps = true
+		case "--no-typecheck-props":
+			f.NoTypecheckProps = true
 		default:
-			return f, fmt.Errorf("unknown flag %s (gastro %s accepts --typecheck-props)", a, cmd)
+			return f, fmt.Errorf("unknown flag %s (gastro %s accepts --no-typecheck-props)", a, cmd)
 		}
 	}
 	return f, nil

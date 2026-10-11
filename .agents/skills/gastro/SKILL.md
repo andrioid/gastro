@@ -263,7 +263,13 @@ mandatory: a `(dict ...)` that omits it fails `gastro generate`, and a zero
 value at render time fails the render in dev mode (production logs a
 warning and renders).
 
-Without `--typecheck-props`, gastro coerces prop values to match struct
+Prop values are type-checked by default: literal dict values must be
+assignable to the field type at generate time (`(dict "Count" "three")`
+into `Count int` fails `gastro generate`), and render-time values must
+convert without coercion (dev: error, production: logged warning).
+
+`--no-typecheck-props` (on `generate`, `build`, `check`, `dev`, `watch`)
+turns the checks off; gastro then coerces prop values to match struct
 field types:
 
 | Target type | Accepted values |
@@ -273,10 +279,8 @@ field types:
 | `int` | `int`, `int64`, `float64`, `float32`, `string` (parsed) |
 | `float64` | `float64`, `float32`, `int`, `string` (parsed) |
 
-With `--typecheck-props`, literal dict values must be assignable to the
-field type at generate time, and render-time values must convert without
-coercion (dev: error, production: logged warning). See
-`docs/components.md`.
+A Props field named `Children` is rejected: the name is reserved for the
+`{{ wrap }}` slot (`{{ .Children }}`). See `docs/components.md`.
 
 ### Propless components
 
@@ -394,6 +398,17 @@ also embeds the matching browser client: register
 `gastro.WithFuncs(datastar.Funcs())`, and put `{{ datastarScript }}` in the
 layout's `<head>`. Pages open one long-lived stream; commands return 204.
 See docs/sse.md.
+
+**Live pages** keep every open page current without per-page stream code:
+`live := &datastar.LivePages{Signal: notifier, Root: "app", Compression: true}`,
+register `gastro.WithFuncs(live.Funcs())` and
+`gastro.WithHandler(live.Pattern(), live.Handler())`, set
+`live.Pages = router.Handler()` after `New`, and in the layout write
+`{{ liveRoot .Children }}` plus `{{ liveScript }}` (outside the root).
+Commands write, call `notifier.Notify()` (`datastar.Notifier`), and answer
+204. The stream re-renders the page through its GET handler and morphs the
+root. Datastar applies patches only for status 200; `data-ignore-morph` must
+be on both the old and the new element. See docs/sse.md#live-pages.
 
 ```go
 import "github.com/andrioid/gastro/datastar"

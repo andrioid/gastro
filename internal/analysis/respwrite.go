@@ -45,7 +45,12 @@ type MissingReturn struct {
 //     The list is intentionally narrow; broaden only when a real stdlib
 //     pattern emerges.
 //  3. The call is a method on `w` (selector expression with `w` as the
-//     base): w.Write(…), w.WriteHeader(…), w.Header().Set(…).
+//     base): w.Write(…), w.WriteHeader(…).
+//
+// Header mutations are not write sites: they stage headers for the
+// response the page renders later without committing it. That covers
+// every call through w.Header() (w.Header().Set/Add/Del/…) and
+// http.SetCookie(w, …).
 //
 // A write site needs no `return` if any of:
 //
@@ -164,15 +169,13 @@ func exprStmtCall(stmt ast.Stmt) (*ast.CallExpr, bool) {
 
 // isWriteSite implements the §4.9 rules.
 func isWriteSite(call *ast.CallExpr) bool {
+	if isHeaderMutation(call) {
+		return false
+	}
+
 	// Rule 3: method call on `w`.
 	if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 		if base := identName(sel.X); base == "w" {
-			return true
-		}
-		// Sub-rule: w.Header().Set(…) — the inner call's selector base is
-		// also `w`, which matches a deeper SelectorExpr chain. Walk to
-		// find any `w.Header()` link.
-		if hasWHeaderChain(sel) {
 			return true
 		}
 	}
@@ -192,12 +195,18 @@ func isWriteSite(call *ast.CallExpr) bool {
 	return false
 }
 
-// hasWHeaderChain returns true when the selector ultimately roots in a
-// `w.Header()` call. Examples that match: w.Header().Set(…),
-// w.Header().Add(…), w.Header().Del(…). Examples that don't: r.Header.Get(…),
-// req.Header.Set(…).
-func hasWHeaderChain(sel *ast.SelectorExpr) bool {
-	cur := ast.Expr(sel)
+// isHeaderMutation reports calls that only touch the response headers:
+// w.Header() itself, any call chained off it (w.Header().Set(…),
+// w.Header().Add(…), w.Header().Del(…)), and http.SetCookie(w, …).
+func isHeaderMutation(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if identName(sel.X) == "http" && sel.Sel.Name == "SetCookie" {
+		return true
+	}
+	cur := ast.Expr(call)
 	for {
 		switch v := cur.(type) {
 		case *ast.SelectorExpr:

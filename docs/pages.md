@@ -62,8 +62,9 @@ answer its `GET` with JSON (a health check, a small API endpoint)
 without a separate handler. Don't branch on `r.Method` in a page: only
 `GET`/`HEAD` reach it. Mutations live in `WithHandler` commands — see
 [`examples/sse`](https://github.com/andrioid/gastro/tree/main/examples/sse)
-for a GET page plus a `POST /increment` command that patches the
-counter over SSE.
+for a GET page plus a `POST /increment` command; the page is a
+[live page](sse.md#live-pages), so its stream re-renders it after the
+command.
 
 ### Why no marker?
 

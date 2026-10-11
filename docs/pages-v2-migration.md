@@ -244,6 +244,10 @@ variables computed after this point are dead code. Add `return`
 to short-circuit. (at: http.Error(w, err.Error(), 500))
 ```
 
+Header mutations are not writes: `w.Header().Set/Add/Del(…)` and
+`http.SetCookie(w, …)` only stage headers for the page response, so
+frontmatter and the template may follow them without `return`.
+
 Severity follows the existing convention:
 
 - `gastro dev`: warns; the dev server keeps rendering.

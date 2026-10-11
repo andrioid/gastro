@@ -54,7 +54,7 @@ func TestFindMissingReturns_AcceptsWriteAsLastStatement(t *testing.T) {
 	}
 }
 
-func TestFindMissingReturns_DetectsMethodCallsOnW(t *testing.T) {
+func TestFindMissingReturns_DetectsWritesToW(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name string
@@ -64,7 +64,9 @@ func TestFindMissingReturns_DetectsMethodCallsOnW(t *testing.T) {
 Title := "x"`},
 		{"WriteHeader", `w.WriteHeader(201)
 Title := "x"`},
-		{"HeaderSet", `w.Header().Set("X-Foo", "bar")
+		{"Fprintf", `fmt.Fprintf(w, "hi %s", name)
+Title := "x"`},
+		{"IOCopy", `io.Copy(w, body)
 Title := "x"`},
 	}
 	for _, tc := range cases {
@@ -75,6 +77,52 @@ Title := "x"`},
 				t.Fatalf("got %d findings, want 1: %#v", len(got), got)
 			}
 		})
+	}
+}
+
+// Header mutations stage headers for the eventual response; they do not
+// commit it, so page code and the template must be free to follow.
+func TestFindMissingReturns_HeaderMutationsAreNotWrites(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		src  string
+	}{
+		{"HeaderSet", `w.Header().Set("Cache-Control", "no-store")
+items := loadItems()
+Title := "Items"`},
+		{"HeaderAdd", `w.Header().Add("Vary", "HX-Request")
+Title := "x"`},
+		{"HeaderDel", `w.Header().Del("X-Powered-By")
+Title := "x"`},
+		{"HeaderValues", `w.Header().Values("Vary")
+Title := "x"`},
+		{"SetCookie", `http.SetCookie(w, &http.Cookie{Name: "seen", Value: "1"})
+Title := "x"`},
+		{"InBranch", `if r.URL.Query().Has("nocache") {
+    w.Header().Set("Cache-Control", "no-store")
+}
+Title := "x"`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := analysis.FindMissingReturns(tc.src); len(got) != 0 {
+				t.Errorf("expected no findings, got %#v", got)
+			}
+		})
+	}
+}
+
+func TestFindMissingReturns_HeaderMutationThenWriteFlagsTheWrite(t *testing.T) {
+	t.Parallel()
+	frontmatter := `w.Header().Set("Content-Type", "text/plain")
+w.WriteHeader(202)
+Title := "x"`
+
+	got := analysis.FindMissingReturns(frontmatter)
+	if len(got) != 1 || got[0].Line != 2 {
+		t.Fatalf("want one finding on line 2 (the WriteHeader), got %#v", got)
 	}
 }
 

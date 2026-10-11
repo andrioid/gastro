@@ -2,8 +2,8 @@ package compiler_test
 
 // Integration test for the render-time props contract (plan §4.6/§4.7,
 // decision D6): a gastro:"required" prop holding its zero value, and a
-// --typecheck-props mismatch, fail the render in dev mode and only log a
-// slog warning in production.
+// prop type mismatch (typecheck is on by default), fail the render in
+// dev mode and only log a slog warning in production.
 //
 // Compiled and run in a subprocess so the generated component method,
 // the FuncMap closures and the page error path are exercised end-to-end.
@@ -76,7 +76,7 @@ func TestCompile_PropsContractAtRenderTime(t *testing.T) {
 			"<main>{{ Card (dict \"Title\" \"ok\" \"Count\" .Three) }}</main>\n")
 
 	gastroOut := filepath.Join(projectDir, ".gastro")
-	if _, err := compiler.Compile(projectDir, gastroOut, compiler.CompileOptions{TypecheckProps: true}); err != nil {
+	if _, err := compiler.Compile(projectDir, gastroOut, compiler.CompileOptions{}); err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 

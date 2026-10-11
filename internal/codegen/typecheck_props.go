@@ -8,10 +8,11 @@ import (
 )
 
 // literalTypeMismatch reports whether a literal dict value (string,
-// number, bool or nil) cannot be assigned to a Props field
-// (--typecheck-props). The rules mirror Go's assignability of untyped
-// constants, which is how gastroRuntime.CheckPropTypes treats the values
-// template literals evaluate to at render time.
+// number, bool or nil) cannot be assigned to a Props field (prop type
+// checks, on unless --no-typecheck-props). The rules mirror Go's
+// assignability of untyped constants, which is how
+// gastroRuntime.CheckPropTypes treats the values template literals
+// evaluate to at render time.
 //
 // Field types are only known as source text. Builtin types, composite
 // type literals, any/interface{}, error and html/template's string types

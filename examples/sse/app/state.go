@@ -7,21 +7,26 @@
 // code, so this small package sits in between.
 package app
 
-import "sync"
+import (
+	"sync"
 
-// State holds the demo's counter and the subscribers waiting for it to
-// change. Commands write through Increment; page streams Subscribe and
-// re-render from Count whenever they are notified.
+	"github.com/andrioid/gastro/datastar"
+)
+
+// State holds the demo's counter. Commands write through Increment; the
+// live pages subscribe to Changes and re-render after every change.
 type State struct {
+	// Changes signals every change to the state.
+	Changes datastar.Notifier
+
 	mu    sync.Mutex
 	count int
-	subs  map[chan struct{}]struct{}
 }
 
 // New constructs a zero-valued State suitable for registration via
 // gastro.WithDeps in main.go.
 func New() *State {
-	return &State{subs: map[chan struct{}]struct{}{}}
+	return &State{}
 }
 
 // Count returns the current counter value.
@@ -31,31 +36,10 @@ func (s *State) Count() int {
 	return s.count
 }
 
-// Increment adds step to the counter and notifies every subscriber.
+// Increment adds step to the counter and signals the change.
 func (s *State) Increment(step int) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.count += step
-	for ch := range s.subs {
-		// Coalesce: a subscriber with a pending notification re-renders
-		// from current state anyway.
-		select {
-		case ch <- struct{}{}:
-		default:
-		}
-	}
-}
-
-// Subscribe returns a channel that receives a value after every change, and
-// a function that unsubscribes it.
-func (s *State) Subscribe() (<-chan struct{}, func()) {
-	ch := make(chan struct{}, 1)
-	s.mu.Lock()
-	s.subs[ch] = struct{}{}
 	s.mu.Unlock()
-	return ch, func() {
-		s.mu.Lock()
-		delete(s.subs, ch)
-		s.mu.Unlock()
-	}
+	s.Changes.Notify()
 }

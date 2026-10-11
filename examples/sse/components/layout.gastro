@@ -14,8 +14,9 @@ Title := gastro.Props().Title
     {{ datastarScript }}
 </head>
 <body>
-    <main>
-        {{ .Children }}
-    </main>
+    {{/* The live root: the page's stream morphs it after every change. */}}
+    <main>{{ liveRoot .Children }}</main>
+    {{/* Outside the root, so a morph never restarts the stream. */}}
+    {{ liveScript }}
 </body>
 </html>

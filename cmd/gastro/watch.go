@@ -31,7 +31,7 @@ import (
 // `air` / `wgo` / similar.
 func devFlagRejectionMessage(flag string) string {
 	return fmt.Sprintf("gastro dev: unknown flag %s\n"+
-		"gastro dev only takes --watch GLOB and --typecheck-props. For custom build/asset/run commands, use:\n"+
+		"gastro dev only takes --watch GLOB and --no-typecheck-props. For custom build/asset/run commands, use:\n"+
 		"  gastro watch --asset '...' --build '...' --run '...'", flag)
 }
 
@@ -58,7 +58,7 @@ type devFlags struct {
 //   - --watch GLOB[,GLOB...] registers additional glob patterns with the
 //     dev-mode watcher (Phase 4, see docs/dev-mode.md). Repeatable;
 //     comma-separated values are also accepted.
-//   - --typecheck-props, as on `gastro generate`.
+//   - --no-typecheck-props, as on `gastro generate`.
 //
 // Any other flag-like or positional argument is rejected with the
 // devFlagRejectionMessage.
@@ -71,8 +71,8 @@ func parseDevFlags(args []string) (devFlags, error) {
 		var value string
 		var hasValue bool
 
-		if a == "--typecheck-props" {
-			out.TypecheckProps = true
+		if a == "--no-typecheck-props" {
+			out.NoTypecheckProps = true
 			i++
 			continue
 		}
@@ -244,8 +244,8 @@ func parseWatchArgs(args []string) (watchFlags, error) {
 			}
 		case "--quiet", "-q":
 			fl.Quiet = true
-		case "--typecheck-props":
-			fl.TypecheckProps = true
+		case "--no-typecheck-props":
+			fl.NoTypecheckProps = true
 		case "--help", "-h":
 			return fl, errHelp
 		default:
@@ -308,8 +308,9 @@ Optional:
                           node_modules, .git, or tmp (matched anywhere
                           in the watched tree).
       --debounce DUR      Coalesce burst changes (default 200ms)
-      --typecheck-props   Check component dict values against the Props
-                          field types: literals on regenerate, every value
+      --no-typecheck-props
+                          Turn off the component prop type checks that are
+                          on by default: literals on regenerate, every value
                           at render time (dev: error, production: log)
   -q, --quiet             Suppress per-change logs
   -h, --help              Show this help

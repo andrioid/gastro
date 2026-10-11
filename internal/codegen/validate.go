@@ -125,10 +125,10 @@ type TemplateDiagnostic struct {
 // ValidateDictKeysFromAST emits. Codegen and the LSP pass the same
 // options for the same project, so they cannot drift.
 type ValidateDictKeysOptions struct {
-	// TypecheckProps (gastro --typecheck-props) checks literal dict
-	// values — strings, numbers, booleans and nil — against the field
-	// type and reports mismatches as errors. Non-literal values are left
-	// to the render-time check (gastroRuntime.CheckPropTypes).
+	// TypecheckProps (on in gastro unless --no-typecheck-props) checks
+	// literal dict values — strings, numbers, booleans and nil — against
+	// the field type and reports mismatches as errors. Non-literal values
+	// are left to the render-time check (gastroRuntime.CheckPropTypes).
 	TypecheckProps bool
 }
 

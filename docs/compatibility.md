@@ -33,6 +33,9 @@ Migration guides so far:
 
 - [v0.4](migrations/v0.4.md) — GET-only pages and `WithHandler`, typed
   `router.Render`, the `datastar` module, Go 1.27.
+- [v0.5](migrations/v0.5.md) — prop type checks on by default
+  (`--no-typecheck-props` to opt out), a `Children` Props field rejected,
+  live pages.
 
 There are no deprecation shims. When an API changes, the old form is removed
 in the same release and the migration guide explains the replacement; gastro

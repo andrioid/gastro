@@ -53,6 +53,9 @@ sequenceDiagram
 Every tab watching the counter sees the change, not only the one that
 clicked, and a command never needs to know which views exist.
 
+[Live pages](#live-pages) automate the stream: one generic endpoint
+re-renders whichever page is open.
+
 ## Wiring
 
 ```go
@@ -207,6 +210,124 @@ instead of `204` — open `datastar.NewSSE`, send a `PatchSignals` or
 `PatchElements`, return. Shared state still flows through the stream.
 Call `ReadSignals` **before** `NewSSE`: the stream takes over the response.
 
+A command that reports a *failure* through a patch must still answer
+`200 OK`: see [Client behaviour to know](#client-behaviour-to-know).
+
+## Live pages
+
+The hand-written stream above re-renders one component. **Live pages**
+generalise it: one stream per open page re-renders the *whole page*
+through its normal GET handler after every change and morphs the page's
+live root. Pages stay plain GET views; nothing else is written per page.
+
+```go
+state := app.New() // state.Changes is a datastar.Notifier
+
+live := &datastar.LivePages{
+    Signal:      &state.Changes, // anything with Subscribe() (<-chan struct{}, func())
+    Root:        "app",          // id of the live root
+    Compression: true,
+}
+router := gastro.New(
+    gastro.WithDeps(state),
+    gastro.WithFuncs(datastar.Funcs()),
+    gastro.WithHandler(datastar.ClientPattern, datastar.ClientHandler()),
+    gastro.WithFuncs(live.Funcs()),                    // {{ liveRoot }}, {{ liveScript }}
+    gastro.WithHandler(live.Pattern(), live.Handler()), // GET /_gastro/live?path=…
+    gastro.WithHandler("POST /counter/increment", http.HandlerFunc(increment)),
+)
+h := router.Handler()
+live.Pages = h // the stream renders pages through the router itself
+log.Fatal(http.ListenAndServe(":4242", h))
+```
+
+`Pages` is set after `New` because the router's handler only exists then;
+set it before serving. The layout wraps the page in the live root and
+starts the stream **outside** it, so a morph never restarts the stream:
+
+```gastro
+<body>
+    {{ liveRoot .Children }}
+    {{ liveScript }}
+</body>
+```
+
+`liveRoot` renders `<div id="app">…</div>` (between two marker comments the
+stream looks for); `liveScript` renders a hidden element whose
+`data-init` opens
+`GET /_gastro/live?path=<location.pathname + location.search>`. Commands
+write, call `state.Changes.Notify()`, and answer `204`.
+
+What the stream does:
+
+- **Validates `path`**: it must be a same-origin absolute path
+  (`/board?filter=open`) and not the stream itself; anything else is
+  `400 Bad Request`.
+- **Renders on connect and after every signal** as an internal `GET` of
+  `path` through `Pages`, with the caller's `Cookie`, `Authorization` and
+  `Accept-Language` headers, its `Host`, and `Gastro-Live-Fragment: <root>`.
+  The internal request runs through the router's middleware again; it does
+  not carry context values from outside the router.
+- **Cuts out the live root** and sends it as one `datastar-patch-elements`
+  event; Datastar morphs it into the element with the root's id. The rest of
+  the page (head, chrome, `liveScript`) is never sent.
+- **Keeps the last good DOM**: a render that does not answer `200`, panics,
+  or has no live root is logged (`ErrorLog`, default `log.Default()`) and
+  sends nothing. The next signal tries again.
+- **Shares renders.** Streams with the same page URL, `Host` and forwarded
+  headers (the render's only inputs) share one render per change: ten tabs
+  of one user on one board cost one render, not ten. Different cookies
+  render separately. Each stream still compresses its own copy, so the
+  compressor's window spans that stream's earlier patches.
+- **Compresses** with Brotli (or zstd, gzip, deflate) when `Compression` is
+  set and the client accepts it.
+- **Stops** rendering a page when its last stream disconnects, and
+  unsubscribes from the signal.
+
+Set `Debounce` (e.g. `100 * time.Millisecond`) to wait that long after a
+signal before rendering, so a burst of changes costs one render.
+
+`datastar.Notifier` is a ready-made signal: `Notify()` wakes every
+subscriber without blocking, a burst leaves at most one pending signal per
+subscriber, and cancelling a subscription never closes its channel. The
+zero value is ready to use. It is protocol-neutral; use it for your own
+streams too.
+
+**Skipping work in fragment renders.** The stream cuts the root out of the
+full page, so pages and layouts need no special mode. To skip expensive work
+outside the root, check `datastar.IsFragment(r)` in frontmatter, or expose
+it to layouts with
+`WithRequestFuncs(func(r *http.Request) template.FuncMap { return template.FuncMap{"liveFragment": func() bool { return datastar.IsFragment(r) }} })`.
+Any client can send the header, so use it to skip rendering, never for
+access decisions.
+
+**Cost.** Every change re-renders every distinct (page, identity) pair that
+has an open stream. git-pm's prototype measured a 10k-event board at
+~211 ms and 13.9 MB of HTML per render, 261 KB on the wire with Brotli
+(66× smaller than identity). Keep live roots to what changes, use
+`Debounce` for bursty writers, and keep notifications coarse.
+
+[`examples/sse`](https://github.com/andrioid/gastro/tree/main/examples/sse)
+is a complete live page.
+
+## Client behaviour to know
+
+Two behaviours of the embedded Datastar client (1.0.4) that surprise
+server-side code:
+
+- **Patches apply only on `200`.** The client applies the SSE (or HTML)
+  body of a fetch response only when the status is exactly `200`; any other
+  status, `4xx`/`5xx` included, drops the body. A command that reports a
+  failure *through a patch* (an error banner, a field message) must answer
+  `200` and carry the failure on the element itself (e.g.
+  `<div id="error" data-status="409">…</div>`). A command with nothing to
+  show answers `204` as usual.
+- **`data-ignore-morph` must be on both sides.** The morph skips an element
+  only when the old (in the DOM) *and* the new (in the patch) element both
+  carry `data-ignore-morph`. It cannot be toggled client-side to protect an
+  element being edited; render it from the server (e.g. on an editor while
+  it is open) so every patch carries it too.
+
 ## Compression
 
 Long-lived streams that repeatedly send the full region compress
@@ -241,6 +362,9 @@ Generic gzip middleware must still skip `text/event-stream`; see
 | `sse.Send(eventType, dataLines, opts...)` | raw event, same signature as the SDK; options `WithEventID`, `WithRetryDuration` |
 | `sse.Context()`, `sse.IsClosed()` | stream lifetime |
 | `datastar.ReadSignals(r, &v)` | decode request signals |
+| `datastar.LivePages{Pages, Signal, Root, Path, Compression, Debounce, ErrorLog}` | [live pages](#live-pages): `Pattern()`, `Handler()`, `Funcs()` (`liveRoot`, `liveScript`) |
+| `datastar.IsFragment(r)` | the request is a live-page re-render |
+| `datastar.Notifier` | coalescing change signal: `Subscribe()`, `Notify()`, `Subscribers()` |
 
 The wire format is the SDK's own. Every method is safe for concurrent use.
 User-controlled strings cannot inject SSE fields: values that must stay on
