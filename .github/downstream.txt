@@ -1,0 +1,12 @@
+# git-pm commit built by the `downstream-git-pm` CI job (.github/workflows/ci.yml).
+#
+# The job checks out gastro and git-pm side by side and runs git-pm's
+# `mise run verify` against this gastro checkout. If the pinned git-pm commit
+# has `replace github.com/andrioid/gastro => ../gastro` in go.mod, that replace
+# resolves to the checkout; otherwise the job writes a go.work joining git-pm,
+# gastro and (when present) gastro/datastar.
+#
+# Bump by hand when git-pm adopts a new gastro release: replace the SHA below
+# with the git-pm commit that pins it (`git -C ../git-pm rev-parse HEAD`).
+# The first non-comment, non-empty line is the SHA.
+a234b2e
