@@ -60,8 +60,11 @@
   (from `pkg/gastro`) directly and render with the router:
   `router.Render(gastro.Card, gastro.CardProps{...})` (returns `template.HTML`).
 - **Components declare `gastro.Props()`.** `type Props struct { ... }` then
-  `X := gastro.Props().X`. Components that render `{{ .Children }}` accept nested
-  content via `{{ wrap Component (dict ...) }}...{{ end }}`.
+  `X := gastro.Props().X`. Props are optional by default; tag a field
+  `gastro:"required"` to make omitting it a generate error and leaving it zero a
+  render error in dev mode (a logged warning in production). Components that
+  render `{{ .Children }}` accept nested content via
+  `{{ wrap Component (dict ...) }}...{{ end }}`.
 
 ## Commands
 
@@ -73,6 +76,8 @@
 - `gastro list [--json]` — list components with their Props signatures and pages with their routes.
 - `gastro fmt [--check]` — format `.gastro` sources.
 - `gastro check` — verify `./.gastro/` is up to date (CI drift gate).
+- `--typecheck-props` (on `generate`, `build`, `check`, `dev`, `watch`) — strict
+  prop value types instead of silent coercion; use the same setting for `generate` and `check`.
 - `gastro lsp` — language server for editors (pair with `gopls` for frontmatter).
 
 ## Documentation

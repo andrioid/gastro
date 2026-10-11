@@ -41,7 +41,7 @@ func TestValidateTemplate_PositionsSurviveWrapBlocks(t *testing.T) {
 		"{{ end }}\n" +
 		"{{ Card (dict \"Bdy\" \"x\") }}\n"
 
-	diags := codegen.ValidateTemplate(body, layoutAndCardUses(), layoutAndCardSchema())
+	diags := codegen.ValidateTemplate(body, layoutAndCardUses(), layoutAndCardSchema(), codegen.ValidateDictKeysOptions{})
 
 	want := []pos{{3, 17}, {6, 15}}
 	if got := positions(diags); !equalPositions(got, want) {
@@ -56,7 +56,7 @@ func TestValidateTemplate_PositionsSurviveWrapBlocks(t *testing.T) {
 
 func TestValidateTemplate_WrapWithoutDictIsNotABareCall(t *testing.T) {
 	body := "{{ wrap Layout }}<p>hi</p>{{ end }}"
-	if diags := codegen.ValidateTemplate(body, layoutAndCardUses(), layoutAndCardSchema()); len(diags) != 0 {
+	if diags := codegen.ValidateTemplate(body, layoutAndCardUses(), layoutAndCardSchema(), codegen.ValidateDictKeysOptions{}); len(diags) != 0 {
 		t.Fatalf("expected no diagnostics, got %+v", diags)
 	}
 }
@@ -67,7 +67,7 @@ func TestValidateTemplate_ReportsEveryUnknownComponent(t *testing.T) {
 		"  {{ Card (dict \"Tite\" 1) }} {{ Gadget }}\n" +
 		"</div>"
 
-	diags := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	diags := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	want := []pos{{2, 6}, {3, 33}, {3, 17}}
 	if got := positions(diags); !samePositionSet(got, want) {
 		t.Fatalf("positions = %v, want %v (diags: %+v)", got, want, diags)
@@ -90,7 +90,7 @@ func TestValidateTemplate_AppFuncsDoNotHideDiagnostics(t *testing.T) {
 	// formatDate is registered by the app at runtime (WithFuncs); it is
 	// unknown at generate time and must not stop validation.
 	body := `{{ formatDate .When }} {{ Card (dict "Tite" 1) }}`
-	diags := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	diags := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(diags) != 1 || !strings.Contains(diags[0].Message, `unknown prop "Tite"`) {
 		t.Fatalf("expected one unknown-prop diagnostic, got %+v", diags)
 	}
@@ -98,7 +98,7 @@ func TestValidateTemplate_AppFuncsDoNotHideDiagnostics(t *testing.T) {
 
 func TestValidateTemplate_RawBlocksAreNotValidated(t *testing.T) {
 	body := "{{ raw }}\n{{ Card (dict \"Nope\" 1) }} {{ Widget }}\n{{ endraw }}\n{{ Card (dict \"Tite\" 1) }}"
-	diags := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	diags := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	want := []pos{{4, 15}}
 	if got := positions(diags); !equalPositions(got, want) {
 		t.Fatalf("positions = %v, want %v (diags: %+v)", got, want, diags)

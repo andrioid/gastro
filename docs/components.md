@@ -228,9 +228,57 @@ For components that should accept pre-rendered markdown as a prop
 [Markdown](markdown.md) — it covers the `//gastro:embed` directive
 plus the `template.HTML` prop pattern.
 
-## Type Coercion
+## Required and optional props
 
-Gastro automatically coerces prop values to match struct field types:
+Props are **optional by default**: a field the caller leaves out keeps its
+Go zero value, and nobody warns about it. Mark a field that the component
+cannot render without with the `gastro:"required"` struct tag:
+
+```go
+---
+type Props struct {
+    Title string `gastro:"required"`
+    Body  string // optional
+}
+
+Title := gastro.Props().Title
+Body := gastro.Props().Body
+---
+```
+
+A required prop is enforced twice:
+
+- **When generating.** A `(dict ...)` call that omits a required key is an
+  error in `gastro generate`, `build`, `check`, and the dev loops, reported
+  at the component name:
+
+  ```
+  pages/index.gastro:9:6: error: missing required prop "Title" on component Card
+  ```
+
+  Calls whose dict keys are not all string literals are not checked here
+  (the keys are unknown until render time). A `{{ wrap }}` call supplies
+  `Children`.
+- **When rendering.** A required field that holds its zero value (`""`,
+  `0`, `false`, `nil`) after the props are decoded is a contract violation.
+  In dev mode (`gastro dev`, `GASTRO_DEV=1`, or `WithDevMode(true)`) the
+  render fails and the error reaches the page error handler (see
+  [Error handling](error-handling.md)). In production gastro logs a
+  warning through `log/slog` and renders the component with the zero value.
+
+The editor shows the same missing-required-prop errors as `gastro
+generate`. Omitted optional props are never reported.
+
+The runtime check is exported so Go code can apply the same contract:
+`gastro.CheckRequiredProps(v any) error` returns a
+`*gastro.RequiredPropsError` listing the zero-valued required fields, and
+`gastro.PropsViolation(dev bool, component string, err error) error`
+applies the dev-error / production-log policy.
+
+## Prop types and `--typecheck-props`
+
+By default, values passed through `(dict ...)` are converted to the field
+type leniently:
 
 | Target Type | Accepted Values |
 |-------------|-----------------|
@@ -238,6 +286,35 @@ Gastro automatically coerces prop values to match struct field types:
 | `bool` | `bool`, `string` ("true", "false") |
 | `int` | `int`, `int64`, `float64`, `string` (parsed) |
 | `float64` | `float64`, `float32`, `int`, `string` (parsed) |
+
+Pass `--typecheck-props` to `gastro generate`, `build`, `check`, `dev`, or
+`watch` to turn off the silent coercion (it becomes the default in v0.5.0):
+
+- **When generating**, literal dict values — strings, numbers, booleans,
+  and `nil` — must be assignable to the field type, following Go's rules
+  for untyped constants. `(dict "Count" "three")` into `Count int` fails:
+
+  ```
+  pages/index.gastro:4:23: error: prop "Count" on component Card: cannot use "three" (untyped string constant) as int value
+  ```
+
+  Field types gastro cannot resolve from their source text (a named type
+  declared elsewhere, such as `time.Time` or `type Variant string`) are
+  left to the render-time check.
+- **When rendering**, every dict value must be assignable to its field
+  without coercion. A value of a predeclared type converts only to a field
+  of the same kind and only exactly: `"x"` into `template.HTML`, `3` into
+  `int64`, and `2` into `float64` are fine; `"3"` into `int`, `3` into
+  `string`, `"true"` into `bool`, and `2.5` into `int` are mismatches. A
+  mismatch follows the same policy as an empty required prop: an error in
+  dev mode, a `log/slog` warning in production (where the lenient
+  conversion above then applies).
+
+The flag reaches the runtime through the generated code: with it, every
+component that has a Props struct calls `gastro.CheckPropTypes[Props]` on
+its dict before decoding it. The generated code therefore differs with and
+without the flag, so run `gastro check` with the same setting as
+`gastro generate`, or it reports drift.
 
 ## Children
 
@@ -385,15 +462,16 @@ The validator skips two cases by design so it doesn't false-positive:
    typed props can be invoked with an arbitrary dict; the runtime
    ignores extra keys.
 
-Unknown props, bare calls to a component that declares Props, and calls to
-a component that is not imported are errors everywhere: `gastro generate`,
-`gastro build`, `gastro check`, and the dev loops all fail and report every
-such error in the project at once, each as `file:line:col`. Under
-`gastro dev` / `gastro watch` the errors are also sent to the browser as a
-`build-error` event, and the running app keeps serving the last good build
-until you fix them. Warnings (for example a deprecated `__children` key)
-only fail the strict commands (`generate`, `build`, `check`); the dev loops
-print them and keep going.
+Unknown props, omitted required props, bare calls to a component that
+declares Props, calls to a component that is not imported, and (with
+`--typecheck-props`) literal values of the wrong type are errors
+everywhere: `gastro generate`, `gastro build`, `gastro check`, and the dev
+loops all fail and report every such error in the project at once, each as
+`file:line:col`. Under `gastro dev` / `gastro watch` the errors are also
+sent to the browser as a `build-error` event, and the running app keeps
+serving the last good build until you fix them. Warnings (for example a
+deprecated `__children` key) only fail the strict commands (`generate`,
+`build`, `check`); the dev loops print them and keep going.
 
 ## Calling Components from Go
 

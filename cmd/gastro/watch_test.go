@@ -109,12 +109,12 @@ func TestDev_AcceptsWatchFlag(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := parseDevWatchFlags(tc.args)
+			got, err := parseDevFlags(tc.args)
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			if !equalStringSlices(got, tc.want) {
-				t.Errorf("got %v, want %v", got, tc.want)
+			if !equalStringSlices(got.Watch, tc.want) {
+				t.Errorf("got %v, want %v", got.Watch, tc.want)
 			}
 		})
 	}
@@ -123,7 +123,7 @@ func TestDev_AcceptsWatchFlag(t *testing.T) {
 // TestDev_WatchMissingValue: --watch with no value reports a clear
 // error instead of silently swallowing the next arg.
 func TestDev_WatchMissingValue(t *testing.T) {
-	_, err := parseDevWatchFlags([]string{"--watch"})
+	_, err := parseDevFlags([]string{"--watch"})
 	if err == nil {
 		t.Fatal("expected error for --watch with no value")
 	}

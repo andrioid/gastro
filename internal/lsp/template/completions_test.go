@@ -1,7 +1,6 @@
 package template_test
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -547,7 +546,30 @@ func TestDiagnoseComponentProps_UnknownProp(t *testing.T) {
 	}
 }
 
-func TestDiagnoseComponentProps_MissingProp(t *testing.T) {
+func TestDiagnoseComponentProps_MissingRequiredProp(t *testing.T) {
+	uses := []parser.UseDeclaration{
+		{Name: "Card", Path: "components/card.gastro"},
+	}
+	propsMap := map[string][]codegen.StructField{
+		"Card": {
+			{Name: "Title", Type: "string"},
+			{Name: "Body", Type: "string", Required: true},
+		},
+	}
+
+	templateBody := `{{ Card (dict "Title" .Name) }}`
+	tree := parseForTest(templateBody, uses)
+	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
+
+	if len(diags) != 1 || !strings.Contains(diags[0].Message, `missing required prop "Body"`) {
+		t.Fatalf("expected one missing-required diagnostic for Body, got: %v", diags)
+	}
+	if diags[0].Severity != 1 {
+		t.Errorf("expected severity 1 (Error, matching gastro generate), got %d", diags[0].Severity)
+	}
+}
+
+func TestDiagnoseComponentProps_MissingOptionalPropNeverWarns(t *testing.T) {
 	uses := []parser.UseDeclaration{
 		{Name: "Card", Path: "components/card.gastro"},
 	}
@@ -560,20 +582,8 @@ func TestDiagnoseComponentProps_MissingProp(t *testing.T) {
 
 	templateBody := `{{ Card (dict "Title" .Name) }}`
 	tree := parseForTest(templateBody, uses)
-	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
-
-	found := false
-	for _, d := range diags {
-		if strings.Contains(d.Message, `missing prop "Body"`) {
-			found = true
-			if d.Severity != 2 {
-				t.Errorf("expected severity 2 (Warning), got %d", d.Severity)
-			}
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected warning for missing prop Body, got: %v", diags)
+	if diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap); len(diags) != 0 {
+		t.Errorf("optional props must never warn, got: %v", diags)
 	}
 }
 
@@ -925,7 +935,7 @@ func TestDiagnoseComponentProps_BareCall(t *testing.T) {
 	}
 	propsMap := map[string][]codegen.StructField{
 		"KpiCard": {
-			{Name: "X", Type: "int"},
+			{Name: "X", Type: "int", Required: true},
 			{Name: "Value", Type: "string"},
 			{Name: "Label", Type: "string"},
 		},
@@ -935,24 +945,10 @@ func TestDiagnoseComponentProps_BareCall(t *testing.T) {
 	tree := parseForTest(templateBody, uses)
 	diags := lsptemplate.DiagnoseComponentProps(templateBody, tree, uses, propsMap)
 
-	missingProps := make(map[string]bool)
-	for _, d := range diags {
-		if strings.Contains(d.Message, "missing prop") {
-			for _, f := range []string{"X", "Value", "Label"} {
-				if strings.Contains(d.Message, fmt.Sprintf("%q", f)) {
-					missingProps[f] = true
-				}
-			}
-			if d.Severity != 2 {
-				t.Errorf("expected severity 2 (Warning), got %d for: %s", d.Severity, d.Message)
-			}
-		}
-	}
-
-	for _, f := range []string{"X", "Value", "Label"} {
-		if !missingProps[f] {
-			t.Errorf("expected missing prop warning for %q, got diagnostics: %v", f, diags)
-		}
+	// The bare call is one error; it implies every missing prop, so no
+	// per-field diagnostics pile up on the same identifier.
+	if len(diags) != 1 || !strings.Contains(diags[0].Message, "requires props") {
+		t.Fatalf("expected exactly one requires-props error, got: %v", diags)
 	}
 }
 
@@ -977,9 +973,9 @@ func TestDiagnoseComponentProps_NestedParens(t *testing.T) {
 			t.Errorf("unexpected unknown prop diagnostic: %s", d.Message)
 		}
 	}
-	// Should not have missing prop warnings since both are provided
+	// Should not have missing prop diagnostics since both are provided
 	for _, d := range diags {
-		if strings.Contains(d.Message, "missing prop") {
+		if strings.Contains(d.Message, "missing") {
 			t.Errorf("unexpected missing prop diagnostic: %s", d.Message)
 		}
 	}

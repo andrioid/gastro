@@ -658,7 +658,9 @@ func (ws *Workspace) routerStub(pkgName string) string {
 	// — so they don't need suppression lines.
 	sb.WriteString("var _ http.ResponseWriter\nvar _ template.HTML\nvar _ bytes.Buffer\nvar _ gastroRuntime.Attrs\n\n")
 
-	sb.WriteString("type Router struct{}\n\n")
+	// isDev mirrors the generated Router field that component methods
+	// read for gastroRuntime.PropsViolation.
+	sb.WriteString("type Router struct{ isDev bool }\n\n")
 	sb.WriteString("func (*Router) __gastro_getTemplate(string) *template.Template { return nil }\n")
 	sb.WriteString("func (*Router) __gastro_handleError(http.ResponseWriter, *http.Request, error) {}\n")
 	// __gastro_renderPage / __gastro_renderComponent are the request-aware

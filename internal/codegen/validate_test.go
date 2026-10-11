@@ -24,7 +24,7 @@ func cardUses() []parser.UseDeclaration {
 
 func TestValidateDictKeys_AllKeysKnown(t *testing.T) {
 	body := `{{ Card (dict "Title" "Hi" "Body" "Hello") }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings, got: %v", warnings)
 	}
@@ -32,7 +32,7 @@ func TestValidateDictKeys_AllKeysKnown(t *testing.T) {
 
 func TestValidateDictKeys_TypoFlagged(t *testing.T) {
 	body := `{{ Card (dict "Tite" "Hi" "Body" "Hello") }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
 	}
@@ -50,7 +50,7 @@ func TestValidateDictKeys_TypoFlagged(t *testing.T) {
 
 func TestValidateDictKeys_MultipleTypos(t *testing.T) {
 	body := `{{ Card (dict "Tite" "Hi" "Bdy" "Hello") }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 2 {
 		t.Fatalf("expected 2 warnings, got %d: %v", len(warnings), warnings)
 	}
@@ -61,7 +61,7 @@ func TestValidateDictKeys_ChildrenIsNotFlagged(t *testing.T) {
 	// The validator must not warn about it even though it isn't a user-defined
 	// Props field — it's plumbed through to {{ .Children }}.
 	body := `{{ Card (dict "Title" "Hi" "Children" (__gastro_render_children "x" .)) }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings (Children should be skipped), got: %v", warnings)
 	}
@@ -73,7 +73,7 @@ func TestValidateDictKeys_ChildrenIsNotFlagged(t *testing.T) {
 // migration without breaking silently.
 func TestValidateDictKeys_OldChildrenSentinelHinted(t *testing.T) {
 	body := `{{ Card (dict "Title" "Hi" "__children" "<p>old</p>") }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning for __children sentinel, got %d: %v", len(warnings), warnings)
 	}
@@ -94,7 +94,7 @@ func TestValidateDictKeys_DynamicKeysSkipped(t *testing.T) {
 	// we skip validation rather than false-positiving. Here .DynamicKey
 	// resolves at render time.
 	body := `{{ Card (dict .DynamicKey "value" "Title" "Hi") }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings for dynamic-key dict, got: %v", warnings)
 	}
@@ -107,7 +107,7 @@ func TestValidateDictKeys_BareCallOnPropfulComponent(t *testing.T) {
 	// catch it during validation so editors and `gastro build` reject
 	// it before deployment.
 	body := `{{ Card }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 {
 		t.Fatalf("expected exactly one warning for bare-call on propful component, got: %v", warnings)
 	}
@@ -125,7 +125,7 @@ func TestValidateDictKeys_BareCallOnPropless(t *testing.T) {
 	// wrapper for these so `{{ Icon }}` and `{{ Icon (dict) }}` both work.
 	body := `{{ Icon }}`
 	uses := []parser.UseDeclaration{{Name: "Icon", Path: "components/icon.gastro"}}
-	warnings := codegen.ValidateTemplate(body, uses, map[string][]codegen.StructField{})
+	warnings := codegen.ValidateTemplate(body, uses, map[string][]codegen.StructField{}, codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings on bare-call of propless component, got: %v", warnings)
 	}
@@ -135,7 +135,7 @@ func TestValidateTemplate_NonImportedComponentIsAnError(t *testing.T) {
 	// A bare call to a component that is not imported fails at New();
 	// the validator reports it instead of validating its props.
 	body := `{{ NotImported (dict "X" 1) }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 || !strings.Contains(warnings[0].Message, `unknown component "NotImported"`) {
 		t.Fatalf("expected one unknown-component diagnostic, got: %v", warnings)
 	}
@@ -146,7 +146,7 @@ func TestValidateDictKeys_NoSchemaSkipped(t *testing.T) {
 	// without a Props struct). Don't warn.
 	body := `{{ Card (dict "Anything" 1) }}`
 	uses := []parser.UseDeclaration{{Name: "Card", Path: "components/card.gastro"}}
-	warnings := codegen.ValidateTemplate(body, uses, map[string][]codegen.StructField{})
+	warnings := codegen.ValidateTemplate(body, uses, map[string][]codegen.StructField{}, codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings when schema is missing, got: %v", warnings)
 	}
@@ -157,7 +157,7 @@ func TestValidateDictKeys_AliasResolution(t *testing.T) {
 	// must follow the alias \u2192 path \u2192 schema chain.
 	body := `{{ MyCard (dict "Tite" "Hi") }}`
 	uses := []parser.UseDeclaration{{Name: "MyCard", Path: "components/card.gastro"}}
-	warnings := codegen.ValidateTemplate(body, uses, cardSchema())
+	warnings := codegen.ValidateTemplate(body, uses, cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
 	}
@@ -170,7 +170,7 @@ func TestValidateDictKeys_NestedInRange(t *testing.T) {
 	// Component invocations inside {{ range }} / {{ if }} / {{ with }}
 	// must be visited too.
 	body := `{{ range .Items }}{{ Card (dict "Tite" .Title) }}{{ end }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning inside range, got %d: %v", len(warnings), warnings)
 	}
@@ -178,7 +178,7 @@ func TestValidateDictKeys_NestedInRange(t *testing.T) {
 
 func TestValidateDictKeys_NestedInIfElse(t *testing.T) {
 	body := `{{ if .Show }}{{ Card (dict "Title" "ok") }}{{ else }}{{ Card (dict "Tite" "bad") }}{{ end }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning in else branch, got %d: %v", len(warnings), warnings)
 	}
@@ -187,7 +187,7 @@ func TestValidateDictKeys_NestedInIfElse(t *testing.T) {
 func TestValidateDictKeys_NoUsesNoWarnings(t *testing.T) {
 	// Nothing imported \u2192 nothing to validate; no parse cost incurred.
 	body := `<p>plain text {{ .X }}</p>`
-	warnings := codegen.ValidateTemplate(body, nil, cardSchema())
+	warnings := codegen.ValidateTemplate(body, nil, cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings with empty uses, got: %v", warnings)
 	}
@@ -196,7 +196,7 @@ func TestValidateDictKeys_NoUsesNoWarnings(t *testing.T) {
 func TestValidateDictKeys_LineNumberPointsAtKey(t *testing.T) {
 	// Verify the warning's line number points at the key, not at line 1.
 	body := "<div>\n  {{ Card (dict \"Tite\" \"Hi\") }}\n</div>"
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning, got %d: %v", len(warnings), warnings)
 	}
@@ -208,7 +208,7 @@ func TestValidateDictKeys_LineNumberPointsAtKey(t *testing.T) {
 func TestValidateDictKeys_ParseErrorBailsSilently(t *testing.T) {
 	// Garbage template body. Validator must not panic or invent warnings.
 	body := `{{ Card (dict "Title" `
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings on parse error, got: %v", warnings)
 	}
@@ -233,7 +233,7 @@ func TestValidateDictKeys_BagComponentAcceptsArbitraryKeys(t *testing.T) {
 	// A gastro.Attrs field opens the schema: forwarded keys that match no
 	// declared field are HTML attributes, not typos, so no warning fires.
 	body := `{{ Button (dict "Label" "Save" "type" "submit" "data-on:click" "@post('/x')") }}`
-	warnings := codegen.ValidateTemplate(body, buttonUses(), buttonBagSchema())
+	warnings := codegen.ValidateTemplate(body, buttonUses(), buttonBagSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 0 {
 		t.Fatalf("expected no warnings for bag component, got: %v", warnings)
 	}
@@ -243,7 +243,7 @@ func TestValidateDictKeys_NonBagComponentStillFlagsUnknown(t *testing.T) {
 	// Contrast with the bag case: a component without gastro.Attrs must
 	// still flag an unknown key (preserves the #36 dict-key typo guard).
 	body := `{{ Card (dict "Title" "Hi" "type" "submit") }}`
-	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema())
+	warnings := codegen.ValidateTemplate(body, cardUses(), cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(warnings) != 1 {
 		t.Fatalf("expected 1 warning for non-bag component, got %d: %v", len(warnings), warnings)
 	}
@@ -256,12 +256,12 @@ func TestValidateTemplate_ImportedComponents(t *testing.T) {
 	uses := cardUses() // Card -> components/card.gastro
 
 	// Imported component: no error.
-	if diags := codegen.ValidateTemplate(`<div>{{ Card (dict "Title" "x") }}</div>`, uses, cardSchema()); len(diags) != 0 {
+	if diags := codegen.ValidateTemplate(`<div>{{ Card (dict "Title" "x") }}</div>`, uses, cardSchema(), codegen.ValidateDictKeysOptions{}); len(diags) != 0 {
 		t.Fatalf("imported component should not error: %v", diags)
 	}
 
 	// Bare un-imported PascalCase call: hard error, parity with {{ wrap }}.
-	diags := codegen.ValidateTemplate("<div>\n{{ Widget (dict) }}</div>", uses, cardSchema())
+	diags := codegen.ValidateTemplate("<div>\n{{ Widget (dict) }}</div>", uses, cardSchema(), codegen.ValidateDictKeysOptions{})
 	if len(diags) != 1 {
 		t.Fatalf("expected one error for un-imported component Widget, got %v", diags)
 	}
@@ -283,7 +283,7 @@ func TestValidateTemplate_ImportedComponents(t *testing.T) {
 		`<a {{ attrs .Attrs }}>{{ .Label }}</a>`,
 		`{{ if .X }}ok{{ end }}`,
 	} {
-		if diags := codegen.ValidateTemplate(body, uses, cardSchema()); len(diags) != 0 {
+		if diags := codegen.ValidateTemplate(body, uses, cardSchema(), codegen.ValidateDictKeysOptions{}); len(diags) != 0 {
 			t.Errorf("body %q should not error: %v", body, diags)
 		}
 	}

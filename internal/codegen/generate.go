@@ -7,11 +7,15 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"reflect"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 
 	gastroParser "github.com/andrioid/gastro/internal/parser"
+	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
 
 // UseInfo holds the template-friendly data for a component use declaration.
@@ -45,6 +49,11 @@ type GenerateOptions struct {
 	// Version is stamped into the generated header. Empty stamps the
 	// running binary's version.
 	Version string
+
+	// TypecheckProps (gastro --typecheck-props) emits a strict
+	// gastroRuntime.CheckPropTypes call into every component with a
+	// Props struct, ahead of the lenient MapToStruct decode.
+	TypecheckProps bool
 }
 
 // GenerateHandler produces Go source code for a page handler or component
@@ -133,10 +142,12 @@ func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent
 	// __component_<id>_Props or the unmangled "Props". Pages have no
 	// PropsTypeName.
 	propsTypeName := info.PropsTypeName
+	hasRequiredProps := false
 	if isComponent && propsTypeName != "" {
 		if mn, ok := names[propsTypeName]; ok {
 			propsTypeName = mn
 		}
+		hasRequiredProps = propsHaveRequiredField(hoistedDecls, info.PropsTypeName)
 	}
 
 	// Build the rendered text block of all hoisted decls (in source
@@ -169,19 +180,21 @@ func GenerateHandler(file *gastroParser.File, info *FrontmatterInfo, isComponent
 	}
 
 	data := generateData{
-		Header:        GeneratedHeader(opts.Version),
-		PackageName:   "gastro",
-		FuncName:      funcName,
-		ExportedName:  ExportedComponentName(funcName),
-		Imports:       dedupeAutoImports(file.Imports),
-		Frontmatter:   frontmatter,
-		ExportedVars:  exportedVarEmit,
-		TemplateBody:  file.TemplateBody,
-		IsPage:        info.IsPage,
-		PropsTypeName: propsTypeName,
-		IsComponent:   isComponent,
-		HoistedDecls:  hoistedBlock,
-		Uses:          uses,
+		Header:           GeneratedHeader(opts.Version),
+		PackageName:      "gastro",
+		FuncName:         funcName,
+		ExportedName:     ExportedComponentName(funcName),
+		Imports:          dedupeAutoImports(file.Imports),
+		Frontmatter:      frontmatter,
+		ExportedVars:     exportedVarEmit,
+		TemplateBody:     file.TemplateBody,
+		IsPage:           info.IsPage,
+		PropsTypeName:    propsTypeName,
+		HasRequiredProps: hasRequiredProps,
+		TypecheckProps:   opts.TypecheckProps && propsTypeName != "",
+		IsComponent:      isComponent,
+		HoistedDecls:     hoistedBlock,
+		Uses:             uses,
 	}
 
 	tmpl := handlerTmpl
@@ -259,9 +272,27 @@ type generateData struct {
 	TemplateBody  string
 	IsPage        bool
 	IsComponent   bool
-	PropsTypeName string    // e.g. "Props" — from type Props struct in the frontmatter
-	HoistedDecls  string    // rendered text block of all hoisted package-scope decls
-	Uses          []UseInfo // component imports used by this page
+	PropsTypeName string // e.g. "Props" — from type Props struct in the frontmatter
+	// HasRequiredProps gates the render-time CheckRequiredProps call so
+	// components without gastro:"required" fields pay nothing for it.
+	HasRequiredProps bool
+	// TypecheckProps emits the strict CheckPropTypes call (component
+	// with a Props struct, --typecheck-props).
+	TypecheckProps bool
+	HoistedDecls   string    // rendered text block of all hoisted package-scope decls
+	Uses           []UseInfo // component imports used by this page
+}
+
+// propsHaveRequiredField reports whether the hoisted type declaration
+// named propsType declares a field tagged gastro:"required".
+func propsHaveRequiredField(decls []HoistedDecl, propsType string) bool {
+	for _, d := range decls {
+		if d.Kind != HoistType || d.Name != propsType {
+			continue
+		}
+		return slices.ContainsFunc(ParseStructFields(d.SourceText), func(f StructField) bool { return f.Required })
+	}
+	return false
 }
 
 // handlerTmpl generates HTTP handlers that stream output directly to the
@@ -372,7 +403,12 @@ var _ http.Request
 // props, and delegates to {{ .FuncName }}__render. To render this component
 // from Go (handlers, SSE patches), call router.Render({{ .ExportedName }}, …)
 // instead. See render.go.
-func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
+//
+// A non-nil error aborts the calling template's execution. It is only
+// returned for a props contract violation in dev mode
+// (gastroRuntime.PropsViolation); other failures are logged and render
+// as empty output.
+func (__router *Router) {{ .FuncName }}(propsMap map[string]any) (template.HTML, error) {
 	// Children is the dict key injected by TransformTemplate for wrap blocks.
 	// Pulled out of the map directly so the user's hoisted Props struct
 	// stays unmodified.
@@ -393,27 +429,44 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	}
 
 	{{- if .PropsTypeName }}
+	{{- if .TypecheckProps }}
+
+	// --typecheck-props: dict values must be assignable to the Props
+	// field types without coercion. Dict path only; Router.Render is
+	// typed at compile time.
+	if __err := gastroRuntime.PropsViolation(__router.isDev, "{{ .ExportedName }}", gastroRuntime.CheckPropTypes[{{ .PropsTypeName }}](propsMap)); __err != nil {
+		return "", __err
+	}
+	{{- end }}
 	__p, __err := gastroRuntime.MapToStruct[{{ .PropsTypeName }}](propsMap)
 	if __err != nil {
 		log.Printf("gastro: component {{ .FuncName }}: %v", __err)
-		return ""
+		return "", nil
 	}
 	__html, __err := __router.{{ .FuncName }}__render(__p, __children, __req)
 	{{- else }}
 	__html, __err := __router.{{ .FuncName }}__render(__children, __req)
 	{{- end }}
 	if __err != nil {
+		if gastroRuntime.IsPropsViolation(__err) {
+			return "", __err
+		}
 		log.Print(__err)
-		return ""
+		return "", nil
 	}
-	return __html
+	return __html, nil
 }
 
 // {{ .FuncName }}__render is the typed core shared by the template dict
-// path ({{ .FuncName }}) and Router.Render: it runs the frontmatter and
-// executes the template. A non-nil __gastro_req routes Execute through
-// the request-aware FuncMap path (WithRequestFuncs).
+// path ({{ .FuncName }}) and Router.Render: it checks required props,
+// runs the frontmatter and executes the template. A non-nil __gastro_req
+// routes Execute through the request-aware FuncMap path (WithRequestFuncs).
 func (__router *Router) {{ .FuncName }}__render({{ if .PropsTypeName }}__props {{ .PropsTypeName }}, {{ end }}__children template.HTML, __gastro_req *http.Request) (template.HTML, error) {
+	{{- if .HasRequiredProps }}
+	if __err := gastroRuntime.PropsViolation(__router.isDev, "{{ .ExportedName }}", gastroRuntime.CheckRequiredProps(__props)); __err != nil {
+		return "", __err
+	}
+	{{- end }}
 	_ = __children
 	_ = __gastro_req
 	{{- if .PropsTypeName }}
@@ -696,6 +749,8 @@ func ExportedComponentName(funcName string) string {
 type StructField struct {
 	Name string
 	Type string
+	// Required is set for fields tagged gastro:"required".
+	Required bool
 }
 
 // ParseStructFields extracts field names and types from a hoisted type
@@ -744,10 +799,17 @@ func parseStructFieldsAST(hoistedTypes string) ([]StructField, bool) {
 				continue
 			}
 			typeStr := exprString(fset, field.Type)
+			required := false
+			if field.Tag != nil {
+				if tag, err := strconv.Unquote(field.Tag.Value); err == nil {
+					required = gastroRuntime.IsRequiredTag(reflect.StructTag(tag))
+				}
+			}
 			for _, name := range field.Names {
 				fields = append(fields, StructField{
-					Name: name.Name,
-					Type: typeStr,
+					Name:     name.Name,
+					Type:     typeStr,
+					Required: required,
 				})
 			}
 		}

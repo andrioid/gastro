@@ -519,7 +519,7 @@ func TestCompile_ComponentWithoutFrontmatter(t *testing.T) {
 	// Should use the component template (returns template.HTML, not an HTTP handler).
 	// Components are now methods on *Router so they can read the per-router
 	// template registry.
-	assertStringContains(t, s, "func (__router *Router) componentDivider(propsMap map[string]any) template.HTML")
+	assertStringContains(t, s, "func (__router *Router) componentDivider(propsMap map[string]any) (template.HTML, error)")
 
 	// Should NOT have MapToStruct (no Props struct)
 	if contains(s, "MapToStruct") {

@@ -246,7 +246,7 @@ const typedRenderInternalTest = `package gastro
 import "testing"
 
 func dictCard(r *Router) {
-	_ = r.componentCard(map[string]any{"Title": "Hello", "Count": 3})
+	_, _ = r.componentCard(map[string]any{"Title": "Hello", "Count": 3})
 }
 
 func typedCard(r *Router) {

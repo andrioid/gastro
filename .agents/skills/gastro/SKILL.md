@@ -256,9 +256,15 @@ Props are passed via `dict` syntax:
 | `"literal"` | String literal | `"Title" "About"` |
 | `(.Val \| func "arg")` | Pipe expression | `"Date" (.CreatedAt \| timeFormat "Jan 2, 2006")` |
 
-### Type coercion
+### Required props and type coercion
 
-Gastro coerces prop values to match struct field types:
+Props are optional by default. Tag a field `gastro:"required"` to make it
+mandatory: a `(dict ...)` that omits it fails `gastro generate`, and a zero
+value at render time fails the render in dev mode (production logs a
+warning and renders).
+
+Without `--typecheck-props`, gastro coerces prop values to match struct
+field types:
 
 | Target type | Accepted values |
 |-------------|-----------------|
@@ -266,6 +272,11 @@ Gastro coerces prop values to match struct field types:
 | `bool` | `bool`, `string` (`"true"`, `"false"`) |
 | `int` | `int`, `int64`, `float64`, `float32`, `string` (parsed) |
 | `float64` | `float64`, `float32`, `int`, `string` (parsed) |
+
+With `--typecheck-props`, literal dict values must be assignable to the
+field type at generate time, and render-time values must convert without
+coercion (dev: error, production: logged warning). See
+`docs/components.md`.
 
 ### Propless components
 
