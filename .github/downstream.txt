@@ -9,4 +9,6 @@
 # Bump by hand when git-pm adopts a new gastro release: replace the SHA below
 # with the git-pm commit that pins it (`git -C ../git-pm rev-parse HEAD`).
 # The first non-comment, non-empty line is the SHA.
-a234b2e
+# Currently: git-pm branch p12 (phase 12 web rewrite on the v0.4 APIs). Bump
+# to the git-pm main commit once p12 is merged there.
+dc270d101694d61ca1ae9db54bc4b45be81641a0

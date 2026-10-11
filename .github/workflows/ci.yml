@@ -61,7 +61,10 @@ jobs:
           working_directory: git-pm
       # A git-pm commit with `replace github.com/andrioid/gastro => ../gastro`
       # already resolves to the sibling checkout. Otherwise join the modules
-      # in a go.work so git-pm builds against this gastro.
+      # in a go.work so git-pm builds against this gastro. The go.work also
+      # replaces the exact gastro versions git-pm requires: those may not be
+      # published yet (git-pm pins the release this PR will become), and Go
+      # still reads the required version's go.mod for workspace modules.
       - name: Point git-pm at this gastro checkout
         working-directory: git-pm
         run: |
@@ -72,6 +75,14 @@ jobs:
             if [ -f ../gastro/datastar/go.mod ]; then
               go work use ../gastro/datastar
             fi
+            for pair in github.com/andrioid/gastro=../gastro github.com/andrioid/gastro/datastar=../gastro/datastar; do
+              mod=${pair%%=*}
+              dir=${pair#*=}
+              ver=$(awk -v m="$mod" '$1 == m && $2 ~ /^v/ { print $2; exit }' go.mod)
+              if [ -n "$ver" ]; then
+                go work edit -replace "$mod@$ver=$dir"
+              fi
+            done
             cat go.work
           fi
       - name: git-pm verify
