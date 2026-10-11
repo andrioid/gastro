@@ -152,12 +152,32 @@ For better performance, brotli support, or fewer lines of code, consider:
   http.ListenAndServe(":8080", gzhttp.GzipHandler(router.Handler()))
   ```
 
+## SSE streams: use the datastar module
+
+Generic compression middleware must not touch SSE streams: it buffers data
+until the compressor decides to flush, which delays events and breaks
+real-time behavior. The middleware example above skips `text/event-stream`
+responses for this reason, and so do reverse proxies by default.
+
+Datastar streams *can* be compressed, by the stream itself. The
+[`github.com/andrioid/gastro/datastar`](sse.md#compression) module negotiates
+Brotli, zstd, gzip or deflate per stream and flushes the compressor after
+every event:
+
+```go
+sse, err := datastar.NewSSE(w, r, datastar.WithCompression())
+```
+
+This pays off for gastro's CQRS pages, where one long-lived stream keeps
+re-sending the full page region: consecutive morphs are nearly identical and
+compress to a fraction of their size. See [sse.md](sse.md#compression) for
+the options.
+
 ## Caveats
 
-**SSE streams must not be compressed.** Compression buffers data until the
-compressor decides to flush, which delays events and breaks real-time behavior.
-The middleware example above skips `text/event-stream` responses for this
-reason.
+**Don't compress SSE twice.** If a stream uses `datastar.WithCompression`,
+keep outer middleware from compressing it again (skipping
+`text/event-stream`, as above, does that).
 
 **Already-compressed formats waste CPU.** JPEG, PNG, WebP, WOFF2, MP4, and
 similar formats are already compressed. Running gzip over them produces output

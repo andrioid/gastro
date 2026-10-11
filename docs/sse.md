@@ -1,95 +1,59 @@
 # SSE & Datastar
 
-Gastro provides a lightweight SSE helper for streaming events from the
-server to the browser, enabling real-time UI updates with
-[Datastar](https://data-star.dev/) and [HTMX](https://htmx.org/).
+Gastro pairs naturally with [Datastar](https://data-star.dev/): the server
+renders HTML, and Datastar keeps the page in sync over Server-Sent Events.
+Two layers are available:
 
-There are two ways to wire SSE into a Gastro app:
+- **`github.com/andrioid/gastro/datastar`** — a separate Go module with
+  Datastar support: a facade over the
+  [official Go SDK](https://github.com/starfederation/datastar-go), plus the
+  matching browser client, embedded and served by your app. It is released
+  in lockstep with gastro (same version, tag `datastar/vX.Y.Z`), so its
+  dependencies never reach projects that don't use it.
+- **`gastro.NewSSE`** in core — a dependency-free, protocol-agnostic SSE
+  writer for anything else (HTMX, plain `EventSource`). See
+  [Generic SSE helper](#generic-sse-helper).
 
-1. **From a page** (Track B's headline pattern). The same `.gastro`
-   file renders the initial HTML on `GET` and emits SSE patches on
-   `POST` (or any non-GET) by branching on `r.Method`.
-2. **From a side-mounted handler** registered on the router's mux.
-   Useful for long-lived streams (live clocks, log tails) that don't
-   share state with a particular page.
-
-## SSE-from-page (the headline)
-
-A single `pages/counter.gastro` handles both the initial render and
-the click that increments the counter:
-
-```gastro
----
-import (
-    "net/http"
-
-    "myapp/app"
-
-    Layout "components/layout.gastro"
-    Counter "components/counter.gastro"
-
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
-)
-
-state := gastro.From[*app.State](r.Context())
-
-if r.Method == http.MethodPost {
-    n := state.Count.Add(1)
-
-    html, err := gastro.Render.Counter(CounterProps{Count: int(n)})
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    sse := datastar.NewSSE(w, r)
-    sse.PatchElements(html)
-    return
-}
-
-Title := "Counter"
-Count := int(state.Count.Load())
----
-{{ wrap Layout (dict "Title" .Title) }}
-    {{ Counter (dict "Count" .Count) }}
-    <button data-on:click="@post('/counter')">+1</button>
-{{ end }}
+```sh
+go get github.com/andrioid/gastro/datastar
 ```
 
-What happens at runtime:
+## The shape: pages are queries, commands are handlers
+
+Gastro follows the
+[Tao of Datastar](https://data-star.dev/guide/the_tao_of_datastar), a CQRS
+split:
+
+- **A page is a query.** `GET /counter` renders the full HTML. The page
+  opens **one long-lived SSE stream** (`GET /counter/stream`) that pushes the
+  current view whenever state changes.
+- **A command is a plain handler.** `POST /counter/increment` validates,
+  writes, notifies, and answers **`204 No Content`**. It renders nothing.
+- **Fat morphs.** The stream re-renders the whole page region and sends it
+  as one `datastar-patch-elements` event. Datastar morphs it into the DOM,
+  keeping focus, scroll position and input state, so the server never
+  tracks which fragment changed.
 
 ```mermaid
-flowchart TD
-    R[Incoming request] --> M{r.Method}
-    M -->|GET| G[Frontmatter computes<br/>Title, Count]
-    G --> GT[Template renders<br/>full page]
-    M -->|POST| P[Frontmatter mutates state<br/>via state.Count.Add 1]
-    P --> PR[gastro.Render.Counter<br/>→ template.HTML]
-    PR --> PS[datastar.NewSSE<br/>+ PatchElements]
-    PS --> PX[return — body-written flag set<br/>template render skipped]
+sequenceDiagram
+    participant B as Browser
+    participant P as GET /counter (page)
+    participant S as GET /counter/stream
+    participant C as POST /counter/increment
+    B->>P: navigate
+    P-->>B: full HTML (+ datastar client)
+    B->>S: data-init="@get('/counter/stream')"
+    S-->>B: patch-elements (current view)
+    B->>C: data-on:click="@post('/counter/increment')"
+    C-->>B: 204 No Content
+    C--)S: state changed
+    S-->>B: patch-elements (whole region, morphed)
 ```
 
-- **`GET /counter`** — `r.Method == "POST"` is false; the if-block is
-  skipped. `Title` and `Count` are computed. The codegen-wrapped
-  writer's body-written flag is still false, so the template renders.
-- **`POST /counter`** — `r.Method == "POST"` is true. The Counter is
-  rendered to a typed `template.HTML`, an SSE stream is opened, the
-  patch event is emitted, and `return` exits the frontmatter.
-  The body-written flag is now true, so the template render is
-  **skipped**.
+Every tab watching the counter sees the change, not only the one that
+clicked, and a command never needs to know which views exist.
 
-This pattern is exercised end-to-end in
-[`examples/sse`](https://github.com/andrioid/gastro/tree/main/examples/sse).
-
-### Required Imports
-
-The frontmatter above pulls in the runtime alias and the `net/http`
-package. `net/http` is auto-imported by the codegen so you don't
-strictly need to declare it; `app` and the Datastar helper do.
-
-### Mounting
-
-`main.go` becomes:
+## Wiring
 
 ```go
 package main
@@ -98,6 +62,8 @@ import (
     "log"
     "net/http"
 
+    "github.com/andrioid/gastro/datastar"
+
     gastro "myapp/.gastro"
     "myapp/app"
 )
@@ -105,64 +71,196 @@ import (
 func main() {
     state := app.New()
 
-    router := gastro.New(gastro.WithDeps(state))
+    var router *gastro.Router
+    router = gastro.New(
+        gastro.WithDeps(state),
+        // {{ datastarScript }} in templates.
+        gastro.WithFuncs(datastar.Funcs()),
+        // The embedded Datastar client at its content-hashed URL.
+        gastro.WithHandler(datastar.ClientPattern, datastar.ClientHandler()),
+        // Query side: one stream per page.
+        gastro.WithHandler("GET /counter/stream", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            counterStream(router, w, r)
+        })),
+        // Command side.
+        gastro.WithHandler("POST /counter/increment", http.HandlerFunc(increment)),
+    )
 
     log.Fatal(http.ListenAndServe(":4242", router.Handler()))
 }
 ```
 
-There is no separate `mux.HandleFunc("POST /counter", …)` line. The
-page is the handler.
+`WithHandler` routes share the router's middleware and deps, so
+`gastro.From[T](r.Context())` works in both handlers.
 
-## Side-mounted SSE handlers
+The layout loads the client once:
 
-Long-lived streams (clocks, log tails, monitoring feeds) often don't
-share state with a particular page. Register them on the router's
-mux directly:
-
-```go
-router := gastro.New(gastro.WithDeps(state))
-
-mux := router.Mux()
-mux.HandleFunc("GET /api/clock", handleClock)
-
-http.ListenAndServe(":4242", router.Handler())
+```gastro
+<head>
+    <title>{{ .Title }}</title>
+    {{ datastarScript }}
+</head>
 ```
 
-```go
+which renders
+`<script type="module" src="/_gastro/datastar/<sha256-prefix>.js"></script>`.
+
+## The page
+
+`pages/counter.gastro` is a GET view. It renders the region the stream will
+keep replacing (the `Counter` component, whose root is `<div id="counter">`)
+and opens the stream from an element the stream never replaces:
+
+```gastro
+---
 import (
-    gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
+    "myapp/app"
+
+    Layout "components/layout.gastro"
+    Counter "components/counter.gastro"
 )
 
-func handleClock(w http.ResponseWriter, r *http.Request) {
-    sse := gastroRuntime.NewSSE(w, r)
+state := gastro.From[*app.State](r.Context())
 
-    ticker := time.NewTicker(1 * time.Second)
-    defer ticker.Stop()
+Title := "Counter"
+Count := state.Count()
+---
+{{ wrap Layout (dict "Title" .Title) }}
+    <main data-init="@get('/counter/stream')">
+        {{ Counter (dict "Count" .Count) }}
+        <button data-on:click="@post('/counter/increment')">+1</button>
+    </main>
+{{ end }}
+```
+
+## The stream (query side)
+
+```go
+func counterStream(router *gastro.Router, w http.ResponseWriter, r *http.Request) {
+    state := gastroRuntime.From[*app.State](r.Context())
+
+    sse, err := datastar.NewSSE(w, r, datastar.WithCompression())
+    if err != nil {
+        log.Printf("counter stream: %v", err)
+        return
+    }
+
+    changes, unsubscribe := state.Subscribe()
+    defer unsubscribe()
 
     for {
+        // Always send the whole region: the first event resyncs a client
+        // that just (re)connected, later ones are fat morphs.
+        html, err := router.Render(gastro.Counter, gastro.CounterProps{Count: state.Count()})
+        if err != nil {
+            log.Printf("counter stream: render: %v", err)
+            return
+        }
+        if err := sse.PatchElements(string(html)); err != nil {
+            return // client went away
+        }
+
         select {
         case <-sse.Context().Done():
             return
-        case <-ticker.C:
-            now := time.Now().Format("15:04:05")
-            sse.Send("datastar-patch-elements",
-                "elements <div id=\"clock\">"+now+"</div>")
+        case <-changes:
         }
     }
 }
 ```
 
-`router.Mux()` returns the underlying `*http.ServeMux` so you can
-register additional routes alongside the auto-generated page handlers.
-Handlers registered this way bypass the deps-attachment middleware,
-so they cannot use `gastro.From[T]` — the dependency must be
-captured in a closure or passed via another mechanism.
+- The rendered fragment's top-level element carries an `id` (`counter`);
+  Datastar morphs it into the element with the same id. In a real page the
+  region is usually everything below the layout chrome.
+- `sse.Context()` ends when the client disconnects; stop the loop then.
+- Keep notifications coarse ("counter changed") and re-render from current
+  state. Bursts of notifications can be coalesced; the next render shows
+  the latest state anyway.
+
+## Commands (write side)
+
+```go
+func increment(w http.ResponseWriter, r *http.Request) {
+    var in struct {
+        Step int `json:"step"`
+    }
+    if err := datastar.ReadSignals(r, &in); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    state := gastroRuntime.From[*app.State](r.Context())
+    state.Increment(max(in.Step, 1)) // notifies subscribers
+
+    w.WriteHeader(http.StatusNoContent)
+}
+```
+
+`ReadSignals` decodes the signals Datastar sent: from the JSON body for
+`POST`/`PUT`/`PATCH`, from the `datastar` query parameter for `GET` and
+`DELETE`.
+
+A command that needs to give the *acting* user immediate feedback (a
+validation message, clearing an input) may answer with a short SSE response
+instead of `204` — open `datastar.NewSSE`, send a `PatchSignals` or
+`PatchElements`, return. Shared state still flows through the stream.
+Call `ReadSignals` **before** `NewSSE`: the stream takes over the response.
+
+## Compression
+
+Long-lived streams that repeatedly send the full region compress
+extremely well, because the compressor's window spans events. Enable it per
+stream:
+
+```go
+sse, err := datastar.NewSSE(w, r, datastar.WithCompression())
+```
+
+The encoding is negotiated from `Accept-Encoding` (Brotli, zstd, gzip,
+deflate, in that order by default) and the compressor is flushed after
+every event, so nothing is delayed. Pick encodings or levels explicitly
+with `datastar.WithCompression(datastar.WithBrotli(datastar.WithBrotliLevel(5)), datastar.WithGzip())`,
+and the negotiation strategy with `WithClientPriority()` or `WithForced()`.
+
+Generic gzip middleware must still skip `text/event-stream`; see
+[compression.md](compression.md).
+
+## API
+
+| Method / function | Event |
+|---|---|
+| `datastar.NewSSE(w, r, opts...) (*SSE, error)` | sets headers and flushes; returns an error (instead of the SDK's panic) when the writer cannot flush |
+| `sse.PatchElements(html, opts...)` | `datastar-patch-elements`; options `WithSelector`, `WithMode` (`ModeOuter` default, `ModeInner`, `ModeReplace`, `ModePrepend`, `ModeAppend`, `ModeBefore`, `ModeAfter`, `ModeRemove`), `WithNamespace` (`NamespaceSVG`, `NamespaceMathML`), `WithUseViewTransitions`, `WithViewTransitionSelector` |
+| `sse.RemoveElement(selector)` | patch-elements with mode `remove` |
+| `sse.PatchSignals(json, opts...)` | `datastar-patch-signals` (JSON merge patch; `null` removes a signal); option `WithOnlyIfMissing` |
+| `sse.MarshalAndPatchSignals(v, opts...)` | JSON-encodes `v`, then `PatchSignals` |
+| `sse.ExecuteScript(js, opts...)` | appends a self-removing `<script>`; options `WithAutoRemove`, `WithAttributes` |
+| `sse.Redirect(url)`, `sse.ConsoleLog(msg)` | script helpers |
+| `sse.DispatchCustomEvent(name, detail, opts...)` | dispatches a `CustomEvent`; options `WithDispatchSelector`, `WithDispatchBubbles`, `WithDispatchCancelable`, `WithDispatchComposed` |
+| `sse.Send(eventType, dataLines, opts...)` | raw event, same signature as the SDK; options `WithEventID`, `WithRetryDuration` |
+| `sse.Context()`, `sse.IsClosed()` | stream lifetime |
+| `datastar.ReadSignals(r, &v)` | decode request signals |
+
+The wire format is the SDK's own. Every method is safe for concurrent use.
+User-controlled strings cannot inject SSE fields: values that must stay on
+one line (selectors, modes, ids, event types) lose CR and LF, and CRLF/CR in
+multi-line payloads (HTML, scripts, signals) is normalised to LF before it
+is split into `data:` lines.
+
+## The embedded client
+
+The module embeds the official Datastar bundle (`datastar.ClientVersion`,
+MIT-licensed, `datastar/client/LICENSE.md`) that speaks the SDK's protocol
+version. `datastar.ClientPath` contains a prefix of its SHA-256, so the URL
+changes exactly when the client does; `ClientHandler()` serves it with
+`Cache-Control: public, max-age=31536000, immutable` and an `ETag`. Upgrading
+gastro upgrades the client and busts caches; no CDN or vendored copy is
+needed.
 
 ## Generic SSE helper
 
-The core SSE helper in `pkg/gastro` is framework-agnostic and works
-with any client that consumes `text/event-stream`:
+The core helper in `pkg/gastro` is framework-agnostic and adds no
+dependencies:
 
 ```go
 func handleUpdates(w http.ResponseWriter, r *http.Request) {
@@ -176,105 +274,20 @@ func handleUpdates(w http.ResponseWriter, r *http.Request) {
         case <-sse.Context().Done():
             return
         case <-ticker.C:
-            sse.Send("time", time.Now().Format("15:04:05"))
+            if err := sse.Send("time", time.Now().Format("15:04:05")); err != nil {
+                return
+            }
         }
     }
 }
 ```
 
-Methods available:
-
-- **`Send(eventType, data ...string)`** — writes and flushes a single
-  SSE event.
+- **`Send(eventType, data ...string)`** — writes and flushes one event; each
+  argument becomes a `data:` line (CR is stripped).
 - **`IsClosed()`** — reports whether the client disconnected.
-- **`Context()`** — returns the request context for `select` loops.
+- **`Context()`** — the request context, for `select` loops.
 
-## Datastar Integration
-
-The `pkg/gastro/datastar` subpackage formats events using Datastar's
-SSE protocol. The page-side example above uses
-`sse.PatchElements(html)`. The same helper is available from
-side-mounted handlers:
-
-```go
-sse := datastar.NewSSE(w, r)
-
-sse.PatchElements(html,
-    datastar.WithSelector("#dashboard"),
-    datastar.WithMode(datastar.ModeInner),
-)
-
-sse.PatchSignals(map[string]any{
-    "count": 42, "loading": false,
-})
-
-sse.RemoveElement("#toast-1")
-```
-
-## Type-Safe Rendering
-
-The compiler generates a `Render` API for calling Gastro components
-with full type safety. From frontmatter:
-
-```gastro
-html, err := gastro.Render.Counter(CounterProps{Count: int(n)})
-```
-
-From `main.go` or any side-mounted handler:
-
-```go
-import gastro "myapp/.gastro"
-
-html, err := gastro.Render.Counter(gastro.CounterProps{Count: 42})
-```
-
-| What        | Safety                                          |
-|-------------|-------------------------------------------------|
-| Method name | Compile-time — method exists or it doesn't     |
-| Props fields | Compile-time — struct fields checked by Go    |
-| Props types | Compile-time — Go type system                  |
-
-Components with children carry a `Children template.HTML` field on their
-Props struct (auto-added by codegen when the template references
-`{{ .Children }}`):
-
-```go
-inner, _ := gastro.Render.Counter(gastro.CounterProps{Count: 42})
-full, _  := gastro.Render.Layout(gastro.LayoutProps{
-    Title:    "Dashboard",
-    Children: template.HTML(inner),
-})
-```
-
-### Request-aware helpers in SSE patches
-
-When your handler registers
-[`WithRequestFuncs`](helpers.md#request-aware-helpers-withrequestfuncs)
-binders (i18n, CSRF tokens, CSP nonces, ...), the package-level
-`gastro.Render` doesn't see request state — it takes the static
-path. To render an SSE patch with request-aware helpers in scope,
-use `Render.With(r)`:
-
-```go
-func handleUpdate(w http.ResponseWriter, r *http.Request) {
-    html, _ := gastro.Render.With(r).Counter(gastro.CounterProps{Count: 42})
-    datastar.NewSSE(w, r).PatchElements(html)
-}
-```
-
-`Render.With(r)` is the SSE/handler counterpart to the auto-routes:
-both paths produce HTML with full request-aware helper resolution.
-The returned `*renderAPI` is reusable within a single request (store
-it in a local for multi-fragment handlers), not goroutine-safe.
-
-## Design Notes
-
-- **No external dependencies.** The SSE protocol is ~90 lines of Go.
-- **Two layers.** Generic `pkg/gastro` works with any SSE client.
-  `pkg/gastro/datastar` adds Datastar-specific formatting.
-- **Track B body-tracking.** The wrapped page writer records when SSE
-  events have committed a body so the template render is skipped on
-  POST while still running on the corresponding GET. See
-  [`docs/design.md`](design.md) §21 for the design rationale.
+Request-aware template helpers (CSRF tokens, i18n, CSP nonces) inside
+rendered patches are covered in [helpers.md](helpers.md).
 
 [Try the live Datastar demo →](/examples/guestbook-datastar)
