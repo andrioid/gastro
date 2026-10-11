@@ -583,15 +583,16 @@ var componentCallFallbackRegex = regexp.MustCompile(`\{\{\s*(?:wrap\s+)?([A-Z][a
 var dictKeyRegex = regexp.MustCompile(`"((?:[A-Z][a-zA-Z0-9]*|__[a-z][a-zA-Z0-9]*))"`)
 
 // DiagnoseComponentProps checks that props passed to component calls match
-// the component's Props struct. Reports unknown props as errors, deprecated
-// keys ("__children") and missing props as warnings.
+// the component's Props struct. Reports unknown props and omitted
+// gastro:"required" props as errors, and the deprecated "__children" key
+// as a warning. Omitted optional props are never reported.
 //
 // This is a thin LSP-shaped wrapper over codegen.ValidateDictKeysFromAST,
 // which is the single source of truth for dict-key validation: see
 // internal/codegen/validate.go and internal/codegen/synthetic.go. Both the
 // `gastro generate` command and this LSP entry point produce identical
-// verdicts on which keys are valid — the codegen-side caller just opts
-// out of missing-prop warnings via ValidateDictKeysOptions.EmitMissingProps.
+// verdicts. Literal value type checks (--typecheck-props) are a CLI
+// option the editor does not know about, so they stay off here.
 //
 // When the tree is nil (the template fails to parse with text/template/parse,
 // which is the case for `{{ wrap X }}...{{ end }}` blocks because the Go
@@ -628,7 +629,7 @@ func DiagnoseComponentProps(templateBody string, tree *parse.Tree, uses []parser
 		tree,
 		uses,
 		propsByPath,
-		codegen.ValidateDictKeysOptions{EmitMissingProps: true},
+		codegen.ValidateDictKeysOptions{},
 	)
 	if len(raw) == 0 {
 		return nil
@@ -660,7 +661,7 @@ func DiagnoseComponentProps(templateBody string, tree *parse.Tree, uses []parser
 // codegen.SyntheticPropKey so the wrap-form path and the bare-call path
 // agree on which keys are exempt from the unknown-prop check. The
 // regex path emits errors for unknown keys and warnings for the
-// deprecated `__children` sentinel; missing-prop warnings are not
+// deprecated `__children` sentinel; missing-required-prop errors are not
 // emitted in this path (they require precise schema-vs-provided-keys
 // math that's harder to do reliably with regex matches — the AST path
 // covers them in every editing state where it succeeds, which is

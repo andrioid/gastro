@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // UseDeclaration represents a component import: `import ComponentName "path/to/component.gastro"`.
@@ -22,6 +23,10 @@ type File struct {
 	Uses             []UseDeclaration // extracted component imports (aliased .gastro imports)
 	FrontmatterLine  int              // 1-indexed line number where frontmatter content starts
 	TemplateBodyLine int              // 1-indexed line number where template body starts
+
+	// frontmatterLines[i] is the 1-indexed file line of Frontmatter's
+	// line i+1.
+	frontmatterLines []int
 }
 
 const delimiter = "---"
@@ -38,7 +43,11 @@ func Parse(filename, content string) (*File, error) {
 		return nil, fmt.Errorf("%s: %w", filename, err)
 	}
 
-	cleanedFrontmatter := stripImports(frontmatter)
+	cleanedFrontmatter, keptIdx := stripImports(frontmatter)
+	sourceLines := make([]int, len(keptIdx))
+	for i, idx := range keptIdx {
+		sourceLines[i] = fmLine + idx
+	}
 
 	return &File{
 		Filename:         filename,
@@ -48,7 +57,18 @@ func Parse(filename, content string) (*File, error) {
 		Uses:             uses,
 		FrontmatterLine:  fmLine,
 		TemplateBodyLine: bodyLine,
+		frontmatterLines: sourceLines,
 	}, nil
+}
+
+// FrontmatterSourceLine maps a 1-indexed line of Frontmatter (imports
+// stripped) to its 1-indexed line in the .gastro file. Lines outside
+// Frontmatter map to FrontmatterLine.
+func (f *File) FrontmatterSourceLine(line int) int {
+	if line >= 1 && line <= len(f.frontmatterLines) {
+		return f.frontmatterLines[line-1]
+	}
+	return f.FrontmatterLine
 }
 
 // splitSections splits content at --- delimiters into frontmatter and template
@@ -254,14 +274,17 @@ func parseImportSpec(spec string) (goImport string, use *UseDeclaration, err err
 }
 
 // stripImports removes all import declarations from frontmatter, returning
-// only the remaining Go code. Trims leading/trailing blank lines.
-func stripImports(frontmatter string) string {
+// only the remaining Go code. Trims leading/trailing blank lines. The second
+// result maps each line of the returned code (0-indexed) to its 0-indexed
+// line in frontmatter.
+func stripImports(frontmatter string) (string, []int) {
 	lines := strings.Split(frontmatter, "\n")
 	var kept []string
+	var keptIdx []int
 	inGroupedImport := false
 	inString := false
 
-	for _, line := range lines {
+	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
 		// Preserve lines inside raw string literals (backtick strings).
@@ -272,6 +295,7 @@ func stripImports(frontmatter string) string {
 				inString = false
 			}
 			kept = append(kept, line)
+			keptIdx = append(keptIdx, i)
 			continue
 		}
 
@@ -293,11 +317,18 @@ func stripImports(frontmatter string) string {
 		}
 
 		kept = append(kept, line)
+		keptIdx = append(keptIdx, i)
 	}
 
-	result := strings.Join(kept, "\n")
-	result = strings.TrimSpace(result)
-	return result
+	joined := strings.Join(kept, "\n")
+	result := strings.TrimSpace(joined)
+	// TrimSpace drops leading blank lines; drop their indices too.
+	leading := joined[:len(joined)-len(strings.TrimLeftFunc(joined, unicode.IsSpace))]
+	keptIdx = keptIdx[strings.Count(leading, "\n"):]
+	if n := strings.Count(result, "\n") + 1; n < len(keptIdx) {
+		keptIdx = keptIdx[:n]
+	}
+	return result, keptIdx
 }
 
 // unquote strips surrounding quotes from a string using Go's strconv.Unquote,

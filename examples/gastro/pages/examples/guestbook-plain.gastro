@@ -69,10 +69,12 @@ Success := ctx.Query("success")
         </div>
 
         <h3>The POST Handler</h3>
-        <p>The POST handler lives in <code>main.go</code> (since Gastro only generates GET routes). It validates input, adds the entry, and redirects back using the <a href="https://en.wikipedia.org/wiki/Post/Redirect/Get" target="_blank" rel="noopener">Post/Redirect/Get<span class="sr-only"> (opens in new tab)</span></a> pattern:</p>
+        <p>Pages are GET-only, so the POST handler lives in <code>main.go</code>, registered next to the pages with <code>WithHandler</code>. It validates input, adds the entry, and redirects back using the <a href="https://en.wikipedia.org/wiki/Post/Redirect/Get" target="_blank" rel="noopener">Post/Redirect/Get<span class="sr-only"> (opens in new tab)</span></a> pattern:</p>
         <div class="code-block">
             <pre><code class="language-go">// In main.go
-mux.HandleFunc("POST /guestbook", handleGuestbookPost)
+site = gastro.New(
+    gastro.WithHandler("POST /guestbook", http.HandlerFunc(handleGuestbookPost)),
+)
 
 func handleGuestbookPost(w http.ResponseWriter, r *http.Request) {
     r.ParseForm()

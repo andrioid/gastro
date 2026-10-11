@@ -42,7 +42,7 @@ func TestDiscoverComponentsIn_Recursive(t *testing.T) {
 	// fixed a long-standing drift: the old discoverComponentsIn used
 	// only the basename's hyphen-separated parts, so a component at
 	// components/ui/button.gastro got auto-import-suggested as
-	// "Button" but compiled to `Render.UiButton` — typing the
+	// "Button" but compiled to `UiButton` — typing the
 	// suggestion produced a build error. Going through codegen makes
 	// the suggestion match the generated symbol.
 	want := map[string]string{

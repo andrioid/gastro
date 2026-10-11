@@ -115,7 +115,10 @@ func handleDsSearch(w http.ResponseWriter, r *http.Request) {
     query := r.URL.Query().Get("search")
     entries := demo.SearchEntries(query)
     html, _ := renderEntryListHTML(entries)
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return
+    }
     sse.PatchElements(html)
 }</code></pre>
         </div>

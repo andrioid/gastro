@@ -13,7 +13,7 @@ import (
 
 // GoVersion is the Go version used in generated go.mod files.
 // Must match the version in the project root go.mod and mise.toml.
-const GoVersion = "1.26.1"
+const GoVersion = "1.27.2"
 
 //go:embed all:template
 var templateFS embed.FS

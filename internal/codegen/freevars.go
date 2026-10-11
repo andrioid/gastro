@@ -191,6 +191,7 @@ func (w *freevarWalker) popScope() {
 //   - gastro.FromOK[T](...)
 //   - gastro.FromContext[T](...)
 //   - gastro.FromContextOK[T](...)
+//   - gastro.Render(...)          (rewritten to use the per-request __router)
 //
 // Returns nil if the call is unrelated.
 func (w *freevarWalker) checkGastroCall(call *ast.CallExpr) *PerRequestRef {
@@ -218,7 +219,7 @@ func (w *freevarWalker) checkGastroCall(call *ast.CallExpr) *PerRequestRef {
 
 	switch sel.Sel.Name {
 	case "Props", "Context", "Children",
-		"From", "FromOK", "FromContext", "FromContextOK":
+		"From", "FromOK", "FromContext", "FromContextOK", "Render":
 		return &PerRequestRef{Node: call, Detail: "gastro." + sel.Sel.Name + "()"}
 	}
 	return nil

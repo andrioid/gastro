@@ -94,6 +94,18 @@ func TestRefs_GastroFromGeneric_Errors(t *testing.T) {
 	}
 }
 
+// gastro.Render(c, p) is rewritten to RenderComponent(__router, …), which
+// only exists inside the per-request handler, so it must not hoist.
+func TestRefs_GastroRender_Errors(t *testing.T) {
+	hit, detail := flagged(t, `gastro.Render(Card, CardProps{Title: "x"})`)
+	if !hit {
+		t.Fatalf("expected gastro.Render(...) to be flagged")
+	}
+	if detail != "gastro.Render()" {
+		t.Errorf("detail = %q, want %q", detail, "gastro.Render()")
+	}
+}
+
 func TestRefs_GastroChildren_Errors(t *testing.T) {
 	hit, detail := flagged(t, "gastro.Children()")
 	if !hit {

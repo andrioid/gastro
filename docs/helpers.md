@@ -220,21 +220,29 @@ repetitive across many pages.
 
 ### Rendering from handlers and SSE
 
-When you call `gastro.Render.X(props)` from a Go handler, the static
-FuncMap is used — binders are *not* invoked, so request-aware helpers
-resolve to placeholders (typically the empty string). To bind a render
-call to a specific request, use `Render.With(r)`:
+When you call `router.Render(gastro.X, props)` from a Go handler, the
+static FuncMap is used — binders are *not* invoked, so request-aware
+helpers resolve to placeholders (typically the empty string). To bind a
+render call to a specific request, bind the component with `.With(r)`:
 
 ```go
-func handleUpdate(w http.ResponseWriter, r *http.Request) {
-    html, _ := gastro.Render.With(r).Card(gastro.CardProps{Title: "Hello"})
-    datastar.NewSSE(w, r).PatchElements(html)
+func handleUpdate(router *gastro.Router, w http.ResponseWriter, r *http.Request) {
+    html, err := router.Render(gastro.Card.With(r), gastro.CardProps{Title: "Hello"})
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
+    sse.PatchElements(string(html))
 }
 ```
 
-The returned `*renderAPI` is reusable within a single request — store
-it in a local and render multiple components from it. It is **not**
-goroutine-safe and must not be retained beyond the request.
+`gastro.Card.With(r)` returns a copy of the component value bound to
+`r`; the binding reaches nested components too. Bind per request and
+don't retain the bound value beyond it.
 
 ### Multiple binders compose
 
@@ -299,7 +307,7 @@ Request-aware helpers propagate through every layer of a page render:
   `{{ wrap Component (dict ...) }}`.
 - Slot content rendered inside a wrap block.
 - Components rendered programmatically via
-  `gastro.Render.With(r).Component(props)`.
+  `router.Render(gastro.Component.With(r), props)`.
 
 In every case, helpers like `{{ t "…" }}`, `{{ csrfField }}`, and
 `{{ cspNonce }}` resolve against the right per-request state. You don't

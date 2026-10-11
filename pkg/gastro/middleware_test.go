@@ -65,6 +65,24 @@ func TestPatternMatchesAnyRoute(t *testing.T) {
 			routes:  []string{"GET /static/"},
 			want:    true,
 		},
+		{
+			name:    "path-only pattern matches GET page by its path",
+			pattern: "/board",
+			routes:  []string{"GET /board"},
+			want:    true,
+		},
+		{
+			name:    "path-only pattern matches POST handler by its path",
+			pattern: "/tasks/{id}/place",
+			routes:  []string{"POST /tasks/{id}/place"},
+			want:    true,
+		},
+		{
+			name:    "method-qualified pattern matches handler of that method",
+			pattern: "POST /tasks/{id}/place",
+			routes:  []string{"POST /tasks/{id}/place"},
+			want:    true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,6 +117,15 @@ func TestMiddlewareApplies(t *testing.T) {
 	}
 	if !gastro.MiddlewareApplies("/{$}", "/{$}") {
 		t.Error("/{$} should apply to itself")
+	}
+	if !gastro.MiddlewareApplies("/", "GET /{$}") {
+		t.Error("/ should apply to the GET root page")
+	}
+	if !gastro.MiddlewareApplies("/", "POST /tasks/{id}/place") {
+		t.Error("/ should apply to a POST WithHandler route")
+	}
+	if gastro.MiddlewareApplies("/admin/{path...}", "POST /tasks/{id}/place") {
+		t.Error("/admin/{path...} should not apply to POST /tasks/{id}/place")
 	}
 }
 

@@ -186,7 +186,9 @@ func (d *devReloader) HandleSSE(w http.ResponseWriter, r *http.Request) {
 				// for any client script versions still in the wild.
 				data = "reload"
 			}
-			if err := sse.Send(ev.Kind, data); err != nil {
+			// SSE ends a field at a newline: send each line as its own
+			// data field; EventSource joins them back with "\n".
+			if err := sse.Send(ev.Kind, strings.Split(data, "\n")...); err != nil {
 				return
 			}
 		case <-heartbeat.C:

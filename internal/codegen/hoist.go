@@ -56,9 +56,15 @@ func (e *HoistError) Error() string {
 	if e.Filename != "" {
 		prefix = e.Filename + ":"
 	}
+	return fmt.Sprintf("%s%d: %s", prefix, e.Line, e.Message())
+}
+
+// Message describes the error without its file:line prefix, for callers
+// that report the position themselves.
+func (e *HoistError) Message() string {
 	kind := hoistKindLabel(e.DeclKind)
-	msg := fmt.Sprintf("%s%d: %s %q cannot be hoisted to package scope because it references per-request state (%s).",
-		prefix, e.Line, kind, e.DeclName, e.Detail)
+	msg := fmt.Sprintf("%s %q cannot be hoisted to package scope because it references per-request state (%s).",
+		kind, e.DeclName, e.Detail)
 	if e.MigrationHint != "" {
 		msg += fmt.Sprintf("\n\nHoisted decls run once at process init; per-request state is only available inside the handler. Use `:=` so it runs each request:\n\n    %s", e.MigrationHint)
 	} else {

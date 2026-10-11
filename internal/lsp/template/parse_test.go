@@ -136,9 +136,9 @@ func TestParseTemplateBody_WrapForm(t *testing.T) {
 	}
 	cases := []string{
 		`{{ wrap Card (dict "Title" "hi") }}body{{ end }}`,
-		`{{ wrap Card }}body{{ end }}`,                          // no dict
-		`{{- wrap Card (dict "Title" "hi") -}}body{{- end -}}`,   // trim markers
-		`{{wrap Card (dict "Title" "hi")}}body{{end}}`,           // tight whitespace
+		`{{ wrap Card }}body{{ end }}`,                                                                    // no dict
+		`{{- wrap Card (dict "Title" "hi") -}}body{{- end -}}`,                                            // trim markers
+		`{{wrap Card (dict "Title" "hi")}}body{{end}}`,                                                    // tight whitespace
 		`{{ wrap Card (dict "Title" .Title) }}{{ wrap Card (dict "Title" "nested") }}x{{ end }}{{ end }}`, // nested
 	}
 	for _, body := range cases {

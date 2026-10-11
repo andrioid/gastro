@@ -10,6 +10,7 @@ import (
 	gastro "sse-example/.gastro"
 	"sse-example/app"
 
+	"github.com/andrioid/gastro/datastar"
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
 
@@ -21,31 +22,89 @@ func main() {
 
 	state := app.New()
 
-	// Track B (docs/history/frictions-plan.md §4.10): the increment endpoint is
-	// gone from main.go. Both the GET render and the POST patch live in
-	// pages/index.gastro and branch on r.Method. The router registers
-	// the page for every HTTP method so the same .gastro file handles
-	// both. This is the headline mechanic — one source of truth per
-	// route, no parallel API handler to keep in sync with the page.
+	// The CQRS shape from docs/sse.md:
+	//   - pages/index.gastro is the GET view (query);
+	//   - GET /stream is the page's one long-lived SSE stream, re-rendering
+	//     the counter on every change (and the clock every second);
+	//   - POST /increment is a command: it writes and answers 204.
 	//
-	// Wave 4 / C2 (docs/history/frictions-plan.md §3 Wave 4): WithMiddleware
-	// composes route middleware. The pattern uses Go's stdlib syntax —
-	// "/{path...}" is a catch-all that matches every page route. Method
-	// branching, if any, lives inside the middleware itself.
-	router := gastro.New(
+	// WithHandler routes share the router's deps (gastroRuntime.FromContext
+	// works inside them) and middleware. "/{path...}" is a catch-all that
+	// matches every page and WithHandler route.
+	var router *gastro.Router
+	router = gastro.New(
 		gastro.WithDeps(state),
+		// {{ datastarScript }} in the layout, and the embedded client it
+		// points at.
+		gastro.WithFuncs(datastar.Funcs()),
+		gastro.WithHandler(datastar.ClientPattern, datastar.ClientHandler()),
+		gastro.WithHandler("GET /stream", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			stream(router, w, r)
+		})),
+		gastro.WithHandler("POST /increment", http.HandlerFunc(increment)),
 		gastro.WithMiddleware("/{path...}", logRequests),
 	)
 
-	// The clock streams from a separate path because long-lived SSE
-	// streams have a different shape than the request / response /
-	// patch pattern of the index page. It still demonstrates that
-	// page handlers (Track B) and side-mounted SSE handlers coexist.
-	mux := router.Mux()
-	mux.HandleFunc("GET /api/clock", handleClock)
-
 	fmt.Printf("Listening on http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, router.Handler()))
+}
+
+// stream is the page's query side: it sends the full Counter on connect and
+// after every change, and the clock every second, until the client leaves.
+func stream(router *gastro.Router, w http.ResponseWriter, r *http.Request) {
+	state := gastroRuntime.FromContext[*app.State](r.Context())
+
+	sse, err := datastar.NewSSE(w, r, datastar.WithCompression())
+	if err != nil {
+		log.Printf("stream: open: %v", err)
+		return
+	}
+
+	changes, unsubscribe := state.Subscribe()
+	defer unsubscribe()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	sendCounter := func() error {
+		html, err := router.Render(gastro.Counter, gastro.CounterProps{Count: state.Count()})
+		if err != nil {
+			return err
+		}
+		return sse.PatchElements(string(html))
+	}
+	sendClock := func() error {
+		return sse.PatchElements(fmt.Sprintf(`<div id="clock">%s</div>`, time.Now().Format("15:04:05")))
+	}
+
+	if err := sendCounter(); err != nil {
+		log.Printf("stream: %v", err)
+		return
+	}
+	if err := sendClock(); err != nil {
+		return
+	}
+	for {
+		select {
+		case <-sse.Context().Done():
+			return
+		case <-changes:
+			if err := sendCounter(); err != nil {
+				return
+			}
+		case <-ticker.C:
+			if err := sendClock(); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// increment is a command: it writes, notifies subscribers through the state,
+// and renders nothing. Every open page sees the change via its stream.
+func increment(w http.ResponseWriter, r *http.Request) {
+	gastroRuntime.FromContext[*app.State](r.Context()).Increment(1)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // logRequests is a tiny middleware that logs each request's method,
@@ -58,33 +117,4 @@ func logRequests(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s (%s)", r.Method, r.URL.Path, time.Since(start))
 	})
-}
-
-// handleClock streams the current time every second.
-// Demonstrates a long-lived SSE connection using the generic SSE helper.
-func handleClock(w http.ResponseWriter, r *http.Request) {
-	sse := gastroRuntime.NewSSE(w, r)
-
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
-
-	// Send the current time immediately, then every tick.
-	sendTime := func() error {
-		now := time.Now().Format("15:04:05")
-		html := fmt.Sprintf(`<div id="clock">%s</div>`, now)
-		return sse.Send("datastar-patch-elements", "elements "+html)
-	}
-
-	sendTime()
-
-	for {
-		select {
-		case <-sse.Context().Done():
-			return
-		case <-ticker.C:
-			if err := sendTime(); err != nil {
-				return
-			}
-		}
-	}
 }

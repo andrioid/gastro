@@ -40,7 +40,7 @@ func handleHtmxAdd(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	if name == "" || message == "" {
-		formHTML, err := gastro.Render.GuestbookForm(gastro.GuestbookFormProps{
+		formHTML, err := site.Render(gastro.GuestbookForm, gastro.GuestbookFormProps{
 			Error: "Both name and message are required.",
 		})
 		if err != nil {
@@ -63,7 +63,7 @@ func handleHtmxAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	formHTML, err := gastro.Render.GuestbookForm(gastro.GuestbookFormProps{
+	formHTML, err := site.Render(gastro.GuestbookForm, gastro.GuestbookFormProps{
 		Success: "Entry added!",
 	})
 	if err != nil {
@@ -74,7 +74,7 @@ func handleHtmxAdd(w http.ResponseWriter, r *http.Request) {
 	// Use hx-swap-oob to update both the list (primary target) and the
 	// form (out-of-band). HTMX swaps the primary response into hx-target,
 	// then processes any elements with hx-swap-oob="true" by their id.
-	oobForm := strings.Replace(formHTML,
+	oobForm := strings.Replace(string(formHTML),
 		`id="guestbook-form-wrapper"`,
 		`id="guestbook-form-wrapper" hx-swap-oob="true"`,
 		1)
@@ -92,7 +92,7 @@ func handleHtmxEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	html, err := gastro.Render.GuestbookEntryEdit(gastro.GuestbookEntryEditProps{
+	html, err := site.Render(gastro.GuestbookEntryEdit, gastro.GuestbookEntryEditProps{
 		ID:      entry.ID,
 		Name:    entry.Name,
 		Message: entry.Message,
@@ -129,7 +129,7 @@ func handleHtmxSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	html, err := gastro.Render.GuestbookEntry(gastro.GuestbookEntryProps{
+	html, err := site.Render(gastro.GuestbookEntry, gastro.GuestbookEntryProps{
 		ID:      entry.ID,
 		Name:    entry.Name,
 		Message: entry.Message,

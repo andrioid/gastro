@@ -68,7 +68,7 @@ func setupLibProject(t *testing.T) string {
 
 	mustWriteT(t, filepath.Join(root, "go.mod"), `module testapp
 
-go 1.26.1
+go 1.27.2
 `)
 
 	mustMkdirT(t, filepath.Join(root, "cmd", "myapp"))
@@ -740,7 +740,7 @@ func setupLibProjectNested(t *testing.T) (moduleRoot, gastroProjectRoot string) 
 	// Module-level files: go.mod and the binary entrypoint.
 	mustWriteT(t, filepath.Join(root, "go.mod"), `module testapp
 
-go 1.26.1
+go 1.27.2
 `)
 	mustMkdirT(t, filepath.Join(root, "cmd", "myapp"))
 	mustWriteT(t, filepath.Join(root, "cmd", "myapp", "main.go"), `package main

@@ -5,7 +5,7 @@
 
 A file-based component framework for Go. `.gastro` files combine Go frontmatter
 with `html/template` markup in a single file, compiled to type-safe Go code with
-file-based routing. Test.
+file-based routing.
 
 Think: Astro's developer experience, Go's type safety, PHP's file-based routing.
 
@@ -15,6 +15,8 @@ route, build, serve). Editor support is in progress.
 See [`ROADMAP.md`](ROADMAP.md) for deferred work and known
 limitations, and [`DECISIONS.md`](DECISIONS.md) for the chronological
 design log.
+
+Upgrading from v0.3? Read the [v0.4 migration guide](docs/migrations/v0.4.md).
 
 
 ## Scope
@@ -80,7 +82,7 @@ existing tree), and the dev-loop command (`gastro dev` vs
 
 ### Prerequisites
 
-- Go 1.26+
+- Go 1.27+
 - One of: [mise](https://mise.jdx.dev/), `go install`, or `go get -tool`
 
 ### All install methods
@@ -111,7 +113,7 @@ the box.
 ### Explore Your Project
 
 ```sh
-# List all components and pages with their Props signatures
+# List all components (with Props signatures) and pages (with routes)
 gastro list
 
 # Machine-readable output for scripts and agents
@@ -165,20 +167,22 @@ Items := fetchItems()          // Uppercase -> {{ .Items }}
 <h1>{{ .Title }}</h1>
 ```
 
-Frontmatter has ambient `w http.ResponseWriter` and `r *http.Request`.
-The page handler runs for every HTTP method; branch on `r.Method` to
-handle non-GET requests in the same file.
+Frontmatter has ambient `w http.ResponseWriter` and `r *http.Request`, so
+a page can set status codes, redirect, or write the response itself (the
+template is then skipped).
 
 ### File-Based Routing
 
-| File                       | Route          |
-|----------------------------|----------------|
-| `pages/index.gastro`       | `/`            |
-| `pages/about/index.gastro` | `/about`       |
-| `pages/blog/[slug].gastro` | `/blog/{slug}` |
+| File                       | Route              |
+|----------------------------|--------------------|
+| `pages/index.gastro`       | `GET /{$}`         |
+| `pages/about/index.gastro` | `GET /about`       |
+| `pages/blog/[slug].gastro` | `GET /blog/{slug}` |
 
-Patterns are method-less; the page handles every method (GET, POST,
-etc.) and branches on `r.Method`.
+Pages are `GET` views: `HEAD` is served automatically and other methods
+get `405` with `Allow: GET, HEAD`. Commands (POST, PUT, DELETE, …) are
+ordinary `http.Handler`s registered with
+`gastro.WithHandler("POST /signup", h)`.
 
 ### Static Assets
 
@@ -208,8 +212,8 @@ http.ListenAndServe(":4242", router.Handler())
 
 `gastro.New(opts...)` returns a `*Router` whose `Handler()` you mount on
 your HTTP server. Other options include `WithDeps[T]` for typed dependency
-injection into pages, `WithOverride(pattern, handler)` for replacing an
-auto-generated route with a Go handler, `WithMiddleware(pattern, fn)` for
+injection into pages, `WithHandler(pattern, handler)` for adding command
+routes or replacing a page route with a Go handler, `WithMiddleware(pattern, fn)` for
 wrapping routes (subtree wildcards via `"/admin/{path...}"`),
 `WithRequestFuncs(binder)` for **request-aware template helpers** (i18n
 translators, CSRF tokens, CSP nonces — see [Helpers → Request-aware
@@ -298,6 +302,8 @@ dynamic pages, template helpers, and static assets.
 - [Markdown](docs/markdown.md) -- Embedding markdown via `//gastro:embed` and rendering with goldmark
 - [Dev Mode](docs/dev-mode.md) -- `gastro dev`, `gastro watch`, env vars, composed setups
 - [Error Handling](docs/error-handling.md) -- Failure modes and `WithErrorHandler`
+- [Compatibility](docs/compatibility.md) -- Versioning, breaking changes, and generated-code compatibility
+- [Migrating to v0.4](docs/migrations/v0.4.md) -- GET-only pages, `WithHandler`, typed `router.Render`, the `datastar` module
 - [Design](docs/design.md) -- Complete design document with all decisions
 - [Architecture](docs/architecture.md) -- Code architecture and package guide
 - [Contributing](docs/contributing.md) -- How to contribute

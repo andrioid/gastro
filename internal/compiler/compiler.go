@@ -7,6 +7,7 @@ import (
 	goformat "go/format"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -19,18 +20,21 @@ import (
 // CompileOptions configures compilation behavior.
 type CompileOptions struct {
 	Strict bool // Treat warnings as errors (production builds)
-}
-
-// FileWarning represents a warning from a specific file during compilation.
-type FileWarning struct {
-	File    string
-	Line    int
-	Message string
+	// Version is stamped into every generated file's header. Empty
+	// stamps the running binary's version (buildinfo.Version).
+	Version string
+	// TypecheckProps (--typecheck-props) checks literal dict values
+	// against component Props field types at generate time and emits
+	// strict render-time type checks (gastroRuntime.CheckPropTypes) into
+	// every component, so the generated code differs with the flag.
+	TypecheckProps bool
 }
 
 // CompileResult contains the output of a successful compilation.
 type CompileResult struct {
-	Warnings []FileWarning
+	// Warnings lists every diagnostic of the run; on success they are
+	// all warnings.
+	Warnings []Diagnostic
 	// EmbedDeps lists absolute paths to every external file referenced by a
 	// //gastro:embed directive in frontmatter during this compile. Useful
 	// for the dev watcher so changes to these files can trigger a
@@ -44,13 +48,21 @@ type CompileResult struct {
 
 // Compile reads all .gastro files from a project directory, processes them
 // through the parser and code generator, and writes the output to outputDir.
+//
+// Every file is compiled before anything is written, and every diagnostic
+// of the run is collected. When any diagnostic is an error (or, under
+// Strict, any diagnostic at all) Compile returns a *DiagnosticsError and
+// leaves outputDir untouched, so the previous generation keeps working.
 func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult, error) {
-	// Ensure output subdirectories exist
-	for _, sub := range []string{"pages", "components", "templates"} {
-		if err := os.MkdirAll(filepath.Join(outputDir, sub), 0o755); err != nil {
-			return nil, fmt.Errorf("creating output directory: %w", err)
-		}
+	absProjectDir, err := filepath.Abs(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving project dir: %w", err)
 	}
+	if err := checkGoDirective(absProjectDir); err != nil {
+		return nil, err
+	}
+
+	header := codegen.GeneratedHeader(opts.Version)
 
 	// Discover all .gastro files
 	pageFiles, err := discoverFiles(filepath.Join(projectDir, "pages"), "pages")
@@ -62,17 +74,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("discovering components: %w", err)
 	}
-
-	// Process each file, collecting metadata for render.go and routes.go
 	allFiles := append(pageFiles, componentFiles...)
-	var components []componentMeta
-	var templates []templateMeta
-	var allWarnings []FileWarning
-	var allEmbedDeps []string
-	absProjectDir, err := filepath.Abs(projectDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolving project dir: %w", err)
-	}
 
 	// Pre-pass: gather every component's Props field list so the per-file
 	// pass can validate (dict ...) keys against the destination schema.
@@ -82,58 +84,66 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		return nil, fmt.Errorf("gathering component schemas: %w", err)
 	}
 
-	// Pre-pass: detect component name collisions before any per-file work
-	// writes Go files to disk. Two component files that produce the same
-	// ExportedName (e.g. components/post-card.gastro and
-	// components/post/card.gastro both producing "PostCard") would yield
-	// duplicate type and method names in render.go and overwrite each
-	// other's per-file Go output. Catch it here with a clear message
-	// before either failure mode triggers.
-	for _, w := range findComponentNameCollisions(componentFiles) {
-		allWarnings = append(allWarnings, w)
-		if opts.Strict {
-			return nil, fmt.Errorf("compiling %s: %s", w.File, w.Message)
-		}
-	}
+	// Pre-pass: detect component name collisions. Two component files
+	// that produce the same ExportedName (e.g. components/post-card.gastro
+	// and components/post/card.gastro both producing "PostCard") would
+	// yield duplicate type and method names in render.go and overwrite
+	// each other's per-file Go output.
+	diags := findComponentNameCollisions(componentFiles)
 
 	// Pre-pass: detect page-id collisions across pages and components.
 	// DerivePageID is intentionally lossy (collapses non-ident chars to
 	// underscores) so two visually-distinct paths can sanitise to the
 	// same id. With mangled hoisted decls, that would yield duplicate
-	// package-level symbols. Catch it here before codegen runs.
-	if collisions := findPageIDCollisions(pageFiles, componentFiles); len(collisions) > 0 {
-		for _, w := range collisions {
-			allWarnings = append(allWarnings, w)
-			if opts.Strict {
-				return nil, fmt.Errorf("compiling %s: %s", w.File, w.Message)
-			}
+	// package-level symbols.
+	diags = append(diags, findPageIDCollisions(pageFiles, componentFiles)...)
+	diags = append(diags, findGeneratedIdentifierClashes(componentFiles)...)
+
+	outputs := make([]*fileOutput, 0, len(allFiles))
+	for _, relPath := range allFiles {
+		absPath := filepath.Join(projectDir, relPath)
+		out, fileDiags := compileFile(absPath, relPath, absProjectDir, opts, propsByPath, knownComponents)
+		diags = append(diags, fileDiags...)
+		if out != nil {
+			outputs = append(outputs, out)
 		}
 	}
 
-	for _, relPath := range allFiles {
-		absPath := filepath.Join(projectDir, relPath)
-		result, err := compileFile(absPath, relPath, absProjectDir, outputDir, propsByPath, knownComponents)
-		if err != nil {
-			return nil, fmt.Errorf("compiling %s: %w", relPath, err)
+	if opts.Strict {
+		for i := range diags {
+			diags[i].Severity = codegen.SeverityError
 		}
+	}
+	sortDiagnostics(diags)
+	if slices.ContainsFunc(diags, Diagnostic.IsError) {
+		return nil, &DiagnosticsError{Diagnostics: diags}
+	}
 
-		// Collect warnings from frontmatter analysis
-		for _, w := range result.warnings {
-			if opts.Strict {
-				return nil, fmt.Errorf("compiling %s: %s", relPath, w.Message)
-			}
-			allWarnings = append(allWarnings, FileWarning{
-				File:    relPath,
-				Line:    w.Line,
-				Message: w.Message,
-			})
+	// Every file compiled cleanly; only now touch outputDir.
+	for _, sub := range []string{"pages", "components", "templates"} {
+		if err := os.MkdirAll(filepath.Join(outputDir, sub), 0o755); err != nil {
+			return nil, fmt.Errorf("creating output directory: %w", err)
 		}
+	}
 
-		templates = append(templates, result.template)
-		if result.component != nil {
-			components = append(components, *result.component)
+	var components []componentMeta
+	var templates []templateMeta
+	var allEmbedDeps []string
+	for _, out := range outputs {
+		templatePath := filepath.Join(outputDir, "templates", out.template.TemplateFile)
+		if err := os.WriteFile(templatePath, []byte(out.templateBody), 0o644); err != nil {
+			return nil, fmt.Errorf("writing template for %s: %w", out.relPath, err)
 		}
-		allEmbedDeps = append(allEmbedDeps, result.embedDeps...)
+		// All generated .go files go flat in the output directory (same
+		// package).
+		if err := writeGoFile(filepath.Join(outputDir, outputGoFile(out.relPath)), []byte(out.goCode)); err != nil {
+			return nil, fmt.Errorf("writing handler for %s: %w", out.relPath, err)
+		}
+		templates = append(templates, out.template)
+		if out.component != nil {
+			components = append(components, *out.component)
+		}
+		allEmbedDeps = append(allEmbedDeps, out.embedDeps...)
 	}
 
 	// Detect static asset directory (ignore dotfiles like .gitkeep, .DS_Store)
@@ -159,19 +169,19 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	}
 
 	// Generate embed.go with //go:embed directives
-	if err := generateEmbedFile(hasStatic, outputDir); err != nil {
+	if err := generateEmbedFile(header, hasStatic, outputDir); err != nil {
 		return nil, fmt.Errorf("generating embed: %w", err)
 	}
 
 	// Generate routes file
 	routes := router.BuildRoutes(pageFiles)
-	if err := generateRoutesFile(routes, templates, components, hasStatic, outputDir); err != nil {
+	if err := generateRoutesFile(header, routes, templates, components, hasStatic, outputDir); err != nil {
 		return nil, fmt.Errorf("generating routes: %w", err)
 	}
 
 	// Generate render file for component rendering API
 	if len(components) > 0 {
-		if err := generateRenderFile(components, outputDir); err != nil {
+		if err := generateRenderFile(header, components, outputDir); err != nil {
 			return nil, fmt.Errorf("generating render: %w", err)
 		}
 	}
@@ -208,7 +218,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	}
 
 	return &CompileResult{
-		Warnings:       allWarnings,
+		Warnings:       diags,
 		EmbedDeps:      dedupeStrings(allEmbedDeps),
 		ComponentCount: componentCount,
 		PageCount:      pageCount,
@@ -244,8 +254,8 @@ func discoverFiles(dir, prefix string) ([]string, error) {
 // would produce duplicate package-level symbols. Reports each later
 // occurrence as a warning whose message references the first colliding
 // path; the first occurrence is left alone.
-func findPageIDCollisions(pageFiles, componentFiles []string) []FileWarning {
-	var warnings []FileWarning
+func findPageIDCollisions(pageFiles, componentFiles []string) []Diagnostic {
+	var warnings []Diagnostic
 	for _, group := range []struct {
 		kind  string
 		files []string
@@ -260,9 +270,11 @@ func findPageIDCollisions(pageFiles, componentFiles []string) []FileWarning {
 		for _, relPath := range group.files {
 			id := codegen.DerivePageID(relPath)
 			if first, exists := seen[id]; exists {
-				warnings = append(warnings, FileWarning{
-					File: relPath,
-					Line: 1,
+				warnings = append(warnings, Diagnostic{
+					File:     relPath,
+					Line:     1,
+					Col:      1,
+					Severity: codegen.SeverityWarning,
 					Message: fmt.Sprintf(
 						"%s path sanitises to id %q which collides with %q; rename one of the files so their paths produce distinct ids",
 						group.kind, id, first,
@@ -284,18 +296,20 @@ func findPageIDCollisions(pageFiles, componentFiles []string) []FileWarning {
 // Derived purely from path strings (no file I/O), so this can run in the
 // pre-pass before any per-file work writes Go output. The mapping is the
 // same one the codegen uses: HandlerFuncName(path) -> ExportedComponentName.
-func findComponentNameCollisions(componentFiles []string) []FileWarning {
+func findComponentNameCollisions(componentFiles []string) []Diagnostic {
 	if len(componentFiles) < 2 {
 		return nil
 	}
 	seen := make(map[string]string, len(componentFiles)) // ExportedName -> relPath
-	var warnings []FileWarning
+	var warnings []Diagnostic
 	for _, relPath := range componentFiles {
 		exported := codegen.ExportedComponentName(codegen.HandlerFuncName(relPath))
 		if first, ok := seen[exported]; ok {
-			warnings = append(warnings, FileWarning{
-				File: relPath,
-				Line: 0,
+			warnings = append(warnings, Diagnostic{
+				File:     relPath,
+				Line:     1,
+				Col:      1,
+				Severity: codegen.SeverityWarning,
 				Message: fmt.Sprintf(
 					"component name collision: %q and %q both produce the exported name %q; rename one of the files to avoid duplicate type and function names in generated code (and per-file .go output overwriting itself)",
 					first, relPath, exported,
@@ -306,6 +320,49 @@ func findComponentNameCollisions(componentFiles []string) []FileWarning {
 		}
 	}
 	return warnings
+}
+
+// generatedIdentifiers are the exported package-level names every
+// generated package declares in routes.go and render.go.
+var generatedIdentifiers = map[string]bool{
+	"New": true, "Routes": true, "Router": true, "Option": true,
+	"WithDevMode": true, "WithFuncs": true, "WithClassMerger": true, "WithDeps": true,
+	"WithHandler": true, "WithMiddleware": true, "WithRequestFuncs": true, "WithErrorHandler": true,
+}
+
+// findGeneratedIdentifierClashes reports components whose exported name
+// would redeclare a package-level identifier of the generated package:
+// each component exports a Component value named after it, next to the
+// generated API and every component's XProps type.
+func findGeneratedIdentifierClashes(componentFiles []string) []Diagnostic {
+	propsTypes := make(map[string]string, len(componentFiles)) // "XProps" -> relPath
+	for _, relPath := range componentFiles {
+		propsTypes[codegen.ExportedComponentName(codegen.HandlerFuncName(relPath))+"Props"] = relPath
+	}
+	var diags []Diagnostic
+	for _, relPath := range componentFiles {
+		exported := codegen.ExportedComponentName(codegen.HandlerFuncName(relPath))
+		var clash string
+		switch {
+		case generatedIdentifiers[exported]:
+			clash = "the generated router API"
+		case propsTypes[exported] != "":
+			clash = fmt.Sprintf("the props type of %q", propsTypes[exported])
+		default:
+			continue
+		}
+		diags = append(diags, Diagnostic{
+			File:     relPath,
+			Line:     1,
+			Col:      1,
+			Severity: codegen.SeverityError,
+			Message: fmt.Sprintf(
+				"component exported name %q clashes with %s in the generated package; rename the file",
+				exported, clash,
+			),
+		})
+	}
+	return diags
 }
 
 // templateMeta holds per-template metadata needed by routes.go to wire up
@@ -326,13 +383,16 @@ type componentMeta struct {
 	HasChildren   bool
 }
 
-// compileResult is returned by compileFile. It always contains template
-// metadata and optionally component metadata (nil for pages).
-type compileResult struct {
-	template  templateMeta
-	component *componentMeta
-	warnings  []codegen.Warning
-	embedDeps []string
+// fileOutput is everything compileFile produces for one source file. It
+// always contains template metadata and optionally component metadata
+// (nil for pages).
+type fileOutput struct {
+	relPath      string
+	template     templateMeta
+	component    *componentMeta
+	templateBody string // transformed template, written to templates/
+	goCode       string // handler source, written to the output root
+	embedDeps    []string
 }
 
 // gatherComponentSchemas reads each component file's frontmatter, extracts
@@ -385,16 +445,26 @@ func gatherComponentSchemas(componentFiles []string, projectDir string) (map[str
 	return propsByPath, knownComponents, nil
 }
 
-func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath map[string][]codegen.StructField, knownComponents map[string]bool) (compileResult, error) {
+// compileFile compiles one .gastro file in memory. It returns the file's
+// output, or nil when any error-severity diagnostic was found, plus every
+// diagnostic for the file. Nothing is written: Compile writes the outputs
+// once the whole project compiled cleanly.
+func compileFile(absPath, relPath, absProjectDir string, opts CompileOptions, propsByPath map[string][]codegen.StructField, knownComponents map[string]bool) (*fileOutput, []Diagnostic) {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return compileResult{}, err
+		return nil, []Diagnostic{{File: relPath, Line: 1, Col: 1, Severity: codegen.SeverityError, Message: err.Error()}}
 	}
+	pos := newSourcePositions(relPath, string(content))
 
-	// Parse
 	file, err := parser.Parse(relPath, string(content))
 	if err != nil {
-		return compileResult{}, err
+		// parser.Parse prefixes the file name, which the diagnostic
+		// already carries.
+		msg := err.Error()
+		if inner := errors.Unwrap(err); inner != nil {
+			msg = inner.Error()
+		}
+		return nil, []Diagnostic{pos.at(1, 1, codegen.SeverityError, msg)}
 	}
 
 	// Expand //gastro:embed directives in the frontmatter before any
@@ -408,19 +478,39 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		// reject anything outside this fallback root.
 		moduleRoot = absProjectDir
 	}
-	rewrittenFM, embedDeps, err := codegen.ProcessEmbedDirectives(file.Frontmatter, codegen.EmbedContext{
-		SourceFile: absPath,
-		ModuleRoot: moduleRoot,
-	})
+	embedCtx := codegen.EmbedContext{SourceFile: absPath, ModuleRoot: moduleRoot}
+	rewrittenFM, embedDeps, err := codegen.ProcessEmbedDirectives(file.Frontmatter, embedCtx)
 	if err != nil {
-		return compileResult{}, err
+		return nil, embedDiagnostics(pos, file, embedCtx, err)
 	}
+	// The rewrite keeps line numbers, so frontmatter-relative lines
+	// reported below still map through file.FrontmatterSourceLine.
 	file.Frontmatter = rewrittenFM
 
-	// Analyze frontmatter
 	info, err := codegen.AnalyzeFrontmatter(file.Frontmatter)
 	if err != nil {
-		return compileResult{}, err
+		var hoistErr *codegen.HoistError
+		if errors.As(err, &hoistErr) {
+			return nil, []Diagnostic{pos.atLine(file.FrontmatterSourceLine(hoistErr.Line), codegen.SeverityError, hoistErr.Message())}
+		}
+		return nil, []Diagnostic{pos.at(file.FrontmatterLine, 1, codegen.SeverityError, err.Error())}
+	}
+
+	var diags []Diagnostic
+	for _, w := range info.Warnings {
+		diags = append(diags, pos.atLine(file.FrontmatterSourceLine(w.Line), codegen.SeverityWarning, w.Message))
+	}
+
+	// Validate the template as written: un-imported components (issue
+	// #39) and (dict ...) keys against each component's Props schema.
+	// Positions are template-body relative; the body starts at column 1
+	// of file.TemplateBodyLine.
+	validateOpts := codegen.ValidateDictKeysOptions{TypecheckProps: opts.TypecheckProps}
+	for _, d := range codegen.ValidateTemplate(file.TemplateBody, file.Uses, propsByPath, validateOpts) {
+		diags = append(diags, pos.at(file.TemplateBodyLine+d.StartLine-1, d.StartCol, d.Severity, d.Message))
+	}
+	if slices.ContainsFunc(diags, Diagnostic.IsError) {
+		return nil, diags
 	}
 
 	// Check for children usage before template transformation. Goes
@@ -429,35 +519,9 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 	// a component renders children — see internal/codegen/template.go.
 	hasChildren := codegen.TemplateRendersChildren(file.TemplateBody)
 
-	// Transform template body
 	transformedBody, err := codegen.TransformTemplate(file.TemplateBody, file.Uses)
 	if err != nil {
-		return compileResult{}, err
-	}
-
-	// Parity with the {{ wrap X }} path (which errors in TransformTemplate):
-	// a bare call to an un-imported PascalCase component is a generate-time
-	// error, not a runtime surprise in New(). See issue #39.
-	if err := codegen.ValidateImportedComponents(transformedBody, file.Uses); err != nil {
-		var uc *codegen.UnknownComponentError
-		if errors.As(err, &uc) && uc.Line > 0 && file.TemplateBodyLine > 0 {
-			return compileResult{}, fmt.Errorf("line %d: %w", file.TemplateBodyLine+uc.Line-1, uc)
-		}
-		return compileResult{}, err
-	}
-
-	// Validate (dict ...) keys against the destination component's Props
-	// schema. Unknown keys produce warnings here; opts.Strict in Compile
-	// promotes them to errors. Falls back to silent no-op if the body
-	// doesn't parse with the stub FuncMap (rare).
-	dictWarnings := codegen.ValidateDictKeys(transformedBody, file.Uses, propsByPath)
-
-	// Write template file. outputTemplateFile mirrors the name transform
-	// the prune pass uses for the keep-set so the two never drift.
-	templateFile := outputTemplateFile(relPath)
-	templatePath := filepath.Join(outputDir, "templates", templateFile)
-	if err := os.WriteFile(templatePath, []byte(transformedBody), 0o644); err != nil {
-		return compileResult{}, err
+		return nil, append(diags, pos.at(file.TemplateBodyLine, 1, codegen.SeverityError, err.Error()))
 	}
 
 	// Determine component status: explicit gastro.Props() call, or
@@ -467,19 +531,10 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		isComponent = true
 	}
 
-	// Generate handler Go code
 	file.TemplateBody = transformedBody
-	handlerCode, err := codegen.GenerateHandler(file, info, isComponent, codegen.GenerateOptions{MangleHoisted: true})
+	handlerCode, err := codegen.GenerateHandler(file, info, isComponent, codegen.GenerateOptions{MangleHoisted: true, Version: opts.Version, TypecheckProps: opts.TypecheckProps})
 	if err != nil {
-		return compileResult{}, err
-	}
-
-	// All generated .go files go flat in the output directory (same
-	// package). outputGoFile mirrors the prune pass's keep-set transform
-	// so a live output is never deleted.
-	goFilePath := filepath.Join(outputDir, outputGoFile(relPath))
-	if err := writeGoFile(goFilePath, []byte(handlerCode)); err != nil {
-		return compileResult{}, err
+		return nil, append(diags, pos.at(file.FrontmatterLine, 1, codegen.SeverityError, err.Error()))
 	}
 
 	funcName := codegen.HandlerFuncName(relPath)
@@ -504,43 +559,23 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		})
 	}
 
-	tmplMeta := templateMeta{
-		FuncName:     funcName,
-		TemplateFile: templateFile,
-		Uses:         uses,
-	}
-
-	// Track B (docs/history/frictions-plan.md §4.9): for pages, run the
-	// shared response-write analyzer over the frontmatter and emit a
-	// warning for every write site that isn't followed by `return`.
-	// Components don't have `w` / `r` in scope, so the analyzer is
-	// gated to pages here to avoid surprising warnings on a component
-	// that happens to bind a local `w` for unrelated reasons.
-	var respwriteWarnings []codegen.Warning
-	if !isComponent {
-		respwriteWarnings = codegen.ValidateFrontmatterReturns(file.Frontmatter)
-	}
-
-	// Combine frontmatter warnings with dict-key validation warnings. The
-	// dict warnings already carry template-body line numbers; rebase them
-	// onto the source file's coordinate system by offsetting by the line
-	// where the template body starts.
-	combinedWarnings := append([]codegen.Warning(nil), info.Warnings...)
-	combinedWarnings = append(combinedWarnings, respwriteWarnings...)
-	for _, w := range dictWarnings {
-		line := w.Line
-		if file.TemplateBodyLine > 0 {
-			line = file.TemplateBodyLine + line - 1
-		}
-		combinedWarnings = append(combinedWarnings, codegen.Warning{
-			Line:    line,
-			Message: w.Message,
-		})
+	// outputTemplateFile / outputGoFile mirror the prune pass's
+	// keep-set transform so a live output is never deleted.
+	out := &fileOutput{
+		relPath:      relPath,
+		templateBody: transformedBody,
+		goCode:       handlerCode,
+		embedDeps:    embedDeps,
+		template: templateMeta{
+			FuncName:     funcName,
+			TemplateFile: outputTemplateFile(relPath),
+			Uses:         uses,
+		},
 	}
 
 	// Pages have no component metadata
 	if !isComponent {
-		return compileResult{template: tmplMeta, warnings: combinedWarnings, embedDeps: embedDeps}, nil
+		return out, diags
 	}
 
 	_, hoistedTypes := codegen.HoistTypeDeclarations(file.Frontmatter)
@@ -558,18 +593,14 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 	// The attribute-forwarding bag (a field of type gastro.Attrs) is
 	// hoisted verbatim from frontmatter, but render.go is itself package
 	// gastro and imports the runtime under the gastroRuntime alias.
-	// Normalize the type so the inline XProps struct compiles (#41), and
-	// flag the field so Render.X spreads the bag into the props map rather
-	// than nesting it under its own key, where MapToStruct would drop it
-	// (#42).
+	// Normalize the type so the inline XProps struct compiles (#41).
 	for i := range propsFields {
-		if propsFields[i].Type == "gastro.Attrs" || propsFields[i].Type == "gastroRuntime.Attrs" {
+		if propsFields[i].Type == "gastro.Attrs" {
 			propsFields[i].Type = "gastroRuntime.Attrs"
-			propsFields[i].IsAttrs = true
 		}
 	}
 
-	compMeta := &componentMeta{
+	out.component = &componentMeta{
 		ExportedName:  codegen.ExportedComponentName(funcName),
 		FuncName:      funcName,
 		HasProps:      info.PropsTypeName != "",
@@ -577,8 +608,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir string, propsByPath 
 		PropsFields:   propsFields,
 		HasChildren:   hasChildren,
 	}
-
-	return compileResult{template: tmplMeta, component: compMeta, warnings: combinedWarnings, embedDeps: embedDeps}, nil
+	return out, diags
 }
 
 // syncStatic copies the project's static/ directory into outputDir/static/.
@@ -686,10 +716,11 @@ func pruneStaleOutputs(outputDir string, keep map[string]struct{}) error {
 
 // embedData is the data passed to embedTmpl.
 type embedData struct {
+	Header    string
 	HasStatic bool
 }
 
-var embedTmpl = template.Must(template.New("embed").Parse(`// Code generated by gastro. DO NOT EDIT.
+var embedTmpl = template.Must(template.New("embed").Parse(`{{ .Header }}
 package gastro
 
 import "embed"
@@ -703,18 +734,17 @@ var staticAssetFS embed.FS
 {{- end }}
 `))
 
-func generateEmbedFile(hasStatic bool, outputDir string) error {
-	f, err := os.Create(filepath.Join(outputDir, "embed.go"))
-	if err != nil {
+func generateEmbedFile(header string, hasStatic bool, outputDir string) error {
+	var buf bytes.Buffer
+	if err := embedTmpl.Execute(&buf, embedData{Header: header, HasStatic: hasStatic}); err != nil {
 		return err
 	}
-	defer f.Close()
-
-	return embedTmpl.Execute(f, embedData{HasStatic: hasStatic})
+	return writeGoFile(filepath.Join(outputDir, "embed.go"), buf.Bytes())
 }
 
 // routesData is the data passed to routesTmpl.
 type routesData struct {
+	Header    string
 	Routes    []router.Route
 	Templates []templateMeta
 	// ComponentNames is the sorted list of every component's exported
@@ -727,7 +757,7 @@ type routesData struct {
 	HasStatic      bool
 }
 
-var routesTmpl = template.Must(template.New("routes").Parse(`// Code generated by gastro. DO NOT EDIT.
+var routesTmpl = template.Must(template.New("routes").Parse(`{{ .Header }}
 package gastro
 
 import (
@@ -743,7 +773,6 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strings"
-	"sync/atomic"
 
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
@@ -766,7 +795,7 @@ type Option func(*config)
 type config struct {
 	funcs        template.FuncMap
 	deps         map[reflect.Type]any
-	overrides    map[string]http.Handler
+	handlers     []handlerEntry
 	middleware   []middlewareEntry
 	devMode      *bool // nil = use GASTRO_DEV env var; non-nil = override
 	errorHandler gastroRuntime.PageErrorHandler
@@ -787,6 +816,13 @@ type config struct {
 type middlewareEntry struct {
 	pattern string
 	fn      gastroRuntime.MiddlewareFunc
+}
+
+// handlerEntry is one WithHandler registration, kept in call order so
+// conflict panics name the earlier registration first.
+type handlerEntry struct {
+	pattern string
+	h       http.Handler
 }
 
 // WithDevMode overrides the GASTRO_DEV environment variable for this Router.
@@ -850,53 +886,41 @@ func WithDeps[T any](deps T) Option {
 	}
 }
 
-// WithOverride replaces the auto-generated handler for a route pattern with
-// a user-supplied http.Handler. The pattern must exactly match one of the
-// gastro auto-routes (e.g. "/", "/blog/{slug}", or the static-asset prefix);
-// New() panics if it does not, to catch typos early.
+// WithHandler registers h for an http.ServeMux pattern next to the
+// generated page routes. The pattern may carry a method ("POST
+// /tasks/{id}/place") or not ("/healthz"). Pages are GET views; commands
+// are ordinary handlers registered here, sharing the router's middleware
+// and deps (gastro.From[T](r.Context()) works inside h).
 //
-// Track B (docs/history/frictions-plan.md §4.2): page patterns are now
-// method-less. Where pre-Track-B you'd write WithOverride for an explicit
-// HTTP method, you now write the path alone and the override receives every
-// method for that path. The static-asset prefix is the lone exception —
-// it keeps its method prefix because static files are read-only.
-//
-// Use this when a page needs typed dependencies that frontmatter cannot
-// express, or when a handler needs full control over the response (streaming,
-// custom status codes, content negotiation).
-func WithOverride(pattern string, h http.Handler) Option {
+// A pattern identical to a page's ("GET /board") or to the static-asset
+// prefix ("GET /static/") replaces that route's handler. Any other
+// pattern adds a route. A registration that http.ServeMux rejects as
+// conflicting panics in New() with a message naming both sources.
+func WithHandler(pattern string, h http.Handler) Option {
 	return func(c *config) {
-		if c.overrides == nil {
-			c.overrides = make(map[string]http.Handler)
-		}
-		c.overrides[pattern] = h
+		c.handlers = append(c.handlers, handlerEntry{pattern: pattern, h: h})
 	}
 }
 
-// WithMiddleware wraps the handler for every auto-route whose pattern
-// matches the supplied http.ServeMux pattern. Patterns use Go's stdlib
-// pattern syntax: "/counter" for an exact path, "/admin/{path...}" for
-// a subtree wildcard, "/blog/{slug}" to match a parametrised route.
+// WithMiddleware wraps the handler of every route — generated page
+// routes and WithHandler routes alike — whose path matches the supplied
+// http.ServeMux pattern. Patterns use Go's stdlib pattern syntax:
+// "/counter" for an exact path, "/admin/{path...}" for a subtree
+// wildcard, "/blog/{slug}" to match a parametrised route.
 //
 // Patterns are path-only — there is no method scoping. Middleware that
 // must only run for, say, POST should branch on r.Method internally.
-// This mirrors WithOverride's path-only contract (Track B,
-// docs/history/frictions-plan.md §4.2) and avoids the asymmetry where
-// override and middleware would accept different pattern shapes.
+// Method-qualified routes ("POST /tasks/{id}/place") are matched by
+// their path part.
 //
 // Validation: at New() time the pattern must match at least one known
-// auto-route, probed via gastroRuntime.PatternMatchesAnyRoute. A
-// pattern that matches nothing panics with a descriptive error — same
-// typo-safety posture as WithOverride.
+// route, probed via gastroRuntime.PatternMatchesAnyRoute. A pattern that
+// matches nothing panics with a descriptive error.
 //
 // Composition: multiple WithMiddleware calls for overlapping patterns
 // compose in registration order. The first call ends up outermost
-// (runs first on the request, last on the response). When both
-// WithOverride and WithMiddleware target the same route, the override
-// replaces the page handler and the middleware then wraps the override
-// — "middleware wraps override".
-//
-// Wave 4 / C2 (docs/history/frictions-plan.md §3 Wave 4).
+// (runs first on the request, last on the response). When WithHandler
+// replaces a page route, the middleware wraps the replacement.
 func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
 	return func(c *config) {
 		c.middleware = append(c.middleware, middlewareEntry{pattern: pattern, fn: fn})
@@ -905,7 +929,7 @@ func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
 
 // WithRequestFuncs registers a function-map binder that runs once per
 // request. The returned FuncMap is merged with the static FuncMap built
-// from WithFuncs before the page (or Render.With(r) call) executes.
+// from WithFuncs before the page (or a Render of c.With(r)) executes.
 //
 // Multiple WithRequestFuncs calls compose. Helper names must be unique
 // across the union of built-ins, WithFuncs, and all binders — including
@@ -999,16 +1023,19 @@ func (__r *Router) __gastro_handleError(w http.ResponseWriter, r *http.Request, 
 	gastroRuntime.DefaultErrorHandler(w, r, err)
 }
 
-// __gastro_active is the most-recently-constructed Router, used by the
-// package-level Render variable so existing single-router callers keep
-// working without code changes. Stored atomically so concurrent New()
-// calls (parallel tests, multi-tenant servers) and concurrent Render
-// access don't race.
+// Render renders component c with typed props and returns its HTML. Each
+// file under components/ has a Component value in this package (see
+// render.go):
 //
-// For multi-router scenarios, prefer holding onto the *Router returned by
-// New() and calling router.Render().X(...) directly — that path never
-// touches the global.
-var __gastro_active atomic.Pointer[Router]
+//	html, err := router.Render(gastro.Card, gastro.CardProps{Title: "Hello"})
+//
+// The props struct goes straight to the component, with no map round-trip;
+// props of another component's type fail to compile. Bind the render to a
+// request with c.With(r) so request-aware helpers (WithRequestFuncs) see
+// its state.
+func (__r *Router) Render[P any](c gastroRuntime.Component[P], props P) (template.HTML, error) {
+	return gastroRuntime.RenderComponent(__r, c, props)
+}
 
 // __gastro_componentNames is the sorted list of every component's
 // exported name in this project. Generated from the codegen pipeline
@@ -1044,7 +1071,7 @@ func (__r *Router) __gastro_componentClosuresForRequest(name string, r *http.Req
 {{- range .Uses}}
 {{- if .Propless}}
 		// Propless component: variadic wrapper so bare calls work.
-		fm["{{ .Name }}"] = func(p ...map[string]any) template.HTML {
+		fm["{{ .Name }}"] = func(p ...map[string]any) (template.HTML, error) {
 			var props map[string]any
 			if len(p) > 0 && p[0] != nil {
 				props = p[0]
@@ -1055,7 +1082,7 @@ func (__r *Router) __gastro_componentClosuresForRequest(name string, r *http.Req
 			return __r.{{ .FuncName }}(props)
 		}
 {{- else}}
-		fm["{{ .Name }}"] = func(p map[string]any) template.HTML {
+		fm["{{ .Name }}"] = func(p map[string]any) (template.HTML, error) {
 			if p == nil {
 				p = map[string]any{}
 			}
@@ -1092,7 +1119,7 @@ func (__r *Router) __gastro_buildFuncMap(name string, userFuncs template.FuncMap
 {{- range .Uses}}
 {{- if .Propless}}
 		// Propless component: variadic wrapper so bare calls work.
-		fm["{{ .Name }}"] = func(p ...map[string]any) template.HTML {
+		fm["{{ .Name }}"] = func(p ...map[string]any) (template.HTML, error) {
 			var props map[string]any
 			if len(p) > 0 && p[0] != nil {
 				props = p[0]
@@ -1105,10 +1132,14 @@ func (__r *Router) __gastro_buildFuncMap(name string, userFuncs template.FuncMap
 		fm["{{ .Name }}"] = __r.{{ .FuncName }}
 {{- end}}
 {{- end}}
-		fm["__gastro_render_children"] = func(n string, data any) template.HTML {
+		// Errors propagate so a component failing inside a wrap slot
+		// (a dev-mode props violation) fails the enclosing render.
+		fm["__gastro_render_children"] = func(n string, data any) (template.HTML, error) {
 			var __buf bytes.Buffer
-			__r.__gastro_getTemplate("{{$fn}}").ExecuteTemplate(&__buf, n, data)
-			return template.HTML(__buf.String())
+			if err := __r.__gastro_getTemplate("{{$fn}}").ExecuteTemplate(&__buf, n, data); err != nil {
+				return "", err
+			}
+			return template.HTML(__buf.String()), nil
 		}
 {{- end}}{{end}}
 	}
@@ -1201,8 +1232,9 @@ func (__r *Router) __gastro_renderPage(name string, w http.ResponseWriter, r *ht
 }
 
 // __gastro_renderComponent is the request-aware sibling of
-// __gastro_renderPage used by components when invoked via
-// Render.With(r).X(props). It always uses the per-request FuncMap path
+// __gastro_renderPage used by components rendered with a request bound
+// (router.Render(X.With(r), …) or a nested call from a request-aware
+// page). It always uses the per-request FuncMap path
 // (writes into the supplied bytes.Buffer so the caller can return
 // template.HTML). When no binders are registered the per-request path
 // still works — it just produces an empty extras FuncMap and the
@@ -1299,10 +1331,12 @@ func (__r *Router) __gastro_executeForRequest(name string, r *http.Request, w io
 	// helpers. (The parse-time wrap closure in __gastro_buildFuncMap
 	// targets the registry copy, which doesn't carry per-request funcs;
 	// overriding here is what makes nested wrap propagation work.)
-	extra["__gastro_render_children"] = func(n string, d any) template.HTML {
+	extra["__gastro_render_children"] = func(n string, d any) (template.HTML, error) {
 		var buf bytes.Buffer
-		_ = tmpl.ExecuteTemplate(&buf, n, d)
-		return template.HTML(buf.String())
+		if err := tmpl.ExecuteTemplate(&buf, n, d); err != nil {
+			return "", err
+		}
+		return template.HTML(buf.String()), nil
 	}
 	tmpl.Funcs(extra)
 	return tmpl.Execute(w, data)
@@ -1382,7 +1416,7 @@ func __gastro_probeBinders(cfg *config) map[string]bool {
 //
 //	router := gastro.New(
 //		gastro.WithDeps(BoardDeps{...}),
-//		gastro.WithOverride("/", customHomeHandler),
+//		gastro.WithHandler("POST /tasks/{id}/place", placeTask),
 //	)
 //	http.ListenAndServe(":8080", router.Handler())
 func New(opts ...Option) *Router {
@@ -1429,37 +1463,33 @@ func New(opts ...Option) *Router {
 		binderKeys:   binderKeys,
 	}
 
-	// Validate WithOverride patterns: each must match a known auto-route
-	// (or the static prefix). Catches typos at startup rather than letting
-	// the override silently register a brand-new route.
-	knownPatterns := map[string]bool{
+	// Route table: the static-asset prefix and the GET-only page routes,
+	// then WithHandler registrations — an identical pattern replaces the
+	// generated route, any other pattern adds one.
+	generated := []gastroRuntime.Route{
 {{- if .HasStatic}}
-		"GET /static/": true,
+		{Pattern: "GET /static/", Source: "static assets (static/)", Handler: http.StripPrefix("/static/", http.FileServerFS(gastroRuntime.GetStaticFS(staticAssetFS)))},
 {{- end}}
 {{- range .Routes}}
-		"{{ .Pattern }}": true,
+		{Pattern: {{ printf "%q" .Pattern }}, Source: {{ printf "%q" (print "page " .File) }}, Handler: http.HandlerFunc(__r.{{ .FuncName }})},
 {{- end}}
 	}
-	for pat := range cfg.overrides {
-		if !knownPatterns[pat] {
-			known := make([]string, 0, len(knownPatterns))
-			for p := range knownPatterns {
-				known = append(known, p)
-			}
-			panic(fmt.Sprintf(
-				"gastro: WithOverride: pattern %q does not match any auto-route. known: %v",
-				pat, known,
-			))
-		}
+	handlers := make([]gastroRuntime.Route, 0, len(cfg.handlers))
+	for i, he := range cfg.handlers {
+		handlers = append(handlers, gastroRuntime.Route{
+			Pattern: he.pattern,
+			Source:  fmt.Sprintf("WithHandler(%q) #%d", he.pattern, i+1),
+			Handler: he.h,
+		})
 	}
+	routes := gastroRuntime.MergeRoutes(generated, handlers)
 
 	// Validate WithMiddleware patterns: each must match at least one
-	// known auto-route via gastroRuntime.PatternMatchesAnyRoute. Same
-	// typo-safety posture as WithOverride; the matcher diverges only
-	// because middleware patterns can carry {slug...} wildcards.
-	knownRoutes := make([]string, 0, len(knownPatterns))
-	for p := range knownPatterns {
-		knownRoutes = append(knownRoutes, p)
+	// route (page or WithHandler) via gastroRuntime.PatternMatchesAnyRoute,
+	// so a typo panics at startup instead of silently wrapping nothing.
+	knownRoutes := make([]string, 0, len(routes))
+	for _, rt := range routes {
+		knownRoutes = append(knownRoutes, rt.Pattern)
 	}
 	for _, mw := range cfg.middleware {
 		if err := gastroRuntime.ValidateMiddlewarePattern(mw.pattern, knownRoutes); err != nil {
@@ -1493,51 +1523,21 @@ func New(opts ...Option) *Router {
 		__r.registry[name] = tmpl
 	}
 
-	// applyMiddleware wraps h with every middleware whose pattern matches
-	// route. Middleware composes in registration order: the first
-	// WithMiddleware call ends up outermost (runs first on the request).
-	// This is the "middleware wraps override" branch of
-	// docs/history/frictions-plan.md Q3 — by the time we get here, h is
-	// already either the auto-route handler or the override.
-	applyMiddleware := func(route string, h http.Handler) http.Handler {
-		for i := len(cfg.middleware) - 1; i >= 0; i-- {
-			mw := cfg.middleware[i]
-			if gastroRuntime.MiddlewareApplies(mw.pattern, route) {
-				h = mw.fn(h)
+	// Wrap every route with each middleware whose pattern matches it.
+	// Middleware composes in registration order: the first WithMiddleware
+	// call ends up outermost (runs first on the request). A WithHandler
+	// that replaced a page is wrapped like the page would have been.
+	for i := range routes {
+		for j := len(cfg.middleware) - 1; j >= 0; j-- {
+			mw := cfg.middleware[j]
+			if gastroRuntime.MiddlewareApplies(mw.pattern, routes[i].Pattern) {
+				routes[i].Handler = mw.fn(routes[i].Handler)
 			}
 		}
-		return h
 	}
 
-	// Build the mux. Overrides win over auto-routes by matching pattern,
-	// then any matching middleware wraps the resulting handler.
-	mux := http.NewServeMux()
-{{- if .HasStatic}}
-	{
-		var h http.Handler
-		if over, ok := cfg.overrides["GET /static/"]; ok {
-			h = over
-		} else {
-			staticFS := gastroRuntime.GetStaticFS(staticAssetFS)
-			h = http.StripPrefix("/static/", http.FileServerFS(staticFS))
-		}
-		mux.Handle("GET /static/", applyMiddleware("GET /static/", h))
-	}
-{{- end}}
-{{- range .Routes}}
-	{
-		var h http.Handler
-		if over, ok := cfg.overrides["{{ .Pattern }}"]; ok {
-			h = over
-		} else {
-			h = http.HandlerFunc(__r.{{ .FuncName }})
-		}
-		mux.Handle("{{ .Pattern }}", applyMiddleware("{{ .Pattern }}", h))
-	}
-{{- end}}
-
-	__r.mux = mux
-	__gastro_active.Store(__r)
+	// Conflicting registrations panic here, naming both sources.
+	__r.mux = gastroRuntime.NewRouteMux(routes)
 	return __r
 }
 
@@ -1559,10 +1559,9 @@ func (__r *Router) Handler() http.Handler {
 	return h
 }
 
-// Mux returns the underlying *http.ServeMux. Use this for fine-grained
-// route registration that WithOverride cannot express. Mutations bypass
-// the deps-attachment middleware, so handlers added this way will not see
-// values registered with WithDeps.
+// Mux returns the underlying *http.ServeMux. Prefer WithHandler, which
+// registers next to the page routes and receives WithMiddleware; routes
+// added directly on the mux bypass WithMiddleware and the conflict check.
 func (__r *Router) Mux() *http.ServeMux { return __r.mux }
 
 func (__r *Router) attachDepsMiddleware(next http.Handler) http.Handler {
@@ -1584,42 +1583,27 @@ func Routes(opts ...Option) http.Handler {
 
 // renderData is the data passed to renderTmpl.
 type renderData struct {
+	Header     string
 	Components []componentMeta
 }
 
-var renderTmpl = template.Must(template.New("render").Parse(`// Code generated by gastro. DO NOT EDIT.
+var renderTmpl = template.Must(template.New("render").Parse(`{{ .Header }}
 
-// This file exposes the Render API: typed entry points for rendering
-// components from Go code (HTTP handlers, SSE patch streams, tests).
+// This file declares one typed component handle per file under
+// components/, plus its XProps type. Render a component from Go code
+// (HTTP handlers, SSE patch streams, tests) through the router:
 //
-// Two public surfaces are generated by gastro:
-//
-//   - Routes()  in routes.go — mounts the file-based page routes as an
-//                              http.Handler. Use this from main().
-//   - Render    in this file — typed component rendering for code that
-//                              produces HTML outside the page-routing
-//                              flow (e.g. SSE handlers patching a card).
-//
-// Three ways to call it:
-//
-//	// 1. Package-level Render — simplest, uses the most-recently-
-//	//    constructed Router. Fine for single-router apps.
-//	html, err := gastro.Render.Card(gastro.CardProps{Title: "Hello"})
-//
-//	// 2. Router.Render() — prefer this in tests and multi-router setups
-//	//    (parallel tests, multi-tenant servers). Never touches the global.
 //	router := gastro.New(opts...)
-//	html, err := router.Render().Card(gastro.CardProps{Title: "Hello"})
+//	html, err := router.Render(gastro.Card, gastro.CardProps{Title: "Hello"})
 //
-//	// 3. Render.With(r) — binds the call to a *http.Request so request-
-//	//    aware helpers (WithRequestFuncs) see per-request state. Use from
-//	//    SSE handlers and custom http handlers.
-//	html, err := gastro.Render.With(r).Card(gastro.CardProps{Title: "Hello"})
+// Bind the render to a request so request-aware helpers
+// (WithRequestFuncs) see its state:
 //
-// Each method takes a typed Props value (and optional children for
-// components that accept them) and returns an HTML string plus an error.
-// Internally it calls the unexported componentX function shared with the
-// template renderer, so frontmatter logic runs identically in both paths.
+//	html, err := router.Render(gastro.Card.With(r), gastro.CardProps{Title: "Hello"})
+//
+// The typed props go straight to the component's render function (the
+// same one the template dict path ends in), so frontmatter logic runs
+// identically in both paths without a map[string]any round-trip.
 package gastro
 
 import (
@@ -1636,70 +1620,14 @@ var _ template.HTML
 var _ http.Request
 var _ gastroRuntime.Attrs
 
-// Render is the package-level entry point for rendering components from
-// Go code. It dispatches to the most-recently-constructed Router (set by
-// gastro.New()).
-//
-// Each method on Render corresponds to a component file in components/ and
-// takes that component's typed Props (plus an optional children argument for
-// components with slots). It returns the rendered HTML and any execution
-// error.
-//
-// Use Render from HTTP handlers, SSE patch streams, tests — anywhere outside
-// the page-routing flow exposed by Routes().
-//
-// For parallel tests or multi-tenant servers where multiple Routers coexist,
-// prefer router.Render().X(...) over the package-level Render. The router-
-// scoped path never reads the global, so it's race-free regardless of how
-// many Routers are in flight.
-//
-// See the package-level doc for an example.
-var Render = &renderAPI{}
-
-// Render returns a typed component-rendering API bound to this Router.
-// Unlike the package-level gastro.Render, methods on the returned value
-// dispatch directly to this Router's template registry and never read
-// the global __gastro_active pointer — making it safe to use from
-// parallel tests and multi-router setups.
-func (r *Router) Render() *renderAPI { return &renderAPI{router: r} }
-
-// renderAPI dispatches component-rendering calls to a specific Router.
-// A nil router means "use the most-recently-constructed Router" (the
-// package-level Render value); a non-nil router pins dispatch to that
-// instance.
-//
-// The req field, when non-nil, signals that calls on this renderAPI
-// should route through the request-aware FuncMap path — i.e. binder
-// helpers registered via WithRequestFuncs see per-request state. A nil
-// req routes through the legacy static path. See With() below.
-type renderAPI struct {
-	router *Router
-	req    *http.Request
-}
-
-// resolve returns the Router this renderAPI should dispatch to. If the
-// renderAPI is bound to a specific Router (via Router.Render()), that's
-// returned; otherwise the most-recently-constructed Router is loaded
-// atomically. Returns nil if no Router has been constructed yet.
-func (r *renderAPI) resolve() *Router {
-	if r.router != nil {
-		return r.router
+// __gastro_routerFor recovers this package's *Router from the untyped
+// router a gastroRuntime.Component render function receives.
+func __gastro_routerFor(rt any, component string) (*Router, error) {
+	r, ok := rt.(*Router)
+	if !ok || r == nil {
+		return nil, fmt.Errorf("gastro: component %s must be rendered by the Router of its own generated package", component)
 	}
-	return __gastro_active.Load()
-}
-
-// With returns a request-bound renderAPI. Calls on the returned value
-// route through the per-request FuncMap path, so request-aware helpers
-// (WithRequestFuncs) see the supplied request's state.
-//
-// The returned *renderAPI is reusable within a single request — store
-// it in a local and render multiple components from it. It must not be
-// shared across goroutines or retained beyond the request lifetime. A
-// nil request is allowed and behaves identically to the receiver
-// (useful as a guard so handler code doesn't have to branch on test vs
-// production request availability).
-func (r *renderAPI) With(req *http.Request) *renderAPI {
-	return &renderAPI{router: r.router, req: req}
+	return r, nil
 }
 {{ range .Components }}
 {{- /*
@@ -1710,10 +1638,11 @@ func (r *renderAPI) With(req *http.Request) *renderAPI {
   Three shapes:
     - HasProps && !HasChildren  -> alias to the user's hoisted struct
     - HasChildren               -> real struct: user fields + Children template.HTML
-    - !HasProps && !HasChildren -> no XProps type generated (Render.X())
+    - !HasProps && !HasChildren -> empty struct, so every component has a
+                                   distinct props type
 */ -}}
 {{- if .HasChildren }}
-// {{ .ExportedName }}Props is the typed prop struct for Render.{{ .ExportedName }}.
+// {{ .ExportedName }}Props is the typed prop struct for {{ .ExportedName }}.
 // The Children field carries the rendered HTML children content; it is
 // auto-added by codegen because the component template references {{ "{{ .Children }}" }}.
 type {{ .ExportedName }}Props struct {
@@ -1723,57 +1652,48 @@ type {{ .ExportedName }}Props struct {
 	Children template.HTML
 }
 {{- else if .HasProps }}
-// {{ .ExportedName }}Props is the typed prop struct for Render.{{ .ExportedName }}.
+// {{ .ExportedName }}Props is the typed prop struct for {{ .ExportedName }}.
 type {{ .ExportedName }}Props = {{ .PropsTypeName }}
+{{- else }}
+// {{ .ExportedName }}Props is the (empty) prop struct for {{ .ExportedName }},
+// which declares no Props.
+type {{ .ExportedName }}Props struct{}
 {{- end }}
 
-func (r *renderAPI) {{ .ExportedName }}({{ if or .HasProps .HasChildren }}props {{ .ExportedName }}Props{{ end }}) (string, error) {
-	propsMap := map[string]any{
-{{- range .PropsFields }}
-{{- if not .IsAttrs }}
-		"{{ .Name }}": props.{{ .Name }},
-{{- end }}
-{{- end }}
+// {{ .ExportedName }} is the typed handle for this component. Render it with
+// router.Render({{ .ExportedName }}, {{ .ExportedName }}Props{…}).
+var {{ .ExportedName }} = gastroRuntime.NewComponent(func(rt any, req *http.Request, props {{ .ExportedName }}Props) (template.HTML, error) {
+	r, err := __gastro_routerFor(rt, "{{ .ExportedName }}")
+	if err != nil {
+		return "", err
+	}
 {{- if .HasChildren }}
-		"Children": props.Children,
-{{- end }}
-	}
+{{- if .HasProps }}
+	return r.{{ .FuncName }}__render({{ .PropsTypeName }}{
 {{- range .PropsFields }}
-{{- if .IsAttrs }}
-	// Spread the attribute-forwarding bag into the props map so the
-	// runtime's rest-capture lands the keys on the component's Attrs
-	// field, matching the template dict path. Named props win on collision.
-	for __k, __v := range props.{{ .Name }} {
-		if _, __exists := propsMap[__k]; !__exists {
-			propsMap[__k] = __v
-		}
-	}
+		{{ .Name }}: props.{{ .Name }},
 {{- end }}
+	}, props.Children, req)
+{{- else }}
+	return r.{{ .FuncName }}__render(props.Children, req)
 {{- end }}
-	if r.req != nil {
-		propsMap["__gastro_request"] = r.req
-	}
-	rt := r.resolve()
-	if rt == nil {
-		return "", fmt.Errorf("gastro: Render.{{ .ExportedName }}: no router constructed yet (call gastro.New() first)")
-	}
-	result := rt.{{ .FuncName }}(propsMap)
-	if result == "" {
-		return "", fmt.Errorf("gastro: render {{ .ExportedName }} failed")
-	}
-	return string(result), nil
-}
+{{- else if .HasProps }}
+	return r.{{ .FuncName }}__render(props, "", req)
+{{- else }}
+	return r.{{ .FuncName }}__render("", req)
+{{- end }}
+})
 {{ end }}`))
 
-func generateRenderFile(components []componentMeta, outputDir string) error {
+func generateRenderFile(header string, components []componentMeta, outputDir string) error {
 	var buf bytes.Buffer
-	if err := renderTmpl.Execute(&buf, renderData{Components: components}); err != nil {
+	if err := renderTmpl.Execute(&buf, renderData{Header: header, Components: components}); err != nil {
 		return err
 	}
 	return writeGoFile(filepath.Join(outputDir, "render.go"), buf.Bytes())
 }
 
-func generateRoutesFile(routes []router.Route, templates []templateMeta, components []componentMeta, hasStatic bool, outputDir string) error {
+func generateRoutesFile(header string, routes []router.Route, templates []templateMeta, components []componentMeta, hasStatic bool, outputDir string) error {
 	var buf bytes.Buffer
 	componentNames := make([]string, 0, len(components))
 	for _, c := range components {
@@ -1784,6 +1704,7 @@ func generateRoutesFile(routes []router.Route, templates []templateMeta, compone
 	// gastro check to flag spurious drift on every regen.
 	sort.Strings(componentNames)
 	err := routesTmpl.Execute(&buf, routesData{
+		Header:         header,
 		Routes:         routes,
 		Templates:      templates,
 		ComponentNames: componentNames,

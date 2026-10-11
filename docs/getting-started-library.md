@@ -77,8 +77,8 @@ Name := p.Name
 Generate the Go code (creates `internal/web/.gastro/`):
 
 ```sh
-go tool gastro generate --project ./internal/web
-# or, with GASTRO_PROJECT set: just `go tool gastro generate`
+GASTRO_PROJECT=./internal/web go tool gastro generate
+# or, with GASTRO_PROJECT exported: just `go tool gastro generate`
 ```
 
 Wire one component into your existing handler:
@@ -90,17 +90,16 @@ import (
     "net/http"
 
     web "myapp/internal/web/.gastro"  // generated package
-    "github.com/andrioid/gastro/pkg/gastro"
 )
 
 func main() {
-    // Construct a router so the component package's typed Render API works.
-    // We don't mount its Handler() — we just want access to Render.Welcome.
+    // Construct a router so components can render through it. We don't
+    // mount its Handler() — we just want router.Render.
     r := web.New()
 
     http.HandleFunc("/welcome", func(w http.ResponseWriter, req *http.Request) {
         w.Header().Set("Content-Type", "text/html; charset=utf-8")
-        html, err := r.Render().Welcome(web.WelcomeProps{Name: "World"})
+        html, err := r.Render(web.Welcome, web.WelcomeProps{Name: "World"})
         if err != nil {
             http.Error(w, err.Error(), http.StatusInternalServerError)
             return
@@ -117,7 +116,7 @@ That's it. You now have a typed component you can compose anywhere a Go
 middleware, or response writing — your existing service still controls
 all of that.
 
-> **Note:** The `web.WelcomeProps` and `r.Render().Welcome(...)`
+> **Note:** The `web.Welcome` component value and `web.WelcomeProps` type
 > signatures are auto-generated from your `.gastro` file's `type Props
 > struct{...}` declaration. Run `gastro list` (or `go tool gastro list`)
 > any time to see the up-to-date signatures across your project.
@@ -138,7 +137,6 @@ import (
     "net/http"
 
     web "myapp/internal/web/.gastro"
-    "github.com/andrioid/gastro/pkg/gastro"
 )
 
 func main() {
@@ -148,9 +146,9 @@ func main() {
 
     // Construct the gastro router. Same API as framework mode.
     gastroRouter := web.New(
-        gastro.WithDeps(db),
-        gastro.WithDeps(cache),
-        gastro.WithMiddleware("/{path...}", requestLogger),
+        web.WithDeps(db),
+        web.WithDeps(cache),
+        web.WithMiddleware("/{path...}", requestLogger),
     )
 
     // Compose with your existing routes.
@@ -168,8 +166,11 @@ func main() {
 }
 ```
 
-Pages in `internal/web/pages/` are now auto-routed. `pages/admin/index.gastro`
-serves `/admin/`; `pages/admin/users/[id].gastro` serves `/admin/users/{id}`.
+Pages in `internal/web/pages/` are now auto-routed as `GET` views.
+`pages/admin/index.gastro` serves `GET /admin`; `pages/admin/users/[id].gastro`
+serves `GET /admin/users/{id}`. Commands (POST, PUT, …) go through
+`web.WithHandler("POST /admin/users", h)` so they share the router's deps and
+middleware.
 Frontmatter has the same ambient `w http.ResponseWriter` and `r *http.Request`,
 the same `gastro.From[T](ctx)` for typed deps, and the same template syntax
 as framework mode. See [Pages & Routing](pages.md) for the full reference.

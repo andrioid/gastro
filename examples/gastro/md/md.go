@@ -15,8 +15,8 @@ import (
 	// ```gastro fenced block. See pkg/chromalexer/gastro for the lexer rules.
 	_ "github.com/andrioid/gastro/pkg/chromalexer/gastro"
 	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	"github.com/yuin/goldmark/extension"
 )
 
 // mdRenderer is created once at package init. goldmark renderers are

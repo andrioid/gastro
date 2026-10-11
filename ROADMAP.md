@@ -14,6 +14,18 @@ relevant `DECISIONS.md` entry — those are not on the roadmap.
 For shipped work, see [`CHANGELOG.md`](CHANGELOG.md) and the
 chronological log in [`DECISIONS.md`](DECISIONS.md).
 
+## Scheduled
+
+These items have been picked up and are being worked on in
+[`plans/v0.4-cqrs-datastar.md`](plans/v0.4-cqrs-datastar.md) (v0.4.0):
+
+- **Required props.** Props are optional by default; `gastro:"required"`
+  marks fields that must be passed and non-zero (plan §4.6). Replaces
+  the former "Optional Props fields" item, which proposed the opposite
+  default (`gastro:"optional"`).
+- **Typed `Render` bypassing the `map[string]any` round-trip**, as
+  `Router.Render[P]` (plan §4.5).
+
 ---
 
 ## Waiting on real adopter request
@@ -75,55 +87,12 @@ shape matches a real workflow rather than a guessed one.
 
 ### Codegen / validation
 
-- **Optional Props fields (suppress "missing prop" warnings).** The
-  LSP currently warns on every Props field a caller doesn't pass.
-  Adding `gastro:"optional"` (or treating zero-default-friendly types
-  like `string` as implicitly optional) would let component authors
-  silence the warning per field without forcing callers to write
-  `"Field" ""` placeholders. Bundles with surfacing missing-prop
-  warnings in `gastro generate` itself — today `EmitMissingProps` is
-  off in the codegen pipeline (only the LSP opts in), so partial
-  dicts never warn at build time. Once optional vs. required is
-  expressible, flipping the default becomes safe. Reference:
-  `internal/codegen/validate.go` `EmitMissingProps`,
-  `ValidateDictKeysFromAST` missing-prop branch.
-
-- **Promote dict-key `SeverityError` diagnostics to hard failures in
-  non-strict mode.** Today `unknown prop` and `requires props` are
-  emitted at `SeverityError` severity but flow through the
-  `[]Warning` channel, so `gastro generate` (default) and
-  `gastro dev` (`runGenerate(false)`) only print them — they don't
-  fail the build. The LSP shows them as red squiggles and
-  `gastro build` / `gastro check` (strict) fail correctly, but a
-  user without an editor + a dev workflow still hits the runtime
-  crash. Either route true-error diagnostics through a separate
-  error channel that bypasses the Strict flag, or flip dev-mode
-  generation to strict-by-default for `SeverityError` only.
-  Reference: `internal/compiler/compiler.go` dictWarnings handling
-  (~L500), `cmd/gastro/main.go:600` (`runGenerate(false)`),
-  `internal/codegen/validate.go` SeverityError emit sites.
-
 - **Frontmatter `Deps := gastro.Deps[T]()` declaration.** A nicer
   surface than the runtime `gastro.From[T](ctx)` accessor — would let
   pages declare typed dependencies at the top of the frontmatter
   rather than reaching for them inside the handler body. Requires
   cross-package type resolution in the compiler, which is the
   expensive part. Reference: `docs/design.md:1106–1109`.
-
----
-
-## Waiting on a performance signal
-
-Work where the design is clear but the cost to the user is currently
-invisible. Will be picked up the first time a benchmark or profile
-points at one of these.
-
-- **Typed `Render` bypassing the `map[string]any` round-trip.**
-  `Render.Layout(props)` today copies `props` into a map, calls the
-  unexported `componentLayout(map)`, and that function reverses the
-  trip via `MapToStruct[T]`. Invisible on a normal page render but
-  measurable in SSE hot paths re-rendering single components per
-  event. Reference: `docs/design.md:1094–1104`.
 
 ---
 

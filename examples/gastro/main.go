@@ -12,6 +12,7 @@ import (
 	gastro "gastro-website/.gastro"
 	"gastro-website/lspdemo"
 
+	"github.com/andrioid/gastro/datastar"
 	"github.com/google/shlex"
 )
 
@@ -35,31 +36,36 @@ func main() {
 	defer demo.Close()
 	lspdemo.Register(demo)
 
-	mux := http.NewServeMux()
+	// Pages are GET views; every other endpoint is an ordinary handler
+	// registered next to them with WithHandler, sharing the router's
+	// middleware and deps.
+	site = gastro.New(
+		// {{ datastarScript }} in the layout, and the embedded Datastar
+		// client it points at.
+		gastro.WithFuncs(datastar.Funcs()),
+		gastro.WithHandler(datastar.ClientPattern, datastar.ClientHandler()),
 
-	// Traditional form handler (Post/Redirect/Get)
-	mux.HandleFunc("POST /guestbook", handleGuestbookPost)
+		// Traditional form handler (Post/Redirect/Get)
+		gastro.WithHandler("POST /guestbook", http.HandlerFunc(handleGuestbookPost)),
 
-	// Live-LSP demo hover endpoint (Datastar SSE)
-	mux.HandleFunc("GET /api/lsp-demo/hover", newLSPDemoHoverHandler(demo))
+		// Live-LSP demo hover endpoint (Datastar SSE)
+		gastro.WithHandler("GET /api/lsp-demo/hover", newLSPDemoHoverHandler(demo)),
 
-	// Datastar SSE endpoints
-	mux.HandleFunc("GET /api/ds/search", handleDsSearch)
-	mux.HandleFunc("POST /api/ds/add", handleDsAdd)
-	mux.HandleFunc("GET /api/ds/edit/{id}", handleDsEdit)
-	mux.HandleFunc("POST /api/ds/save/{id}", handleDsSave)
+		// Datastar SSE endpoints
+		gastro.WithHandler("GET /api/ds/search", http.HandlerFunc(handleDsSearch)),
+		gastro.WithHandler("POST /api/ds/add", http.HandlerFunc(handleDsAdd)),
+		gastro.WithHandler("GET /api/ds/edit/{id}", http.HandlerFunc(handleDsEdit)),
+		gastro.WithHandler("POST /api/ds/save/{id}", http.HandlerFunc(handleDsSave)),
 
-	// HTMX endpoints (plain HTML fragments)
-	mux.HandleFunc("GET /api/htmx/search", handleHtmxSearch)
-	mux.HandleFunc("POST /api/htmx/add", handleHtmxAdd)
-	mux.HandleFunc("GET /api/htmx/edit/{id}", handleHtmxEdit)
-	mux.HandleFunc("POST /api/htmx/save/{id}", handleHtmxSave)
-
-	// Gastro page routes (catch-all)
-	mux.Handle("/", gastro.Routes())
+		// HTMX endpoints (plain HTML fragments)
+		gastro.WithHandler("GET /api/htmx/search", http.HandlerFunc(handleHtmxSearch)),
+		gastro.WithHandler("POST /api/htmx/add", http.HandlerFunc(handleHtmxAdd)),
+		gastro.WithHandler("GET /api/htmx/edit/{id}", http.HandlerFunc(handleHtmxEdit)),
+		gastro.WithHandler("POST /api/htmx/save/{id}", http.HandlerFunc(handleHtmxSave)),
+	)
 
 	fmt.Printf("Listening on http://localhost:%s\n", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, site.Handler()))
 }
 
 // resolveBootOptions picks up the gastro source path and LSP command
@@ -117,5 +123,3 @@ func resolveBootOptions() lspdemo.BootOptions {
 		BootTimeout:      15 * time.Second,
 	}
 }
-
-

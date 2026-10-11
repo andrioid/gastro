@@ -2,9 +2,9 @@ package compiler_test
 
 // This integration test is the audit P0 #2 reproducer turned into a
 // regression test. It spawns multiple goroutines that concurrently call
-// gastro.New() and router.Render().X(...), then runs them under the Go
-// race detector. Before the atomic.Pointer fix it printed "DATA RACE"
-// from internal/compiler/compiler.go's __gastro_active assignment.
+// gastro.New() and router.Render(Card, …) — on their own router and on a
+// shared one — under the Go race detector. The original bug was a
+// package-level active-router pointer written by every New().
 //
 // The test compiles a tiny gastro project to a temp directory, writes a
 // minimal go.mod that points at this repo via a replace directive, and
@@ -66,12 +66,12 @@ func TestCompile_GeneratedCodeIsRaceFree(t *testing.T) {
 	// at the repository under test.
 	mustWriteFile(t, filepath.Join(projectDir, "go.mod"),
 		"module gastro_race_repro\n\n"+
-			"go 1.26.1\n\n"+
+			"go 1.27.2\n\n"+
 			"require github.com/andrioid/gastro v0.0.0\n\n"+
 			"replace github.com/andrioid/gastro => "+repoRoot+"\n")
 
-	// Test file that spins up many concurrent New() + Render().Card()
-	// callers. Without the atomic fix, -race flags __gastro_active.
+	// Test file that spins up many concurrent New() + Render(Card, …)
+	// callers, on per-goroutine routers and on one shared router.
 	mustWriteFile(t, filepath.Join(projectDir, "race_test.go"), `package race_test
 
 import (
@@ -86,41 +86,26 @@ func TestRender_NoRace(t *testing.T) {
 	const goroutines = 32
 	const iters = 10
 
+	shared := gastro.New()
 	var wg sync.WaitGroup
 	wg.Add(goroutines)
 	for g := 0; g < goroutines; g++ {
-		go func(gid int) {
+		go func() {
 			defer wg.Done()
 			for i := 0; i < iters; i++ {
-				// Each iteration constructs a fresh Router (writer of
-				// __gastro_active) and renders through both the package-
-				// level Render (reader of __gastro_active) and the
-				// router-bound Render() (reader of r.router only).
-				r := gastro.New()
-
-				html, err := r.Render().Card(gastro.CardProps{Title: "router"})
-				if err != nil {
-					t.Errorf("router.Render().Card: %v", err)
-					return
+				for _, r := range []*gastro.Router{gastro.New(), shared} {
+					html, err := r.Render(gastro.Card, gastro.CardProps{Title: "router"})
+					if err != nil {
+						t.Errorf("Render(Card): %v", err)
+						return
+					}
+					if !strings.Contains(string(html), "router") {
+						t.Errorf("Render(Card) missing payload: %q", html)
+						return
+					}
 				}
-				if !strings.Contains(html, "router") {
-					t.Errorf("router.Render().Card missing payload: %q", html)
-					return
-				}
-
-				html, err = gastro.Render.Card(gastro.CardProps{Title: "global"})
-				if err != nil {
-					t.Errorf("Render.Card: %v", err)
-					return
-				}
-				if !strings.Contains(html, "global") {
-					t.Errorf("global Render.Card missing payload: %q", html)
-					return
-				}
-
-				_ = gid
 			}
-		}(g)
+		}()
 	}
 	wg.Wait()
 }

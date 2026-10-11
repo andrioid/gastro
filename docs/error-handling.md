@@ -78,6 +78,13 @@ Templates parse but fail at `Execute` time — typically because a
 panicked, or the underlying `io.Writer` failed (closed connection,
 broken pipe).
 
+In dev mode, a component whose props break their contract — a
+`gastro:"required"` prop holding its zero value, or a value of the wrong
+type under `--typecheck-props` — also fails the render this way, including
+from inside a `{{ wrap }}` slot. In production the same violation is
+logged with `log/slog` and the component renders; see
+[Components](components.md#required-and-optional-props).
+
 The page handler routes the error through `__router.__gastro_handleError`,
 which dispatches to either:
 
@@ -128,17 +135,26 @@ the type explicitly.
 **Render a templated error page** when the response is uncommitted:
 
 ```go
-gastro.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
-    if gastroRuntime.HeaderCommitted(w) || gastroRuntime.BodyWritten(w) {
-        log.Printf("gastro: render failed mid-stream: %v", err)
-        return
-    }
-    w.WriteHeader(http.StatusInternalServerError)
-    gastro.Render.ErrorPage(ErrorPageProps{
-        RequestID: middleware.GetReqID(r.Context()),
-        Message:   "Something went wrong.",
-    })
-})
+var router *gastro.Router
+router = gastro.New(
+    gastro.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
+        if gastroRuntime.HeaderCommitted(w) || gastroRuntime.BodyWritten(w) {
+            log.Printf("gastro: render failed mid-stream: %v", err)
+            return
+        }
+        html, rerr := router.Render(gastro.ErrorPage, gastro.ErrorPageProps{
+            RequestID: middleware.GetReqID(r.Context()),
+            Message:   "Something went wrong.",
+        })
+        if rerr != nil {
+            gastroRuntime.DefaultErrorHandler(w, r, err)
+            return
+        }
+        w.Header().Set("Content-Type", "text/html; charset=utf-8")
+        w.WriteHeader(http.StatusInternalServerError)
+        io.WriteString(w, string(html))
+    }),
+)
 ```
 
 **Attach a request ID** to every error log line:

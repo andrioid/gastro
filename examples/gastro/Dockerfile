@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETARCH
 WORKDIR /src
 
@@ -73,11 +73,11 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /gastro-website .
 # (~/go/pkg/mod) ends up containing exactly what gopls needs at
 # runtime to analyse the demo file's shadow.
 # -------------------------------------------------------------------
-FROM golang:1.26-alpine AS modcache
+FROM golang:1.27-alpine AS modcache
 RUN apk add --no-cache git
 COPY --from=build /src /src
 WORKDIR /tmp/demoproj
-RUN printf 'module demoproj\n\ngo 1.26.1\n\nrequire github.com/andrioid/gastro v0.0.0\n\nreplace github.com/andrioid/gastro => /src\n' > go.mod
+RUN printf 'module demoproj\n\ngo 1.27.2\n\nrequire github.com/andrioid/gastro v0.0.0\n\nreplace github.com/andrioid/gastro => /src\n' > go.mod
 # `go mod download all` pulls every required module into GOMODCACHE,
 # resolving shlex (and any future transitive deps gastro picks up)
 # from the network. With the replace directive in place gastro

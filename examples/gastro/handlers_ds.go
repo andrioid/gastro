@@ -2,13 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
 	gastro "gastro-website/.gastro"
 	"gastro-website/demo"
 
-	"github.com/andrioid/gastro/pkg/gastro/datastar"
+	"github.com/andrioid/gastro/datastar"
 )
 
 // dsSignals represents the JSON blob Datastar sends. For @get requests it
@@ -48,7 +49,11 @@ func handleDsSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("datastar: open stream: %v", err)
+		return
+	}
 	sse.PatchElements(html)
 }
 
@@ -65,18 +70,22 @@ func handleDsAdd(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	message := strings.TrimSpace(r.FormValue("message"))
 
-	sse := datastar.NewSSE(w, r)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("datastar: open stream: %v", err)
+		return
+	}
 
 	if name == "" || message == "" {
 		errorMsg := "Both name and message are required."
-		formHTML, err := gastro.Render.GuestbookForm(gastro.GuestbookFormProps{
+		formHTML, err := site.Render(gastro.GuestbookForm, gastro.GuestbookFormProps{
 			Error: errorMsg,
 		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		sse.PatchElements(formHTML)
+		sse.PatchElements(string(formHTML))
 		return
 	}
 
@@ -89,14 +98,14 @@ func handleDsAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	sse.PatchElements(listHTML)
 
-	formHTML, err := gastro.Render.GuestbookForm(gastro.GuestbookFormProps{
+	formHTML, err := site.Render(gastro.GuestbookForm, gastro.GuestbookFormProps{
 		Success: "Entry added!",
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	sse.PatchElements(formHTML)
+	sse.PatchElements(string(formHTML))
 }
 
 // handleDsEdit handles Datastar inline edit. Returns the edit form for
@@ -110,7 +119,7 @@ func handleDsEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	html, err := gastro.Render.GuestbookEntryEdit(gastro.GuestbookEntryEditProps{
+	html, err := site.Render(gastro.GuestbookEntryEdit, gastro.GuestbookEntryEditProps{
 		ID:      entry.ID,
 		Name:    entry.Name,
 		Message: entry.Message,
@@ -121,8 +130,12 @@ func handleDsEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r)
-	sse.PatchElements(html)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("datastar: open stream: %v", err)
+		return
+	}
+	sse.PatchElements(string(html))
 }
 
 // handleDsSave handles Datastar inline edit save. The client sends signals
@@ -148,7 +161,7 @@ func handleDsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	html, err := gastro.Render.GuestbookEntry(gastro.GuestbookEntryProps{
+	html, err := site.Render(gastro.GuestbookEntry, gastro.GuestbookEntryProps{
 		ID:      entry.ID,
 		Name:    entry.Name,
 		Message: entry.Message,
@@ -160,6 +173,10 @@ func handleDsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r)
-	sse.PatchElements(html)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("datastar: open stream: %v", err)
+		return
+	}
+	sse.PatchElements(string(html))
 }

@@ -1,5 +1,15 @@
 # Migrating to Track B (Page model v2)
 
+> **Superseded for routing as of v0.4.** Pages are `GET`-only views again
+> (HEAD served, other methods get 405), and `WithOverride` is replaced by
+> `WithHandler`: commands are ordinary handlers registered with
+> `gastro.WithHandler("POST /tasks/{id}/place", h)`, and a pattern identical
+> to a page's (`"GET /board"`) replaces it. The method-branching and
+> method-less `WithOverride` advice below no longer applies, and
+> `gastro.Render.X(...)` is now `router.Render(gastro.X, gastro.XProps{…})`.
+> Ambient `(w, r)` and conditional template rendering remain. See
+> [`pages.md`](pages.md) and the [v0.4 migration guide](migrations/v0.4.md).
+
 This guide walks an existing gastro adopter through upgrading to the
 Track B page model. It's written for projects that built against the
 pre-Track-B shape (`gastro.Context()` marker, GET-only page routes,
@@ -106,7 +116,10 @@ func handleTaskPlace(w http.ResponseWriter, r *http.Request) {
         Status: r.PathValue("status"),
         Items:  cols[r.PathValue("status")],
     })
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(html)
 }
 ```
@@ -120,7 +133,7 @@ import (
 
     Board "components/board.gastro"
 
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+    "github.com/andrioid/gastro/datastar"
 )
 
 deps := gastro.From[BoardDeps](r.Context())
@@ -140,7 +153,10 @@ if r.Method == http.MethodPost {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(html)
     return
 }
@@ -274,7 +290,7 @@ import (
 
     Board "components/board.gastro"
 
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+    "github.com/andrioid/gastro/datastar"
 )
 
 if r.Method != http.MethodPost {
@@ -300,7 +316,10 @@ if err != nil {
     return
 }
 
-sse := datastar.NewSSE(w, r)
+sse, err := datastar.NewSSE(w, r)
+if err != nil {
+    return // the client can no longer be reached
+}
 sse.PatchElements(html)
 return
 ---

@@ -3,15 +3,14 @@
 Each `.gastro` file in this directory exercises one shape of dict-key
 validation. The companion test (`internal/codegen/drift_test.go`)
 runs every fixture through *both* the codegen-side validator
-(`ValidateDictKeysFromAST`, line-only output via `ValidateDictKeys`)
-and the LSP-side diagnostic (`lsptemplate.Diagnose`), normalises the
-results, and asserts they agree on which dict keys are valid.
+(`ValidateDictKeysFromAST`) and the LSP-side diagnostic
+(`lsptemplate.DiagnoseComponentProps`), normalises the results, and
+asserts they agree on which dict keys are valid.
 
 This is the structural enforcement of Phase 2's "single source of
 truth" decision: as long as the LSP keeps delegating to codegen, both
-paths produce identical verdicts (with severity-1 LSP warnings being
-the only intentional asymmetry — codegen's `EmitMissingProps` defaults
-to off so `gastro generate --strict` doesn't block on partial dicts).
+paths produce identical verdicts, including the missing-required-prop
+errors for fields tagged `gastro:"required"`.
 
 ## Adding a new fixture
 

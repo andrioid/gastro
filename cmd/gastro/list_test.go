@@ -67,6 +67,31 @@ func TestBuildListEntry_Page(t *testing.T) {
 	if len(entry.fields) != 0 {
 		t.Errorf("pages should have no fields, got %d", len(entry.fields))
 	}
+	// Pages are GET views; the route carries the method.
+	if entry.route != "GET /{$}" {
+		t.Errorf("route = %q, want %q", entry.route, "GET /{$}")
+	}
+}
+
+func TestPrintListTable_PrintsPageMethods(t *testing.T) {
+	entries := []listEntry{
+		{kind: "component", name: "Card", path: "components/card.gastro"},
+		{kind: "page", name: "BlogSlug", route: "GET /blog/{slug}", path: "pages/blog/[slug].gastro"},
+	}
+	r, w, _ := os.Pipe()
+	old := os.Stdout
+	os.Stdout = w
+	err := printListTable(entries)
+	w.Close()
+	os.Stdout = old
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var buf strings.Builder
+	io.Copy(&buf, r) //nolint:errcheck
+	if !strings.Contains(buf.String(), "GET /blog/{slug}") {
+		t.Errorf("table should print the page's method and pattern, got:\n%s", buf.String())
+	}
 }
 
 func TestFormatFields_Empty(t *testing.T) {
@@ -120,6 +145,7 @@ func TestPrintListJSON_ContainsAllFields(t *testing.T) {
 		{
 			kind:   "page",
 			name:   "Index",
+			route:  "GET /{$}",
 			path:   "pages/index.gastro",
 			fields: nil,
 		},
@@ -170,6 +196,12 @@ func TestPrintListJSON_ContainsAllFields(t *testing.T) {
 	page := got[1]
 	if page.Kind != "page" {
 		t.Errorf("page kind = %q, want %q", page.Kind, "page")
+	}
+	if page.Route != "GET /{$}" {
+		t.Errorf("page route = %q, want %q", page.Route, "GET /{$}")
+	}
+	if card.Route != "" {
+		t.Errorf("component route = %q, want empty", card.Route)
 	}
 	// Pages have no props but the field must be an empty array, not null.
 	raw, _ := json.Marshal(page)

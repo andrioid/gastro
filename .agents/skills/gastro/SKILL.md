@@ -102,7 +102,7 @@ Title := "Blog"                      // Uppercase -> {{ .Title }}
 
 | File | Route |
 |------|-------|
-| `pages/index.gastro` | `GET /` |
+| `pages/index.gastro` | `GET /{$}` |
 | `pages/about/index.gastro` | `GET /about` |
 | `pages/blog/index.gastro` | `GET /blog` |
 | `pages/blog/[slug].gastro` | `GET /blog/{slug}` |
@@ -110,7 +110,10 @@ Title := "Blog"                      // Uppercase -> {{ .Title }}
 
 - `index.gastro` maps to the directory root
 - `[param]` becomes `{param}` in Go 1.22+ router patterns
-- Only `GET` routes are generated. Register other methods in `main.go`.
+- Every page is a `GET` view (HEAD served, other methods get 405). Don't
+  branch on `r.Method` in a page; register commands (POST, PUT, DELETE, …)
+  as plain handlers with `gastro.WithHandler("POST /path", h)`. A
+  `WithHandler` pattern identical to a page's (`"GET /board"`) replaces it.
 
 ### Context API
 
@@ -253,9 +256,15 @@ Props are passed via `dict` syntax:
 | `"literal"` | String literal | `"Title" "About"` |
 | `(.Val \| func "arg")` | Pipe expression | `"Date" (.CreatedAt \| timeFormat "Jan 2, 2006")` |
 
-### Type coercion
+### Required props and type coercion
 
-Gastro coerces prop values to match struct field types:
+Props are optional by default. Tag a field `gastro:"required"` to make it
+mandatory: a `(dict ...)` that omits it fails `gastro generate`, and a zero
+value at render time fails the render in dev mode (production logs a
+warning and renders).
+
+Without `--typecheck-props`, gastro coerces prop values to match struct
+field types:
 
 | Target type | Accepted values |
 |-------------|-----------------|
@@ -263,6 +272,11 @@ Gastro coerces prop values to match struct field types:
 | `bool` | `bool`, `string` (`"true"`, `"false"`) |
 | `int` | `int`, `int64`, `float64`, `float32`, `string` (parsed) |
 | `float64` | `float64`, `float32`, `int`, `string` (parsed) |
+
+With `--typecheck-props`, literal dict values must be assignable to the
+field type at generate time, and render-time values must convert without
+coercion (dev: error, production: logged warning). See
+`docs/components.md`.
 
 ### Propless components
 
@@ -351,7 +365,8 @@ routes := gastro.Routes(
 
 ## SSE & Real-time
 
-SSE endpoints are plain Go HTTP handlers registered alongside Gastro routes.
+SSE endpoints are plain Go HTTP handlers registered with `gastro.WithHandler`
+alongside the page routes.
 
 ### Generic SSE
 
@@ -372,37 +387,56 @@ func handleUpdates(w http.ResponseWriter, r *http.Request) {
 
 ### Datastar integration
 
-```go
-import "github.com/andrioid/gastro/pkg/gastro/datastar"
+Datastar support lives in the separate module
+`github.com/andrioid/gastro/datastar` (a facade over the official SDK). It
+also embeds the matching browser client: register
+`gastro.WithHandler(datastar.ClientPattern, datastar.ClientHandler())`, register
+`gastro.WithFuncs(datastar.Funcs())`, and put `{{ datastarScript }}` in the
+layout's `<head>`. Pages open one long-lived stream; commands return 204.
+See docs/sse.md.
 
-func handleIncrement(w http.ResponseWriter, r *http.Request) {
-    html, err := gastro.Render.Counter(gastro.CounterProps{Count: 42})
+```go
+import "github.com/andrioid/gastro/datastar"
+
+func handleIncrement(router *gastro.Router, w http.ResponseWriter, r *http.Request) {
+    html, err := router.Render(gastro.Counter, gastro.CounterProps{Count: 42})
     if err != nil {
         http.Error(w, err.Error(), 500)
         return
     }
 
-    sse := datastar.NewSSE(w, r)
-    sse.PatchElements(html)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
+    sse.PatchElements(string(html))
 }
 ```
 
 ### Type-safe Render API
 
-The compiler generates a `Render` method for each component:
+The compiler exports a typed component value per component
+(`components/counter.gastro` → `gastro.Counter` with `gastro.CounterProps`).
+Render it through the router; it returns `(template.HTML, error)`:
 
 ```go
-html, err := gastro.Render.Counter(gastro.CounterProps{Count: 42})
-html, err := gastro.Render.Layout(gastro.LayoutProps{Title: "Home"}, children...)
+html, err := router.Render(gastro.Counter, gastro.CounterProps{Count: 42})
+html, err := router.Render(gastro.Layout, gastro.LayoutProps{Title: "Home", Children: template.HTML("<h1>Welcome</h1>")})
+html, err := router.Render(gastro.Card.With(r), gastro.CardProps{}) // request-aware helpers see r
 ```
+
+In page frontmatter the same call is `gastro.Render(Counter, CounterProps{Count: 42})`.
 
 ### Wiring in main.go
 
 ```go
-mux := http.NewServeMux()
-mux.HandleFunc("GET /api/increment", handleIncrement)
-mux.Handle("/", gastro.Routes())
-http.ListenAndServe(":4242", mux)
+var router *gastro.Router
+router = gastro.New(
+    gastro.WithHandler("POST /increment", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        handleIncrement(router, w, r)
+    })),
+)
+http.ListenAndServe(":4242", router.Handler())
 ```
 
 ### Datastar page attributes
@@ -412,7 +446,7 @@ http.ListenAndServe(":4242", mux)
 Title := "Counter"
 ---
 <div id="count">0</div>
-<button data-on:click="@get('/api/increment')">+1</button>
+<button data-on:click="@post('/increment')">+1</button>
 ```
 
 ## Raw Blocks
@@ -495,7 +529,7 @@ gastro list           # aligned table with Props signatures
 gastro list --json    # JSON array — use from scripts and agents
 ```
 
-JSON shape per entry: `{"kind":"component"|"page", "name":"Card", "path":"components/card.gastro", "props":[{"name":"Title","type":"string"}]}`.
+JSON shape per entry: `{"kind":"component"|"page", "name":"Card", "route":"GET /blog/{slug}", "path":"components/card.gastro", "props":[{"name":"Title","type":"string"}]}` (`route` is present for pages only; `WithHandler` routes are runtime Go and not listed).
 `props` is always an array, never null.
 
 ### `gastro dev` (primary workflow)

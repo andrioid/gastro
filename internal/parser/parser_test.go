@@ -580,3 +580,38 @@ Title := "Hello"`
 		t.Errorf("template body:\ngot:  %q\nwant: %q", result.TemplateBody, wantBody)
 	}
 }
+
+func TestFile_FrontmatterSourceLine(t *testing.T) {
+	input := "\n" + // 1
+		"---\n" + // 2
+		"\n" + // 3
+		"import (\n" + // 4
+		"\t\"fmt\"\n" + // 5
+		"\tCard \"components/card.gastro\"\n" + // 6
+		")\n" + // 7
+		"import \"strings\"\n" + // 8
+		"Title := fmt.Sprint(1)\n" + // 9
+		"\n" + // 10
+		"Body := strings.ToUpper(Title)\n" + // 11
+		"---\n" + // 12
+		"<h1>{{ .Title }}</h1>\n"
+
+	f, err := parser.Parse("test.gastro", input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	lines := strings.Split(f.Frontmatter, "\n")
+	if lines[0] != "Title := fmt.Sprint(1)" || lines[2] != "Body := strings.ToUpper(Title)" {
+		t.Fatalf("unexpected cleaned frontmatter: %q", f.Frontmatter)
+	}
+
+	for fmLine, want := range map[int]int{1: 9, 2: 10, 3: 11} {
+		if got := f.FrontmatterSourceLine(fmLine); got != want {
+			t.Errorf("FrontmatterSourceLine(%d) = %d, want %d", fmLine, got, want)
+		}
+	}
+	// Out-of-range lines fall back to the start of the frontmatter.
+	if got := f.FrontmatterSourceLine(0); got != f.FrontmatterLine {
+		t.Errorf("FrontmatterSourceLine(0) = %d, want %d", got, f.FrontmatterLine)
+	}
+}

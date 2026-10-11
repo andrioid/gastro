@@ -7,8 +7,8 @@ package compiler_test
 //   - WithMiddleware("/admin/{path...}", fn) wraps every /admin/x.
 //   - Multiple WithMiddleware calls compose in registration order
 //     (first registered = outermost).
-//   - WithMiddleware + WithOverride targeting the same route =
-//     "middleware wraps override" (Q3, docs/history/frictions-plan.md §7).
+//   - WithMiddleware + a WithHandler replacing the same page route =
+//     "middleware wraps the replacement" (Q3, docs/history/frictions-plan.md §7).
 //   - Unknown patterns panic at New() time with a descriptive error.
 //
 // Compiled in a subprocess so the generated code is exercised end-to-end
@@ -56,7 +56,7 @@ func TestCompile_WithMiddlewareComposition(t *testing.T) {
 
 	mustWriteFile(t, filepath.Join(projectDir, "go.mod"),
 		"module gastro_middleware_repro\n\n"+
-			"go 1.26.1\n\n"+
+			"go 1.27.2\n\n"+
 			"require github.com/andrioid/gastro v0.0.0\n\n"+
 			"replace github.com/andrioid/gastro => "+repoRoot+"\n")
 
@@ -184,17 +184,17 @@ func TestMultipleMiddlewareComposeInRegistrationOrder(t *testing.T) {
 	}
 }
 
-// TestMiddlewareWrapsOverride (Q3): WithMiddleware + WithOverride on
-// the same route should result in middleware(override) — the override
-// replaces the page handler, then middleware wraps that replacement.
-// The override sets a body marker; the middleware sets a header.
+// TestMiddlewareWrapsOverride (Q3): WithMiddleware + a WithHandler that
+// replaces the same page route should result in middleware(handler) —
+// the handler replaces the page, then middleware wraps that replacement.
+// The handler sets a body marker; the middleware sets a header.
 // Both must be observable.
 func TestMiddlewareWrapsOverride(t *testing.T) {
 	override := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("OVERRIDDEN"))
 	})
 	r := gastro.New(
-		gastro.WithOverride("/admin/users", override),
+		gastro.WithHandler("GET /admin/users", override),
 		gastro.WithMiddleware("/admin/users", header("X-Wrapped", "yes")),
 	)
 	srv := httptest.NewServer(r.Handler())

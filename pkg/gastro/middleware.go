@@ -19,10 +19,10 @@ type MiddlewareFunc func(http.Handler) http.Handler
 // patterns.
 //
 // Used by codegen at New() time to validate WithMiddleware patterns:
-// the pattern must match at least one auto-route, otherwise it is
-// almost certainly a typo and we fail fast (same posture as
-// WithOverride). Returning false from this function triggers the
-// "pattern does not match any auto-route" panic.
+// the pattern must match at least one route (page or WithHandler),
+// otherwise it is almost certainly a typo and we fail fast. Returning
+// false from this function triggers the "pattern does not match any
+// route" panic.
 //
 // Mechanism. Register pattern in a throwaway *http.ServeMux with a
 // sentinel handler, then for each known route construct a synthetic
@@ -49,13 +49,25 @@ func PatternMatchesAnyRoute(pattern string, knownRoutes []string) bool {
 
 	for _, route := range knownRoutes {
 		path := synthesizePath(route)
-		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req := httptest.NewRequest(routeMethod(route), path, nil)
 		_, matched := mux.Handler(req)
 		if matched == pattern {
 			return true
 		}
 	}
 	return false
+}
+
+// routeMethod returns the method of a method-qualified route pattern
+// ("POST /tasks/{id}/place" → POST) and GET for path-only patterns. The
+// probe request uses it so a path-only middleware pattern matches routes
+// of any method by their path part, and a method-qualified one matches
+// only routes of that method.
+func routeMethod(route string) string {
+	if i := strings.Index(route, " "); i > 0 {
+		return route[:i]
+	}
+	return http.MethodGet
 }
 
 // synthesizePath turns a ServeMux pattern into a concrete URL path that
@@ -100,14 +112,13 @@ func synthesizePath(pattern string) string {
 // ValidateMiddlewarePattern returns nil if pattern matches at least one
 // of knownRoutes, or a descriptive error suitable for a panic message
 // if it does not. Codegen calls this from the generated New() so
-// pattern typos surface at startup with the same wording as
-// WithOverride's typo panic.
+// pattern typos surface at startup.
 func ValidateMiddlewarePattern(pattern string, knownRoutes []string) error {
 	if PatternMatchesAnyRoute(pattern, knownRoutes) {
 		return nil
 	}
 	return fmt.Errorf(
-		"gastro: WithMiddleware: pattern %q does not match any auto-route. known: %v",
+		"gastro: WithMiddleware: pattern %q does not match any route. known: %v",
 		pattern, knownRoutes,
 	)
 }

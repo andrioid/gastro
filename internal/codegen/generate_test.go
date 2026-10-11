@@ -80,7 +80,7 @@ CSSClass := "card"`,
 
 	// Should have render method on *Router (so it can read the per-router
 	// template registry and dependency map), not a free function or an HTTP handler.
-	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) (template.HTML, error)`)
 	assertNotContains(t, output, `http.ResponseWriter`)
 
 	// Should extract Children from props map (renamed from "__children" in A5)
@@ -149,7 +149,7 @@ Tag := props.Tag`,
 	assertContains(t, output, `__router.__gastro_getTemplate("componentCard")`)
 
 	// Should still have component render method (not HTTP handler)
-	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) (template.HTML, error)`)
 	assertNotContains(t, output, `http.ResponseWriter`)
 
 	// Should still handle props and children (A5 renamed the dict key from
@@ -187,7 +187,7 @@ CSSClass := "card"`,
 	assertNotContains(t, output, `gastro.Props`)
 
 	// Should still have component method
-	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) template.HTML`)
+	assertContains(t, output, `func (__router *Router) componentCard(propsMap map[string]any) (template.HTML, error)`)
 	assertContains(t, output, `MapToStruct[__component_card_Props](propsMap)`)
 }
 
@@ -282,6 +282,30 @@ Posts := []string{}`,
 	}
 	if titleIdx >= postsIdx {
 		t.Errorf("expected `_ = Title` before `_ = Posts` (source order), got titleIdx=%d postsIdx=%d", titleIdx, postsIdx)
+	}
+}
+
+// TestGenerate_FrontmatterRenderRewrite: gastro.Render(c, p) in frontmatter
+// becomes a call to the package-level generic RenderComponent with the
+// handler's router, so generated per-file code never needs a generic
+// method (and the LSP shadow type-checks it under any gopls).
+func TestGenerate_FrontmatterRenderRewrite(t *testing.T) {
+	file := &parser.File{
+		Filename:     "pages/index.gastro",
+		Frontmatter:  `html, err := gastro.Render(Card, CardProps{Title: "x"})` + "\n_ = err\nSnippet := html",
+		TemplateBody: "<main>{{ .Snippet }}</main>",
+	}
+	info := &codegen.FrontmatterInfo{
+		ExportedVars: []codegen.VarInfo{{Name: "Snippet", Line: 3}},
+		IsPage:       true,
+	}
+	out, err := codegen.GenerateHandler(file, info, false, codegen.GenerateOptions{MangleHoisted: true})
+	if err != nil {
+		t.Fatalf("GenerateHandler: %v", err)
+	}
+	assertContains(t, out, `html, err := gastroRuntime.RenderComponent(__router, Card, CardProps{Title: "x"})`)
+	if strings.Contains(out, "gastro.Render") {
+		t.Errorf("gastro.Render marker should be fully rewritten, got:\n%s", out)
 	}
 }
 

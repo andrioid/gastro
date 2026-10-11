@@ -637,7 +637,8 @@ func resolveEmbedPath(path string, ctx EmbedContext) (string, error) {
 }
 
 // buildEmbedDecl renders the rewritten var declaration. The doc-comment
-// group is fully replaced — directive lines are dropped and any
+// group is fully replaced — directive lines become blank lines (so every
+// later line keeps its frontmatter line number for diagnostics) and any
 // non-directive comments inside the same group are preserved (they
 // usually carry user-authored context worth keeping).
 func buildEmbedDecl(varName, varType string, content []byte, doc *ast.CommentGroup) string {
@@ -647,10 +648,9 @@ func buildEmbedDecl(varName, varType string, content []byte, doc *ast.CommentGro
 	// original `//` prefix.
 	if doc != nil {
 		for _, c := range doc.List {
-			if _, isEmbed := parseEmbedDirective(c.Text); isEmbed {
-				continue
+			if _, isEmbed := parseEmbedDirective(c.Text); !isEmbed {
+				b.WriteString(c.Text)
 			}
-			b.WriteString(c.Text)
 			b.WriteByte('\n')
 		}
 	}
@@ -733,4 +733,11 @@ func findModuleRoot(start string) string {
 // filesystem root.
 func FindModuleRootForFile(absFilePath string) string {
 	return findModuleRoot(filepath.Dir(absFilePath))
+}
+
+// FindModuleRoot walks up from the absolute directory dir until it
+// finds a go.mod, returning the directory that contains it. Returns ""
+// if no go.mod is found between dir and the filesystem root.
+func FindModuleRoot(dir string) string {
+	return findModuleRoot(dir)
 }

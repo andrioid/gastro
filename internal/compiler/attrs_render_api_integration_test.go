@@ -4,9 +4,9 @@ package compiler_test
 // (issues #41 and #42). Distinct from attrs_integration_test.go, which
 // exercises the template dispatch path ({{ Button (dict ...) }}).
 //
-//   - #42: Render.X(XProps{Attrs: ...}) must forward the bag. The bug
-//     nested the bag under its own "Attrs" key, where MapToStruct's
-//     rest-capture dropped it.
+//   - #42: router.Render(X, XProps{Attrs: ...}) must forward the bag. The
+//     original bug nested the bag under its own "Attrs" key, where
+//     MapToStruct's rest-capture dropped it.
 //   - #41: a component that renders {{ .Children }} AND declares a
 //     gastro.Attrs field must produce compilable render.go. The bug
 //     emitted a verbatim `gastro.Attrs` field in the inline XProps
@@ -85,7 +85,7 @@ func TestCompile_RenderAPIAttributeForwarding(t *testing.T) {
 
 	mustWriteFile(t, filepath.Join(projectDir, "go.mod"),
 		"module gastro_render_attrs_repro\n\n"+
-			"go 1.26.1\n\n"+
+			"go 1.27.2\n\n"+
 			"require github.com/andrioid/gastro v0.0.0\n\n"+
 			"replace github.com/andrioid/gastro => "+repoRoot+"\n")
 
@@ -100,17 +100,18 @@ import (
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
 
-// TestRenderAPIForwardsAttrs covers #42: the bag passed to Render.Button
+// TestRenderAPIForwardsAttrs covers #42: the bag passed to Render(Button, …)
 // must reach the rendered <button>, not be silently dropped.
 func TestRenderAPIForwardsAttrs(t *testing.T) {
 	r := gastro.New()
-	html, err := r.Render().Button(gastro.ButtonProps{
+	out, err := r.Render(gastro.Button, gastro.ButtonProps{
 		Label: "Save",
 		Attrs: gastroRuntime.Attrs{"type": "submit", "data-x": "1"},
 	})
 	if err != nil {
 		t.Fatalf("render button: %v", err)
 	}
+	html := string(out)
 	for _, want := range []string{`+"`"+`type="submit"`+"`"+`, `+"`"+`data-x="1"`+"`"+`, ">Save<"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("button html missing %q:\n%s", want, html)
@@ -123,7 +124,7 @@ func TestRenderAPIForwardsAttrs(t *testing.T) {
 // inline-XProps path.
 func TestRenderAPIForwardsAttrsWithChildren(t *testing.T) {
 	r := gastro.New()
-	html, err := r.Render().Alert(gastro.AlertProps{
+	out, err := r.Render(gastro.Alert, gastro.AlertProps{
 		Variant:  "warn",
 		Attrs:    gastroRuntime.Attrs{"role": "alert", "data-x": "1"},
 		Children: template.HTML("<p>hi</p>"),
@@ -131,6 +132,7 @@ func TestRenderAPIForwardsAttrsWithChildren(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render alert: %v", err)
 	}
+	html := string(out)
 	for _, want := range []string{`+"`"+`role="alert"`+"`"+`, `+"`"+`data-x="1"`+"`"+`, "<p>hi</p>", "warn"} {
 		if !strings.Contains(html, want) {
 			t.Errorf("alert html missing %q:\n%s", want, html)

@@ -1,9 +1,12 @@
 # Pages & Routing
 
 Pages are `.gastro` files in the `pages/` directory. Each page becomes
-an HTTP route automatically. The page handler receives every HTTP
-method for that path; the frontmatter branches on `r.Method` when the
-page handles more than just `GET`.
+a `GET` route automatically — pages are **views**. `http.ServeMux`
+answers `HEAD` for free and every other method with
+`405 Method Not Allowed` (plus an `Allow` header). Commands — form
+posts, Datastar actions, anything that mutates state — are ordinary
+`http.Handler`s registered next to the pages with
+[`gastro.WithHandler`](#commands-withhandler).
 
 ## File Format
 
@@ -31,21 +34,21 @@ You use them like any other Go variable:
 
 ```gastro
 ---
-import "net/http"
+import (
+    "net/http"
 
-if r.Method == http.MethodPost {
-    if err := handlePost(r); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-    http.Redirect(w, r, "/thanks", http.StatusSeeOther)
+    "myapp/auth"
+)
+
+user, ok := auth.User(r)
+if !ok {
+    http.Redirect(w, r, "/login", http.StatusSeeOther)
     return
 }
 
-Title := "Sign-up"
+Name := user.Name
 ---
-<h1>{{ .Title }}</h1>
-<form method="POST">…</form>
+<h1>Hello, {{ .Name }}</h1>
 ```
 
 After your frontmatter completes, gastro inspects the wrapped writer.
@@ -54,10 +57,13 @@ a Datastar SSE patch, an explicit `w.Write(…)`, or a `Hijack` —
 **the template render is skipped**. Otherwise the template runs with
 your uppercase locals (`Title`, `Tasks`, …) as the data.
 
-This is the headline mechanic: one source of truth per route, no
-parallel API handler in `main.go` to keep in sync with the page. See
+So a page can still set a status code, redirect, add headers, or
+answer its `GET` with JSON (a health check, a small API endpoint)
+without a separate handler. Don't branch on `r.Method` in a page: only
+`GET`/`HEAD` reach it. Mutations live in `WithHandler` commands — see
 [`examples/sse`](https://github.com/andrioid/gastro/tree/main/examples/sse)
-for a worked GET-renders / POST-patches counter.
+for a GET page plus a `POST /increment` command that patches the
+counter over SSE.
 
 ### Why no marker?
 
@@ -188,43 +194,84 @@ Title := "Blog"
 
 The `http.Error(w, …)` write commits the response; the analyser at
 `gastro generate` and `gastro check` time enforces that every write to
-`w` is followed by `return`. Forgetting the `return` produces a build
-warning (or, under `--strict`, an error) before the silent
+`w` is followed by `return`. Forgetting the `return` produces a warning
+(`pages/x.gastro:12:2: warning: …`) that fails the strict commands
+(`gastro generate`, `gastro build`, `gastro check`) before the silent
 "frontmatter continued past the write" footgun ever runs.
 
-## Method-aware handlers
+## Commands: `WithHandler`
 
-Branch on `r.Method` when one path serves multiple methods:
+A page renders the `GET`; the `POST` that the page's form submits is a
+plain Go handler registered with `gastro.WithHandler`:
 
 ```gastro
 ---
-import (
-    "net/http"
+Title := "Sign-up"
+---
+<h1>{{ .Title }}</h1>
+<form method="POST" action="/signup">…</form>
+```
 
-    "myapp/forms"
-
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+```go
+// main.go
+router := gastro.New(
+    gastro.WithHandler("POST /signup", http.HandlerFunc(signup)),
 )
 
-if r.Method == http.MethodPost {
+func signup(w http.ResponseWriter, r *http.Request) {
     if err := forms.HandleSignup(r); err != nil {
         http.Error(w, err.Error(), http.StatusBadRequest)
         return
     }
-
-    sse := datastar.NewSSE(w, r)
-    sse.PatchElements(`<p id="msg">Thanks!</p>`)
-    return
+    http.Redirect(w, r, "/thanks", http.StatusSeeOther)
 }
+```
 
+`pages/signup.gastro` registers `GET /signup`; the handler registers
+`POST /signup`. Both share the router's deps and middleware.
+
+A Datastar command answers with an SSE patch instead. It renders a
+component through the router, so it needs the `*Router` — build it in
+`main` and close over it:
+
+```go
+var router *gastro.Router
+router = gastro.New(
+    gastro.WithHandler("POST /signup", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        signup(router, w, r)
+    })),
+)
+
+func signup(router *gastro.Router, w http.ResponseWriter, r *http.Request) {
+    if err := forms.HandleSignup(r); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+    html, err := router.Render(gastro.Flash, gastro.FlashProps{Message: "Thanks!"})
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
+    sse.PatchElements(string(html))
+}
+```
+
+with the page's form posting through Datastar:
+
+```gastro
+---
 Title := "Sign-up"
 ---
 <form data-on:submit="@post('/signup')">…</form>
 <p id="msg"></p>
 ```
 
-The page is registered for every HTTP method. The POST branch writes
-SSE events and returns; the GET fall-through renders the template.
+See [Adding and replacing routes](#adding-and-replacing-routes) for
+the full `WithHandler` rules.
 
 ## Typed Dependencies
 
@@ -285,28 +332,39 @@ router := gastro.New(
 )
 ```
 
-### When to override an auto-generated route
+### Adding and replacing routes
 
-When a page's logic outgrows what frontmatter can express comfortably
-(streaming responses, complex middleware, intricate negotiation),
-replace the auto-generated handler with a Go handler via
-`gastro.WithOverride`:
+`gastro.WithHandler(pattern, h)` registers any `http.Handler` under any
+`http.ServeMux` pattern, with or without a method
+(`"POST /tasks/{id}/place"`, `"/healthz"`):
 
-```go
-router := gastro.New(
-    gastro.WithOverride("/", board.NewHomeHandler(deps)),
-)
-```
+- **Add.** A pattern no page uses adds a route.
+- **Replace.** A pattern identical to a page's route (`"GET /board"`,
+  `"GET /{$}"` for `pages/index.gastro`) or to the static-asset prefix
+  (`"GET /static/"`) replaces that route's handler — useful when a
+  page's logic outgrows frontmatter (streaming, intricate negotiation):
 
-The pattern must match an existing auto-route; `New` panics with the
-list of valid patterns when it does not, so typos fail loudly. Page
-patterns are method-less ("/", "/blog/{slug}") because the page
-handles every method.
+  ```go
+  router := gastro.New(
+      gastro.WithHandler("GET /{$}", board.NewHomeHandler(deps)),
+  )
+  ```
+
+- **Conflict.** A registration `http.ServeMux` rejects — e.g.
+  `WithHandler("/tasks/new", h)` next to `pages/tasks/[id].gastro`
+  (`GET /tasks/{id}`) — panics in `New()` with a message naming both
+  sources, so overlaps fail at startup rather than at request time.
+
+Deps reach handlers through the request context:
+`gastroRuntime.FromContext[T](r.Context())` (from
+`github.com/andrioid/gastro/pkg/gastro`); `gastro.From[T]` is the
+frontmatter-only spelling of the same call.
 
 ### Wrapping routes with middleware
 
-Use `gastro.WithMiddleware(pattern, fn)` to wrap one or more auto-routes
-with a `func(http.Handler) http.Handler`. Patterns use Go's stdlib
+Use `gastro.WithMiddleware(pattern, fn)` to wrap one or more routes —
+page routes and `WithHandler` routes alike — with a
+`func(http.Handler) http.Handler`. Patterns use Go's stdlib
 `http.ServeMux` syntax:
 
 ```go
@@ -322,21 +380,23 @@ router := gastro.New(
 - **`{path...}`** is a trailing wildcard — matches one or more remaining
   segments. `/admin/{path...}` matches `/admin/users`, `/admin/users/42`,
   etc., but not `/admin` itself.
-- **`/{path...}`** is the canonical catch-all: every page route.
+- **`/{path...}`** is the canonical catch-all: every page and
+  `WithHandler` route.
 
-The middleware pattern must match at least one known auto-route at
-`New()` time; patterns that match nothing panic with a descriptive
-error, same typo-safety as `WithOverride`.
+The middleware pattern must match at least one route (page or
+`WithHandler`) at `New()` time; patterns that match nothing panic with
+a descriptive error listing the known routes, so typos fail loudly.
 
 **Composition.** Multiple `WithMiddleware` calls compose in registration
 order — the first registered ends up outermost (runs first on the
-request, last on the response). When `WithOverride` and `WithMiddleware`
-target the same route, **middleware wraps the override**: the override
-replaces the page handler, then matching middleware wraps that
-replacement.
+request, last on the response). When a `WithHandler` replaces a page
+route, **middleware wraps the replacement**: the handler replaces the
+page handler, then matching middleware wraps it.
 
-**Patterns are path-only.** Method scoping (e.g. "only run CSRF on POST")
-lives inside the middleware itself:
+**Patterns are path-only.** A method-qualified route matches by its
+path: `WithMiddleware("/signup", csrf)` wraps both the `GET /signup`
+page and a `POST /signup` handler. Method scoping (e.g. "only run CSRF
+on POST") lives inside the middleware itself:
 
 ```go
 func csrfRequire(next http.Handler) http.Handler {
@@ -350,14 +410,8 @@ func csrfRequire(next http.Handler) http.Handler {
 }
 ```
 
-This matches `WithOverride`'s path-only contract and avoids the
-asymmetry of one option accepting `"POST /counter"` while the other
-rejects it.
-
-For middleware that needs to run for routes gastro doesn't auto-generate
-(e.g. a `mux.HandleFunc` you wired through `router.Mux()`), wrap it
-yourself at the `mux.HandleFunc` call site — `WithMiddleware`'s typo
-guard intentionally rejects unknown patterns.
+Routes added directly on `router.Mux()` bypass `WithMiddleware` and
+the conflict check; register them with `WithHandler` instead.
 
 ### Forcing dev or production mode
 
@@ -425,16 +479,18 @@ declaring them yourself does not produce a duplicate.
 
 Page files map to HTTP routes automatically:
 
-| File                          | Route            |
-|-------------------------------|------------------|
-| `pages/index.gastro`          | `/`              |
-| `pages/about/index.gastro`    | `/about`         |
-| `pages/blog/index.gastro`     | `/blog`          |
-| `pages/blog/[slug].gastro`    | `/blog/{slug}`   |
+| File                          | Route                |
+|-------------------------------|----------------------|
+| `pages/index.gastro`          | `GET /{$}`           |
+| `pages/about/index.gastro`    | `GET /about`         |
+| `pages/blog/index.gastro`     | `GET /blog`          |
+| `pages/blog/[slug].gastro`    | `GET /blog/{slug}`   |
 
 Square brackets denote dynamic segments: `[slug]` becomes `{slug}` in
-Go 1.22+ router patterns. Patterns are method-less; the page handler
-receives every method.
+Go 1.22+ router patterns. Every page is a `GET` route; `HEAD` is served
+automatically and other methods get `405` with `Allow: GET, HEAD`
+unless a `WithHandler` route claims them. `gastro list` prints each
+page's route.
 
 ## Dynamic Routes
 
@@ -504,28 +560,10 @@ For the full failure-mode catalogue (parse errors, render errors,
 frontmatter panics, missing deps) and recipes for each, see
 [`docs/error-handling.md`](error-handling.md).
 
-## SSE-from-page
+## SSE
 
-Page frontmatter can open an SSE stream directly:
-
-```gastro
----
-import (
-    "net/http"
-
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
-)
-
-if r.Method == http.MethodPost {
-    sse := datastar.NewSSE(w, r)
-    sse.PatchElements(html)
-    return
-}
----
-… template body for the GET render …
-```
-
-`datastar.NewSSE(w, r)` writes the headers and flushes; the wrapped
-writer records the body write. Track B's body-tracking ensures the
-template render is skipped after the SSE patches go out. See
-[SSE](sse.md) for more.
+Datastar streams and commands are `WithHandler` routes: a
+`GET /…/stream` handler holds the long-lived connection, and `POST`
+commands mutate state. Either can render components with
+`router.Render`. The page stays a plain `GET` view that opens the
+stream from the template. See [SSE](sse.md).

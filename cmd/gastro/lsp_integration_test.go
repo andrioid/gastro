@@ -1012,19 +1012,20 @@ func setupTestProject(t *testing.T) string {
 }
 
 // setupTestProjectWithComponents creates a Go project with pages/ and
-// components/ directories, including a Card component with a Props struct.
+// components/ directories, including a Card component with a Props
+// struct: Title is optional, Body is gastro:"required".
 func setupTestProjectWithComponents(t *testing.T) string {
 	t.Helper()
 	dir := setupTestProject(t)
 
 	os.MkdirAll(filepath.Join(dir, "components"), 0o755)
 
-	cardContent := `---
-type Props struct {
-	Title string
-	Body  string
-}
-
+	cardContent := "---\n" +
+		"type Props struct {\n" +
+		"\tTitle string\n" +
+		"\tBody  string `gastro:\"required\"`\n" +
+		"}\n" +
+		`
 Title := gastro.Props().Title
 Body := gastro.Props().Body
 ---
@@ -1089,12 +1090,15 @@ Title := "Hello"
 					t.Errorf("unknown prop should be severity 1 (Error), got %v", sev)
 				}
 			}
-			if strings.Contains(msg, `missing prop "Body"`) {
+			if strings.Contains(msg, `missing required prop "Body"`) {
 				foundMissing = true
 				sev, _ := dm["severity"].(float64)
-				if int(sev) != 2 {
-					t.Errorf("missing prop should be severity 2 (Warning), got %v", sev)
+				if int(sev) != 1 {
+					t.Errorf("missing required prop should be severity 1 (Error, as in gastro generate), got %v", sev)
 				}
+			}
+			if strings.Contains(msg, `"Title"`) {
+				t.Errorf("optional prop Title must never be reported, got %q", msg)
 			}
 		}
 
@@ -1108,7 +1112,7 @@ Title := "Hello"
 	}
 	if !foundMissing {
 		stderr := client.drainStderr()
-		t.Errorf("expected diagnostic for missing prop 'Body'\nstderr: %s", stderr)
+		t.Errorf("expected diagnostic for missing required prop 'Body'\nstderr: %s", stderr)
 	}
 }
 
@@ -1140,9 +1144,8 @@ Title := "Hello"
 		},
 	})
 
-	// Collect diagnostics — bare call should produce missing-prop warnings
-	foundMissingTitle := false
-	foundMissingBody := false
+	// Collect diagnostics — the bare call is one requires-props error.
+	foundRequiresProps := false
 	for attempts := 0; attempts < 5; attempts++ {
 		notification := client.recvNotification(t, "textDocument/publishDiagnostics", 3*time.Second)
 		if notification == nil {
@@ -1155,25 +1158,18 @@ Title := "Hello"
 		for _, d := range diags {
 			dm, _ := d.(map[string]any)
 			msg, _ := dm["message"].(string)
-			if strings.Contains(msg, `missing prop "Title"`) {
-				foundMissingTitle = true
-			}
-			if strings.Contains(msg, `missing prop "Body"`) {
-				foundMissingBody = true
+			if strings.Contains(msg, "component Card requires props") {
+				foundRequiresProps = true
 			}
 		}
 
-		if foundMissingTitle && foundMissingBody {
+		if foundRequiresProps {
 			break
 		}
 	}
-	if !foundMissingTitle {
+	if !foundRequiresProps {
 		stderr := client.drainStderr()
-		t.Errorf("expected diagnostic for missing prop 'Title' on bare {{ Card }}\nstderr: %s", stderr)
-	}
-	if !foundMissingBody {
-		stderr := client.drainStderr()
-		t.Errorf("expected diagnostic for missing prop 'Body' on bare {{ Card }}\nstderr: %s", stderr)
+		t.Errorf("expected a requires-props diagnostic on bare {{ Card }}\nstderr: %s", stderr)
 	}
 }
 

@@ -6,14 +6,11 @@ import (
 
 // Route maps an HTTP pattern to a .gastro page file.
 //
-// Track B (docs/history/frictions-plan.md §4.2): patterns no longer carry an
-// HTTP method prefix. Each .gastro file under pages/ is registered for
-// every method; the page's frontmatter branches on r.Method. This is
-// the headline mechanic that lets one .gastro file handle both GET
-// (template render) and POST (e.g. an SSE patch) without inventing new
-// authoring concepts.
+// Pages are GET views: every pattern is "GET <path>", so http.ServeMux
+// also serves HEAD and answers other methods with 405 and an Allow
+// header. Commands are registered next to pages with WithHandler.
 type Route struct {
-	Pattern  string // e.g. "/blog/{slug}"
+	Pattern  string // e.g. "GET /blog/{slug}"
 	File     string // e.g. "pages/blog/[slug].gastro"
 	FuncName string // e.g. "pageBlogSlug"
 }
@@ -36,13 +33,8 @@ func BuildRoutes(files []string) []Route {
 	return routes
 }
 
-// fileToPattern converts a page file path to an HTTP route pattern.
-// e.g. "pages/blog/[slug].gastro" -> "/blog/{slug}"
-//
-// Patterns are method-less per Track B; the page's frontmatter is
-// expected to branch on r.Method. Pre-Track-B patterns were
-// "GET /<route>" — callers still using WithOverride must drop the
-// method prefix from their pattern strings.
+// fileToPattern converts a page file path to a GET route pattern.
+// e.g. "pages/blog/[slug].gastro" -> "GET /blog/{slug}"
 func fileToPattern(file string) string {
 	// Strip "pages/" prefix and ".gastro" suffix
 	route := strings.TrimPrefix(file, "pages/")
@@ -60,9 +52,9 @@ func fileToPattern(file string) string {
 	// Use {$} for the root path to get exact matching.
 	// Without it, "/" is a subtree pattern that matches all paths.
 	if route == "" {
-		return "/{$}"
+		return "GET /{$}"
 	}
-	return "/" + route
+	return "GET /" + route
 }
 
 // convertParams replaces [param] with {param} in route segments.

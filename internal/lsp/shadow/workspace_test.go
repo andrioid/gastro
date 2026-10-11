@@ -449,16 +449,16 @@ func TestWorkspace_TypeChecksAgainstRealRuntime(t *testing.T) {
 
 // TestWorkspace_RenderAPIResolvesForKnownComponents verifies the B2
 // behaviour: when a project contains components/, calling
-// gastro.Render.X(XProps{...}) from a page shadow type-checks against
-// a synthetic *renderAPI method generated from the component's Props
-// schema.
+// gastro.Render(X, XProps{...}) from a page shadow type-checks against a
+// synthetic Component value and XProps generated from the component's
+// Props schema.
 func TestWorkspace_RenderAPIResolvesForKnownComponents(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping: invokes go build")
 	}
 	projectDir := createGastroLinkedProject(t)
 	// Add a component with a Props struct so the workspace scan picks
-	// it up and emits Render.Card(CardProps{...}).
+	// it up and emits Card / CardProps.
 	if err := os.MkdirAll(filepath.Join(projectDir, "components"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ Heading := p.Title
 	defer ws.Close()
 
 	pageSrc := `---
-html, err := gastro.Render.Card(CardProps{Title: "hi"})
+html, err := gastro.Render(Card, CardProps{Title: "hi"})
 if err != nil {
 	return
 }
@@ -500,13 +500,55 @@ Body := html
 	cmd.Dir = ws.Dir()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("Render.Card call should type-check, got error:\n%s", out)
+		t.Fatalf("Render(Card, …) call should type-check, got error:\n%s", out)
+	}
+}
+
+// TestWorkspace_StubDoesNotDuplicateAlwaysOnImports: a component whose
+// Props uses template.HTML (and imports html/template in frontmatter)
+// must not make the router stub import html/template twice.
+func TestWorkspace_StubDoesNotDuplicateAlwaysOnImports(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: invokes go build")
+	}
+	projectDir := createGastroLinkedProject(t)
+	if err := os.MkdirAll(filepath.Join(projectDir, "components"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cardSrc := `---
+import "html/template"
+
+type Props struct {
+	Body template.HTML
+}
+
+Body := gastro.Props().Body
+---
+<article>{{ .Body }}</article>`
+	if err := os.WriteFile(filepath.Join(projectDir, "components", "card.gastro"), []byte(cardSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ws, err := shadow.NewWorkspace(projectDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+
+	if _, err := ws.UpdateFile("pages/index.gastro", "---\nTitle := \"x\"\n---\n<p>{{ .Title }}</p>"); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Dir(ws.VirtualFilePath("pages/index.gastro"))
+	rel, _ := filepath.Rel(ws.Dir(), pkgDir)
+	cmd := exec.Command("go", "build", "-o", os.DevNull, "./"+rel)
+	cmd.Dir = ws.Dir()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("shadow package should build, got:\n%s", out)
 	}
 }
 
 // TestWorkspace_RenderAPIRejectsUnknownComponents verifies that the
-// stub does NOT silently accept arbitrary method names — it surfaces
-// "no method X" so users notice typos.
+// stub does NOT silently accept arbitrary component names — it surfaces
+// "undefined: X" so users notice typos.
 func TestWorkspace_RenderAPIRejectsUnknownComponents(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping: invokes go build")
@@ -519,7 +561,7 @@ func TestWorkspace_RenderAPIRejectsUnknownComponents(t *testing.T) {
 	defer ws.Close()
 
 	pageSrc := `---
-_, _ = gastro.Render.NoSuchComponent("anything")
+_, _ = gastro.Render(NoSuchComponent, "anything")
 ---
 <p>x</p>`
 
@@ -540,11 +582,11 @@ _, _ = gastro.Render.NoSuchComponent("anything")
 // TestWorkspace_RenderAPIRejectsPageName guards Q3 of the audit
 // (docs/history/lsp-shadow-audit.md, resolved 2026-05-10): Render is a
 // component-only API, but a downstream user might typo a page name
-// where they meant a component (e.g. gastro.Render.Index instead of
-// gastro.Render.Card on a project that has both pages/index.gastro
+// where they meant a component (e.g. gastro.Render(Index, …) instead of
+// gastro.Render(Card, …) on a project that has both pages/index.gastro
 // and components/card.gastro). Pages live in pages/, scanComponents
-// only walks components/, so pages must NOT show up as Render
-// methods. Surface area: if a future change extends scanComponents
+// only walks components/, so pages must NOT show up as Component
+// values. Surface area: if a future change extends scanComponents
 // to walk pages/, this test fails loudly instead of silently
 // type-checking nonsense.
 func TestWorkspace_RenderAPIRejectsPageName(t *testing.T) {
@@ -552,9 +594,9 @@ func TestWorkspace_RenderAPIRejectsPageName(t *testing.T) {
 		t.Skip("skipping: invokes go build")
 	}
 	projectDir := createGastroLinkedProject(t)
-	// Two siblings: a real component (so the Render stub has at least
-	// one valid method, ruling out the cold-start bare-stub path) and
-	// a page that should NOT be reachable via Render.
+	// Two siblings: a real component (so the stub has at least one
+	// Component value, ruling out the cold-start path) and a page that
+	// should NOT be reachable via Render.
 	if err := os.MkdirAll(filepath.Join(projectDir, "components"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +616,7 @@ Heading := p.Title
 		t.Fatal(err)
 	}
 	// pages/about.gastro: a real auto-routed page. Should NOT be
-	// callable as gastro.Render.About.
+	// renderable as gastro.Render(About, …).
 	aboutSrc := `---
 Title := "About"
 ---
@@ -590,7 +632,7 @@ Title := "About"
 	defer ws.Close()
 
 	pageSrc := `---
-_, _ = gastro.Render.About("anything")
+_, _ = gastro.Render(About, "anything")
 ---
 <p>x</p>`
 
@@ -604,7 +646,7 @@ _, _ = gastro.Render.About("anything")
 	cmd.Dir = ws.Dir()
 	out, _ := cmd.CombinedOutput()
 	if !strings.Contains(string(out), "About") {
-		t.Errorf("expected build error mentioning About (page name should not be a Render method), got:\n%s", out)
+		t.Errorf("expected build error mentioning About (a page is not a Component value), got:\n%s", out)
 	}
 }
 

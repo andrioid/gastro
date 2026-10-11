@@ -109,6 +109,10 @@ jobs:
           VERSION="${{ needs.release-please.outputs.version }}"
           echo "Warming proxy for github.com/andrioid/gastro@v${VERSION}..."
           curl -fsS "https://proxy.golang.org/github.com/andrioid/gastro/@v/v${VERSION}.info" || echo "Proxy warmup failed (non-fatal)"
+          # The datastar module is released in lockstep (linked-versions)
+          # and tagged datastar/vX.Y.Z.
+          echo "Warming proxy for github.com/andrioid/gastro/datastar@v${VERSION}..."
+          curl -fsS "https://proxy.golang.org/github.com/andrioid/gastro/datastar/@v/v${VERSION}.info" || echo "Proxy warmup failed (non-fatal)"
 
       - name: Publish to VS Code Marketplace
         if: ${{ vars.VSCE_PAT != '' }}

@@ -1,6 +1,6 @@
 # Getting Started — Framework Mode
 
-Set up your first Gastro project in under a minute. You'll need Go 1.26+ installed.
+Set up your first Gastro project in under a minute. You'll need Go 1.27+ installed.
 
 This page is for **building a new Gastro site from scratch**. If you're adding
 gastro to an existing Go project (an API service growing an admin UI, an
@@ -176,12 +176,12 @@ Props are passed with `dict`. The dev server picks up the new component automati
 
 ## Explore Your Project
 
-`gastro list` prints all components and pages with their Props signatures — useful for orientation in an unfamiliar project:
+`gastro list` prints all components with their Props signatures and all pages with their route — useful for orientation in an unfamiliar project:
 
 ```sh
 gastro list
-# [component]  Card   (Title string, Body string)  components/card.gastro
-# [page]       Index                                pages/index.gastro
+# [component]  Card (Title string, Body string)            components/card.gastro
+# [page]       Index                             GET /{$}  pages/index.gastro
 
 gastro list --json   # machine-readable output for scripts and agents
 ```
