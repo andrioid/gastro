@@ -188,8 +188,9 @@ Title := "Blog"
 
 The `http.Error(w, …)` write commits the response; the analyser at
 `gastro generate` and `gastro check` time enforces that every write to
-`w` is followed by `return`. Forgetting the `return` produces a build
-warning (or, under `--strict`, an error) before the silent
+`w` is followed by `return`. Forgetting the `return` produces a warning
+(`pages/x.gastro:12:2: warning: …`) that fails the strict commands
+(`gastro generate`, `gastro build`, `gastro check`) before the silent
 "frontmatter continued past the write" footgun ever runs.
 
 ## Method-aware handlers

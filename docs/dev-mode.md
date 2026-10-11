@@ -164,9 +164,12 @@ you can also wire up manually for [composed setups](#composing-with-other-runner
 1. **Source watcher** — polls `.gastro` files (and `*.go` files under
    `gastro watch`); regenerates with `gastro generate` on every detected change.
 2. **Signal files** — after each successful `gastro generate`, the CLI touches
-   `.gastro/.reload`. After a failed `gastro watch` build, it writes the failure
-   message to `.gastro/.build-error`. Anything that touches these files triggers
-   the corresponding browser event (reload / `console.warn`).
+   `.gastro/.reload`. After a failed generate (under `gastro dev` and
+   `gastro watch`) or a failed `gastro watch` build, it writes the failure
+   message to `.gastro/.build-error`; a failed generate lists every
+   diagnostic as `file:line:col` and leaves `.gastro/` untouched, so the
+   running app keeps serving the last good build. Anything that touches these
+   files triggers the corresponding browser event (reload / `console.warn`).
 3. **DevReloader SSE endpoint** — the generated router mounts
    `GET /__gastro/reload`; the browser subscribes and reacts to two event
    kinds: `reload` (page refresh) and `build-error` (console warning). The

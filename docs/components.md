@@ -345,12 +345,12 @@ typo guard.
 ## Compile-time prop validation
 
 Gastro statically validates the literal string keys you pass to `(dict ...)`
-against the destination component's Props schema. A typo in a key surfaces
-as a compile-time warning that names the component, the typo'd key, and
-the valid prop names:
+against the destination component's Props schema. A typo in a key is a
+generate-time error that names the position, the component, the typo'd key,
+and the valid prop names:
 
 ```
-gastro: warning: pages/index.gastro:14: unknown prop "Tite" on component Card (valid: Body, Title)
+pages/index.gastro:14:21: error: unknown prop "Tite" on component Card (valid: Body, Title)
 ```
 
 This catches the "blank card in production" failure mode where
@@ -366,9 +366,15 @@ The validator skips two cases by design so it doesn't false-positive:
    typed props can be invoked with an arbitrary dict; the runtime
    ignores extra keys.
 
-Warnings are promoted to errors by `gastro generate`, `gastro build`,
-and `gastro check` (i.e. anything CI runs). The dev server (`gastro dev`)
-prints warnings but keeps rendering, so live editing isn't blocked.
+Unknown props, bare calls to a component that declares Props, and calls to
+a component that is not imported are errors everywhere: `gastro generate`,
+`gastro build`, `gastro check`, and the dev loops all fail and report every
+such error in the project at once, each as `file:line:col`. Under
+`gastro dev` / `gastro watch` the errors are also sent to the browser as a
+`build-error` event, and the running app keeps serving the last good build
+until you fix them. Warnings (for example a deprecated `__children` key)
+only fail the strict commands (`generate`, `build`, `check`); the dev loops
+print them and keep going.
 
 ## Calling Components from Go
 

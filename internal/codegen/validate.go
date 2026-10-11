@@ -2,9 +2,7 @@ package codegen
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"text/template/parse"
 
@@ -74,55 +72,6 @@ func dictValidationStubFuncs(uses []gastroParser.UseDeclaration) map[string]any 
 	return stubs
 }
 
-// undefinedComponentRegex matches the text/template parse error for an
-// undefined PascalCase function — the shape a bare call to an un-imported
-// component produces. Mirrors the runtime enhancer in internal/compiler.
-var undefinedComponentRegex = regexp.MustCompile(`function "([A-Z][a-zA-Z0-9]*)" not defined`)
-
-// parseErrLineRegex extracts the 1-indexed line from a text/template parse
-// error of the form `template: template:LINE: ...` (text/template prefixes
-// the tree name, so the line marker is not at the string start).
-var parseErrLineRegex = regexp.MustCompile(`template:(\d+):`)
-
-// UnknownComponentError reports a bare PascalCase component call whose
-// component was never imported in the frontmatter. Line is 1-indexed
-// within the template body the validator was given (0 if unknown).
-type UnknownComponentError struct {
-	Name string
-	Line int
-}
-
-func (e *UnknownComponentError) Error() string {
-	return fmt.Sprintf("unknown component %q: not imported (add `import %s \"components/<file>.gastro\"` to the frontmatter)", e.Name, e.Name)
-}
-
-// ValidateImportedComponents parses the post-TransformTemplate body with
-// the stub FuncMap and promotes a bare call to an un-imported PascalCase
-// component into an *UnknownComponentError. This gives `gastro generate`
-// the same hard failure the {{ wrap X }} path already produces in
-// TransformTemplate, instead of deferring it to template parsing at New().
-//
-// Only the undefined-PascalCase-function parse error is promoted; any
-// other parse error returns nil and is left to the runtime template parse,
-// which owns full template-syntax diagnostics.
-func ValidateImportedComponents(body string, uses []gastroParser.UseDeclaration) error {
-	_, err := parse.Parse("template", body, "{{", "}}", dictValidationStubFuncs(uses))
-	if err == nil {
-		return nil
-	}
-	m := undefinedComponentRegex.FindStringSubmatch(err.Error())
-	if len(m) < 2 {
-		return nil
-	}
-	line := 0
-	if lm := parseErrLineRegex.FindStringSubmatch(err.Error()); len(lm) > 1 {
-		if n, perr := strconv.Atoi(lm[1]); perr == nil {
-			line = n
-		}
-	}
-	return &UnknownComponentError{Name: m[1], Line: line}
-}
-
 // hasRestBag reports whether a component's Props schema includes an
 // attribute-forwarding bag (a field of type gastro.Attrs). Such a
 // component accepts arbitrary literal dict keys — they are forwarded as
@@ -136,25 +85,25 @@ func hasRestBag(fields []StructField) bool {
 	return false
 }
 
-// DiagnosticSeverity classifies a DictKeyDiagnostic. The integer
+// DiagnosticSeverity classifies a TemplateDiagnostic. The integer
 // values match the LSP spec (1=Error, 2=Warning) so callers can pass
 // them through without remapping.
 type DiagnosticSeverity int
 
 const (
-	// SeverityError is for diagnostics that block strict-mode
-	// compilation. Today: unknown prop keys.
+	// SeverityError is for diagnostics that fail generation: unknown
+	// prop keys, bare calls to propful components, un-imported
+	// components.
 	SeverityError DiagnosticSeverity = 1
 	// SeverityWarning is advisory — surfaced in the editor and as a
-	// codegen warning but does not block strict-mode builds. Today:
-	// deprecated key hints, missing-prop notices.
+	// codegen warning; only strict builds fail on it. Today: deprecated
+	// key hints, missing-prop notices.
 	SeverityWarning DiagnosticSeverity = 2
 )
 
-// DictKeyDiagnostic is a position-rich diagnostic produced by the
-// dict-key validator. Both codegen (which lossy-converts to []Warning
-// for backward compatibility) and the LSP (which lifts to its own
-// diagnostic format) consume the same underlying diagnostics, so the
+// TemplateDiagnostic is a position-rich diagnostic for a template body.
+// Both codegen (via ValidateTemplate) and the LSP (which lifts it to its
+// own diagnostic format) consume the same underlying diagnostics, so the
 // two paths cannot drift on which dict keys are valid —
 // SyntheticPropKey is the only place that decision lives.
 //
@@ -163,53 +112,13 @@ const (
 // are exclusive in the LSP convention but inclusive of the closing
 // quote when the diagnostic anchors on a string literal — callers that
 // need exclusive ends should add 1.
-type DictKeyDiagnostic struct {
+type TemplateDiagnostic struct {
 	StartLine int
 	StartCol  int
 	EndLine   int
 	EndCol    int
 	Severity  DiagnosticSeverity
 	Message   string
-}
-
-// ValidateDictKeys cross-checks the literal string keys passed to (dict ...)
-// in component invocations against the destination component's Props field
-// names. It returns one Warning per unknown key, mapped from the
-// position-rich form via lossy conversion (StartLine only). New code
-// should call ValidateDictKeysFromAST for column-rich diagnostics.
-//
-// The body must already have been through TransformTemplate; the {{ wrap }}
-// form is gone by then and only the bare-call form {{ X (dict ...) }}
-// remains. ValidateDictKeysFromAST also handles the pre-transform wrap
-// form, so the LSP can use it on raw .gastro source.
-//
-// Synthetic prop keys ("Children", "__children") are handled via
-// SyntheticPropKey — see synthetic.go for the canonical list.
-func ValidateDictKeys(
-	body string,
-	uses []gastroParser.UseDeclaration,
-	propsByPath map[string][]StructField,
-) []Warning {
-	if len(uses) == 0 {
-		return nil
-	}
-	trees, err := parse.Parse("template", body, "{{", "}}", dictValidationStubFuncs(uses))
-	if err != nil {
-		return nil
-	}
-	tree := trees["template"]
-	if tree == nil {
-		return nil
-	}
-	diags := ValidateDictKeysFromAST(body, tree, uses, propsByPath, ValidateDictKeysOptions{})
-	if len(diags) == 0 {
-		return nil
-	}
-	warnings := make([]Warning, 0, len(diags))
-	for _, d := range diags {
-		warnings = append(warnings, Warning{Line: d.StartLine, Message: d.Message})
-	}
-	return warnings
 }
 
 // ValidateDictKeysOptions controls which classes of diagnostics
@@ -228,10 +137,10 @@ type ValidateDictKeysOptions struct {
 	EmitMissingProps bool
 }
 
-// ValidateDictKeysFromAST is the position-rich form of ValidateDictKeys
-// that operates on a pre-parsed tree. It is the single source of truth
-// for dict-key validation — codegen wraps it for its line-only []Warning
-// channel and the LSP wraps it for its column-rich []Diagnostic channel.
+// ValidateDictKeysFromAST validates dict keys on a pre-parsed tree. It is
+// the single source of truth for dict-key validation — codegen reaches it
+// through ValidateTemplate and the LSP wraps it for its []Diagnostic
+// channel.
 //
 // The tree may be either pre-transform (containing {{ wrap X (dict ...) }}
 // blocks) or post-transform (only bare {{ X (dict ...) }} calls): both
@@ -271,7 +180,7 @@ func ValidateDictKeysFromAST(
 	uses []gastroParser.UseDeclaration,
 	propsByPath map[string][]StructField,
 	opts ValidateDictKeysOptions,
-) []DictKeyDiagnostic {
+) []TemplateDiagnostic {
 	if tree == nil || tree.Root == nil || len(uses) == 0 {
 		return nil
 	}
@@ -283,7 +192,7 @@ func ValidateDictKeysFromAST(
 		aliasPath[u.Name] = u.Path
 	}
 
-	var diags []DictKeyDiagnostic
+	var diags []TemplateDiagnostic
 	walkParseNodes(tree.Root.Nodes, func(node parse.Node) {
 		cmd, ok := node.(*parse.CommandNode)
 		if !ok || len(cmd.Args) == 0 {
@@ -367,15 +276,17 @@ func ValidateDictKeysFromAST(
 				}
 				literalKeys = append(literalKeys, str)
 			}
-		} else {
+		} else if head.Ident != "wrap" {
 			// Pure bare call ({{ Card }}) — no dict pipe. Always an error
 			// for propful components: html/template will fail at execute
 			// time with "wrong number of args" because the underlying
 			// component method takes a single map[string]any. The compiler
 			// only emits a variadic wrapper for propless components.
+			// ({{ wrap Card }} without a dict is fine: the wrap transform
+			// supplies a dict carrying Children.)
 			nameStart := nodeLineCol(body, int(compIdent.Position()))
 			nameEnd := nodeLineCol(body, int(compIdent.Position())+len(compIdent.Ident))
-			diags = append(diags, DictKeyDiagnostic{
+			diags = append(diags, TemplateDiagnostic{
 				StartLine: nameStart.Line,
 				StartCol:  nameStart.Col,
 				EndLine:   nameEnd.Line,
@@ -407,7 +318,7 @@ func ValidateDictKeysFromAST(
 				continue
 			case SyntheticDeprecatedChildren:
 				start, end := stringNodePosRange(body, key)
-				diags = append(diags, DictKeyDiagnostic{
+				diags = append(diags, TemplateDiagnostic{
 					StartLine: start.Line,
 					StartCol:  start.Col,
 					EndLine:   end.Line,
@@ -424,7 +335,7 @@ func ValidateDictKeysFromAST(
 				continue
 			}
 			start, end := stringNodePosRange(body, key)
-			diags = append(diags, DictKeyDiagnostic{
+			diags = append(diags, TemplateDiagnostic{
 				StartLine: start.Line,
 				StartCol:  start.Col,
 				EndLine:   end.Line,
@@ -449,7 +360,7 @@ func ValidateDictKeysFromAST(
 				if providedKeys[f.Name] {
 					continue
 				}
-				diags = append(diags, DictKeyDiagnostic{
+				diags = append(diags, TemplateDiagnostic{
 					StartLine: nameStart.Line,
 					StartCol:  nameStart.Col,
 					EndLine:   nameEnd.Line,

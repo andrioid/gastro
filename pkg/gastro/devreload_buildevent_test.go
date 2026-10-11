@@ -106,6 +106,54 @@ func TestDevReloader_HandleSSE_BuildErrorWireFormat(t *testing.T) {
 	t.Errorf("missing build-error wire format in body:\n%s", got.String())
 }
 
+// TestDevReloader_HandleSSE_MultiLineBuildError: a build-error message
+// spans lines (failing command, then one diagnostic per line). SSE ends a
+// field at a newline, so every line must go out as its own data field;
+// EventSource joins them back with "\n".
+func TestDevReloader_HandleSSE_MultiLineBuildError(t *testing.T) {
+	d := NewDevReloader()
+	t.Cleanup(d.Stop)
+
+	srv := httptest.NewServer(http.HandlerFunc(d.HandleSSE))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	t.Cleanup(cancel)
+	req, err := http.NewRequestWithContext(ctx, "GET", srv.URL, nil)
+	if err != nil {
+		t.Fatalf("NewRequest: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("http.Do: %v", err)
+	}
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	time.Sleep(100 * time.Millisecond)
+	d.broadcastEvent(reloadEvent{Kind: "build-error", Data: "$ gastro generate\npages/a.gastro:2:6: error: x\npages/b.gastro:4:7: error: y"})
+
+	want := "event: build-error\n" +
+		"data: $ gastro generate\n" +
+		"data: pages/a.gastro:2:6: error: x\n" +
+		"data: pages/b.gastro:4:7: error: y\n\n"
+	deadline := time.Now().Add(2 * time.Second)
+	var got strings.Builder
+	buf := make([]byte, 256)
+	for time.Now().Before(deadline) {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			got.Write(buf[:n])
+			if strings.Contains(got.String(), want) {
+				return
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	t.Errorf("want every line as a data field:\n%s\ngot:\n%s", want, got.String())
+}
+
 // TestDevReloader_ReloadStillWorks is the regression test ensuring the
 // existing `reload` event wire shape is unchanged (data: "reload"). Any
 // in-the-wild client script versions parsing the data field should

@@ -7,6 +7,7 @@ import (
 	goformat "go/format"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -24,16 +25,11 @@ type CompileOptions struct {
 	Version string
 }
 
-// FileWarning represents a warning from a specific file during compilation.
-type FileWarning struct {
-	File    string
-	Line    int
-	Message string
-}
-
 // CompileResult contains the output of a successful compilation.
 type CompileResult struct {
-	Warnings []FileWarning
+	// Warnings lists every diagnostic of the run; on success they are
+	// all warnings.
+	Warnings []Diagnostic
 	// EmbedDeps lists absolute paths to every external file referenced by a
 	// //gastro:embed directive in frontmatter during this compile. Useful
 	// for the dev watcher so changes to these files can trigger a
@@ -47,6 +43,11 @@ type CompileResult struct {
 
 // Compile reads all .gastro files from a project directory, processes them
 // through the parser and code generator, and writes the output to outputDir.
+//
+// Every file is compiled before anything is written, and every diagnostic
+// of the run is collected. When any diagnostic is an error (or, under
+// Strict, any diagnostic at all) Compile returns a *DiagnosticsError and
+// leaves outputDir untouched, so the previous generation keeps working.
 func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult, error) {
 	absProjectDir, err := filepath.Abs(projectDir)
 	if err != nil {
@@ -58,13 +59,6 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 
 	header := codegen.GeneratedHeader(opts.Version)
 
-	// Ensure output subdirectories exist
-	for _, sub := range []string{"pages", "components", "templates"} {
-		if err := os.MkdirAll(filepath.Join(outputDir, sub), 0o755); err != nil {
-			return nil, fmt.Errorf("creating output directory: %w", err)
-		}
-	}
-
 	// Discover all .gastro files
 	pageFiles, err := discoverFiles(filepath.Join(projectDir, "pages"), "pages")
 	if err != nil && !os.IsNotExist(err) {
@@ -75,13 +69,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("discovering components: %w", err)
 	}
-
-	// Process each file, collecting metadata for render.go and routes.go
 	allFiles := append(pageFiles, componentFiles...)
-	var components []componentMeta
-	var templates []templateMeta
-	var allWarnings []FileWarning
-	var allEmbedDeps []string
 
 	// Pre-pass: gather every component's Props field list so the per-file
 	// pass can validate (dict ...) keys against the destination schema.
@@ -91,58 +79,65 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 		return nil, fmt.Errorf("gathering component schemas: %w", err)
 	}
 
-	// Pre-pass: detect component name collisions before any per-file work
-	// writes Go files to disk. Two component files that produce the same
-	// ExportedName (e.g. components/post-card.gastro and
-	// components/post/card.gastro both producing "PostCard") would yield
-	// duplicate type and method names in render.go and overwrite each
-	// other's per-file Go output. Catch it here with a clear message
-	// before either failure mode triggers.
-	for _, w := range findComponentNameCollisions(componentFiles) {
-		allWarnings = append(allWarnings, w)
-		if opts.Strict {
-			return nil, fmt.Errorf("compiling %s: %s", w.File, w.Message)
-		}
-	}
+	// Pre-pass: detect component name collisions. Two component files
+	// that produce the same ExportedName (e.g. components/post-card.gastro
+	// and components/post/card.gastro both producing "PostCard") would
+	// yield duplicate type and method names in render.go and overwrite
+	// each other's per-file Go output.
+	diags := findComponentNameCollisions(componentFiles)
 
 	// Pre-pass: detect page-id collisions across pages and components.
 	// DerivePageID is intentionally lossy (collapses non-ident chars to
 	// underscores) so two visually-distinct paths can sanitise to the
 	// same id. With mangled hoisted decls, that would yield duplicate
-	// package-level symbols. Catch it here before codegen runs.
-	if collisions := findPageIDCollisions(pageFiles, componentFiles); len(collisions) > 0 {
-		for _, w := range collisions {
-			allWarnings = append(allWarnings, w)
-			if opts.Strict {
-				return nil, fmt.Errorf("compiling %s: %s", w.File, w.Message)
-			}
+	// package-level symbols.
+	diags = append(diags, findPageIDCollisions(pageFiles, componentFiles)...)
+
+	outputs := make([]*fileOutput, 0, len(allFiles))
+	for _, relPath := range allFiles {
+		absPath := filepath.Join(projectDir, relPath)
+		out, fileDiags := compileFile(absPath, relPath, absProjectDir, opts.Version, propsByPath, knownComponents)
+		diags = append(diags, fileDiags...)
+		if out != nil {
+			outputs = append(outputs, out)
 		}
 	}
 
-	for _, relPath := range allFiles {
-		absPath := filepath.Join(projectDir, relPath)
-		result, err := compileFile(absPath, relPath, absProjectDir, outputDir, opts.Version, propsByPath, knownComponents)
-		if err != nil {
-			return nil, fmt.Errorf("compiling %s: %w", relPath, err)
+	if opts.Strict {
+		for i := range diags {
+			diags[i].Severity = codegen.SeverityError
 		}
+	}
+	sortDiagnostics(diags)
+	if slices.ContainsFunc(diags, Diagnostic.IsError) {
+		return nil, &DiagnosticsError{Diagnostics: diags}
+	}
 
-		// Collect warnings from frontmatter analysis
-		for _, w := range result.warnings {
-			if opts.Strict {
-				return nil, fmt.Errorf("compiling %s: %s", relPath, w.Message)
-			}
-			allWarnings = append(allWarnings, FileWarning{
-				File:    relPath,
-				Line:    w.Line,
-				Message: w.Message,
-			})
+	// Every file compiled cleanly; only now touch outputDir.
+	for _, sub := range []string{"pages", "components", "templates"} {
+		if err := os.MkdirAll(filepath.Join(outputDir, sub), 0o755); err != nil {
+			return nil, fmt.Errorf("creating output directory: %w", err)
 		}
+	}
 
-		templates = append(templates, result.template)
-		if result.component != nil {
-			components = append(components, *result.component)
+	var components []componentMeta
+	var templates []templateMeta
+	var allEmbedDeps []string
+	for _, out := range outputs {
+		templatePath := filepath.Join(outputDir, "templates", out.template.TemplateFile)
+		if err := os.WriteFile(templatePath, []byte(out.templateBody), 0o644); err != nil {
+			return nil, fmt.Errorf("writing template for %s: %w", out.relPath, err)
 		}
-		allEmbedDeps = append(allEmbedDeps, result.embedDeps...)
+		// All generated .go files go flat in the output directory (same
+		// package).
+		if err := writeGoFile(filepath.Join(outputDir, outputGoFile(out.relPath)), []byte(out.goCode)); err != nil {
+			return nil, fmt.Errorf("writing handler for %s: %w", out.relPath, err)
+		}
+		templates = append(templates, out.template)
+		if out.component != nil {
+			components = append(components, *out.component)
+		}
+		allEmbedDeps = append(allEmbedDeps, out.embedDeps...)
 	}
 
 	// Detect static asset directory (ignore dotfiles like .gitkeep, .DS_Store)
@@ -217,7 +212,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	}
 
 	return &CompileResult{
-		Warnings:       allWarnings,
+		Warnings:       diags,
 		EmbedDeps:      dedupeStrings(allEmbedDeps),
 		ComponentCount: componentCount,
 		PageCount:      pageCount,
@@ -253,8 +248,8 @@ func discoverFiles(dir, prefix string) ([]string, error) {
 // would produce duplicate package-level symbols. Reports each later
 // occurrence as a warning whose message references the first colliding
 // path; the first occurrence is left alone.
-func findPageIDCollisions(pageFiles, componentFiles []string) []FileWarning {
-	var warnings []FileWarning
+func findPageIDCollisions(pageFiles, componentFiles []string) []Diagnostic {
+	var warnings []Diagnostic
 	for _, group := range []struct {
 		kind  string
 		files []string
@@ -269,9 +264,11 @@ func findPageIDCollisions(pageFiles, componentFiles []string) []FileWarning {
 		for _, relPath := range group.files {
 			id := codegen.DerivePageID(relPath)
 			if first, exists := seen[id]; exists {
-				warnings = append(warnings, FileWarning{
-					File: relPath,
-					Line: 1,
+				warnings = append(warnings, Diagnostic{
+					File:     relPath,
+					Line:     1,
+					Col:      1,
+					Severity: codegen.SeverityWarning,
 					Message: fmt.Sprintf(
 						"%s path sanitises to id %q which collides with %q; rename one of the files so their paths produce distinct ids",
 						group.kind, id, first,
@@ -293,18 +290,20 @@ func findPageIDCollisions(pageFiles, componentFiles []string) []FileWarning {
 // Derived purely from path strings (no file I/O), so this can run in the
 // pre-pass before any per-file work writes Go output. The mapping is the
 // same one the codegen uses: HandlerFuncName(path) -> ExportedComponentName.
-func findComponentNameCollisions(componentFiles []string) []FileWarning {
+func findComponentNameCollisions(componentFiles []string) []Diagnostic {
 	if len(componentFiles) < 2 {
 		return nil
 	}
 	seen := make(map[string]string, len(componentFiles)) // ExportedName -> relPath
-	var warnings []FileWarning
+	var warnings []Diagnostic
 	for _, relPath := range componentFiles {
 		exported := codegen.ExportedComponentName(codegen.HandlerFuncName(relPath))
 		if first, ok := seen[exported]; ok {
-			warnings = append(warnings, FileWarning{
-				File: relPath,
-				Line: 0,
+			warnings = append(warnings, Diagnostic{
+				File:     relPath,
+				Line:     1,
+				Col:      1,
+				Severity: codegen.SeverityWarning,
 				Message: fmt.Sprintf(
 					"component name collision: %q and %q both produce the exported name %q; rename one of the files to avoid duplicate type and function names in generated code (and per-file .go output overwriting itself)",
 					first, relPath, exported,
@@ -335,13 +334,16 @@ type componentMeta struct {
 	HasChildren   bool
 }
 
-// compileResult is returned by compileFile. It always contains template
-// metadata and optionally component metadata (nil for pages).
-type compileResult struct {
-	template  templateMeta
-	component *componentMeta
-	warnings  []codegen.Warning
-	embedDeps []string
+// fileOutput is everything compileFile produces for one source file. It
+// always contains template metadata and optionally component metadata
+// (nil for pages).
+type fileOutput struct {
+	relPath      string
+	template     templateMeta
+	component    *componentMeta
+	templateBody string // transformed template, written to templates/
+	goCode       string // handler source, written to the output root
+	embedDeps    []string
 }
 
 // gatherComponentSchemas reads each component file's frontmatter, extracts
@@ -394,16 +396,26 @@ func gatherComponentSchemas(componentFiles []string, projectDir string) (map[str
 	return propsByPath, knownComponents, nil
 }
 
-func compileFile(absPath, relPath, absProjectDir, outputDir, version string, propsByPath map[string][]codegen.StructField, knownComponents map[string]bool) (compileResult, error) {
+// compileFile compiles one .gastro file in memory. It returns the file's
+// output, or nil when any error-severity diagnostic was found, plus every
+// diagnostic for the file. Nothing is written: Compile writes the outputs
+// once the whole project compiled cleanly.
+func compileFile(absPath, relPath, absProjectDir, version string, propsByPath map[string][]codegen.StructField, knownComponents map[string]bool) (*fileOutput, []Diagnostic) {
 	content, err := os.ReadFile(absPath)
 	if err != nil {
-		return compileResult{}, err
+		return nil, []Diagnostic{{File: relPath, Line: 1, Col: 1, Severity: codegen.SeverityError, Message: err.Error()}}
 	}
+	pos := newSourcePositions(relPath, string(content))
 
-	// Parse
 	file, err := parser.Parse(relPath, string(content))
 	if err != nil {
-		return compileResult{}, err
+		// parser.Parse prefixes the file name, which the diagnostic
+		// already carries.
+		msg := err.Error()
+		if inner := errors.Unwrap(err); inner != nil {
+			msg = inner.Error()
+		}
+		return nil, []Diagnostic{pos.at(1, 1, codegen.SeverityError, msg)}
 	}
 
 	// Expand //gastro:embed directives in the frontmatter before any
@@ -417,19 +429,38 @@ func compileFile(absPath, relPath, absProjectDir, outputDir, version string, pro
 		// reject anything outside this fallback root.
 		moduleRoot = absProjectDir
 	}
-	rewrittenFM, embedDeps, err := codegen.ProcessEmbedDirectives(file.Frontmatter, codegen.EmbedContext{
-		SourceFile: absPath,
-		ModuleRoot: moduleRoot,
-	})
+	embedCtx := codegen.EmbedContext{SourceFile: absPath, ModuleRoot: moduleRoot}
+	rewrittenFM, embedDeps, err := codegen.ProcessEmbedDirectives(file.Frontmatter, embedCtx)
 	if err != nil {
-		return compileResult{}, err
+		return nil, embedDiagnostics(pos, file, embedCtx, err)
 	}
+	// The rewrite keeps line numbers, so frontmatter-relative lines
+	// reported below still map through file.FrontmatterSourceLine.
 	file.Frontmatter = rewrittenFM
 
-	// Analyze frontmatter
 	info, err := codegen.AnalyzeFrontmatter(file.Frontmatter)
 	if err != nil {
-		return compileResult{}, err
+		var hoistErr *codegen.HoistError
+		if errors.As(err, &hoistErr) {
+			return nil, []Diagnostic{pos.atLine(file.FrontmatterSourceLine(hoistErr.Line), codegen.SeverityError, hoistErr.Message())}
+		}
+		return nil, []Diagnostic{pos.at(file.FrontmatterLine, 1, codegen.SeverityError, err.Error())}
+	}
+
+	var diags []Diagnostic
+	for _, w := range info.Warnings {
+		diags = append(diags, pos.atLine(file.FrontmatterSourceLine(w.Line), codegen.SeverityWarning, w.Message))
+	}
+
+	// Validate the template as written: un-imported components (issue
+	// #39) and (dict ...) keys against each component's Props schema.
+	// Positions are template-body relative; the body starts at column 1
+	// of file.TemplateBodyLine.
+	for _, d := range codegen.ValidateTemplate(file.TemplateBody, file.Uses, propsByPath) {
+		diags = append(diags, pos.at(file.TemplateBodyLine+d.StartLine-1, d.StartCol, d.Severity, d.Message))
+	}
+	if slices.ContainsFunc(diags, Diagnostic.IsError) {
+		return nil, diags
 	}
 
 	// Check for children usage before template transformation. Goes
@@ -438,35 +469,9 @@ func compileFile(absPath, relPath, absProjectDir, outputDir, version string, pro
 	// a component renders children — see internal/codegen/template.go.
 	hasChildren := codegen.TemplateRendersChildren(file.TemplateBody)
 
-	// Transform template body
 	transformedBody, err := codegen.TransformTemplate(file.TemplateBody, file.Uses)
 	if err != nil {
-		return compileResult{}, err
-	}
-
-	// Parity with the {{ wrap X }} path (which errors in TransformTemplate):
-	// a bare call to an un-imported PascalCase component is a generate-time
-	// error, not a runtime surprise in New(). See issue #39.
-	if err := codegen.ValidateImportedComponents(transformedBody, file.Uses); err != nil {
-		var uc *codegen.UnknownComponentError
-		if errors.As(err, &uc) && uc.Line > 0 && file.TemplateBodyLine > 0 {
-			return compileResult{}, fmt.Errorf("line %d: %w", file.TemplateBodyLine+uc.Line-1, uc)
-		}
-		return compileResult{}, err
-	}
-
-	// Validate (dict ...) keys against the destination component's Props
-	// schema. Unknown keys produce warnings here; opts.Strict in Compile
-	// promotes them to errors. Falls back to silent no-op if the body
-	// doesn't parse with the stub FuncMap (rare).
-	dictWarnings := codegen.ValidateDictKeys(transformedBody, file.Uses, propsByPath)
-
-	// Write template file. outputTemplateFile mirrors the name transform
-	// the prune pass uses for the keep-set so the two never drift.
-	templateFile := outputTemplateFile(relPath)
-	templatePath := filepath.Join(outputDir, "templates", templateFile)
-	if err := os.WriteFile(templatePath, []byte(transformedBody), 0o644); err != nil {
-		return compileResult{}, err
+		return nil, append(diags, pos.at(file.TemplateBodyLine, 1, codegen.SeverityError, err.Error()))
 	}
 
 	// Determine component status: explicit gastro.Props() call, or
@@ -476,19 +481,10 @@ func compileFile(absPath, relPath, absProjectDir, outputDir, version string, pro
 		isComponent = true
 	}
 
-	// Generate handler Go code
 	file.TemplateBody = transformedBody
 	handlerCode, err := codegen.GenerateHandler(file, info, isComponent, codegen.GenerateOptions{MangleHoisted: true, Version: version})
 	if err != nil {
-		return compileResult{}, err
-	}
-
-	// All generated .go files go flat in the output directory (same
-	// package). outputGoFile mirrors the prune pass's keep-set transform
-	// so a live output is never deleted.
-	goFilePath := filepath.Join(outputDir, outputGoFile(relPath))
-	if err := writeGoFile(goFilePath, []byte(handlerCode)); err != nil {
-		return compileResult{}, err
+		return nil, append(diags, pos.at(file.FrontmatterLine, 1, codegen.SeverityError, err.Error()))
 	}
 
 	funcName := codegen.HandlerFuncName(relPath)
@@ -513,43 +509,23 @@ func compileFile(absPath, relPath, absProjectDir, outputDir, version string, pro
 		})
 	}
 
-	tmplMeta := templateMeta{
-		FuncName:     funcName,
-		TemplateFile: templateFile,
-		Uses:         uses,
-	}
-
-	// Track B (docs/history/frictions-plan.md §4.9): for pages, run the
-	// shared response-write analyzer over the frontmatter and emit a
-	// warning for every write site that isn't followed by `return`.
-	// Components don't have `w` / `r` in scope, so the analyzer is
-	// gated to pages here to avoid surprising warnings on a component
-	// that happens to bind a local `w` for unrelated reasons.
-	var respwriteWarnings []codegen.Warning
-	if !isComponent {
-		respwriteWarnings = codegen.ValidateFrontmatterReturns(file.Frontmatter)
-	}
-
-	// Combine frontmatter warnings with dict-key validation warnings. The
-	// dict warnings already carry template-body line numbers; rebase them
-	// onto the source file's coordinate system by offsetting by the line
-	// where the template body starts.
-	combinedWarnings := append([]codegen.Warning(nil), info.Warnings...)
-	combinedWarnings = append(combinedWarnings, respwriteWarnings...)
-	for _, w := range dictWarnings {
-		line := w.Line
-		if file.TemplateBodyLine > 0 {
-			line = file.TemplateBodyLine + line - 1
-		}
-		combinedWarnings = append(combinedWarnings, codegen.Warning{
-			Line:    line,
-			Message: w.Message,
-		})
+	// outputTemplateFile / outputGoFile mirror the prune pass's
+	// keep-set transform so a live output is never deleted.
+	out := &fileOutput{
+		relPath:      relPath,
+		templateBody: transformedBody,
+		goCode:       handlerCode,
+		embedDeps:    embedDeps,
+		template: templateMeta{
+			FuncName:     funcName,
+			TemplateFile: outputTemplateFile(relPath),
+			Uses:         uses,
+		},
 	}
 
 	// Pages have no component metadata
 	if !isComponent {
-		return compileResult{template: tmplMeta, warnings: combinedWarnings, embedDeps: embedDeps}, nil
+		return out, diags
 	}
 
 	_, hoistedTypes := codegen.HoistTypeDeclarations(file.Frontmatter)
@@ -578,7 +554,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir, version string, pro
 		}
 	}
 
-	compMeta := &componentMeta{
+	out.component = &componentMeta{
 		ExportedName:  codegen.ExportedComponentName(funcName),
 		FuncName:      funcName,
 		HasProps:      info.PropsTypeName != "",
@@ -586,8 +562,7 @@ func compileFile(absPath, relPath, absProjectDir, outputDir, version string, pro
 		PropsFields:   propsFields,
 		HasChildren:   hasChildren,
 	}
-
-	return compileResult{template: tmplMeta, component: compMeta, warnings: combinedWarnings, embedDeps: embedDeps}, nil
+	return out, diags
 }
 
 // syncStatic copies the project's static/ directory into outputDir/static/.

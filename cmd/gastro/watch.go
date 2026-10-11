@@ -501,16 +501,10 @@ func runWatchLoop(ctx context.Context, flags watchFlags) error {
 		WatchGoFiles:  true,
 		ExtraExcludes: flags.Excludes,
 		ExtraWatch:    flags.ExtraWatch,
-		Generate: func() ([]string, error) {
-			result, err := runGenerate(false)
-			if err != nil {
-				return nil, err
-			}
-			return result.EmbedDeps, nil
-		},
-		OnRestart: startApp,
-		PreReload: runAssets,
-		OnReload:  writeReloadSignal,
+		Generate:      generateForDevLoop,
+		OnRestart:     startApp,
+		PreReload:     runAssets,
+		OnReload:      writeReloadSignal,
 	})
 
 	// Cleanup. Stop the running app and cancel any in-flight build.

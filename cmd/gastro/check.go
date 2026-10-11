@@ -44,12 +44,9 @@ func runCheck() error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	result, err := compiler.Compile(projectDir, tmpDir, compiler.CompileOptions{Strict: true})
-	if err != nil {
+	// Strict: any diagnostic, warning or error, fails the check.
+	if _, err := compiler.Compile(projectDir, tmpDir, compiler.CompileOptions{Strict: true}); err != nil {
 		return fmt.Errorf("generate to temp dir: %w", err)
-	}
-	for _, w := range result.Warnings {
-		fmt.Fprintf(os.Stderr, "gastro: warning: %s:%d: %s\n", w.File, w.Line, w.Message)
 	}
 
 	diffs, err := compareTrees(existingDir, tmpDir)

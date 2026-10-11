@@ -1,6 +1,7 @@
 package compiler_test
 
 import (
+	"errors"
 	goformat "go/format"
 	"go/parser"
 	"go/token"
@@ -679,14 +680,14 @@ func goParse(src string) (any, error) {
 	return parser.ParseFile(token.NewFileSet(), "generated.go", src, parser.AllErrors)
 }
 
-// TestCompile_DictKeyTypoSurfacesWarning is the audit P0 #3 reproducer
+// TestCompile_DictKeyTypoSurfacesError is the audit P0 #3 reproducer
 // turned into a regression test. A page imports a Card component whose
 // Props has fields {Title, Body}, but invokes it with `dict "Tite" ...`.
 // Before this validator the compile silently produced HTML with an empty
 // Card (the typo'd key was dropped by MapToStruct at render time). Now
-// the compile yields a FileWarning that names the typo'd key, the
+// the compile fails with a diagnostic that names the typo'd key, the
 // component, and the valid prop names.
-func TestCompile_DictKeyTypoSurfacesWarning(t *testing.T) {
+func TestCompile_DictKeyTypoSurfacesError(t *testing.T) {
 	projectDir := t.TempDir()
 	compDir := filepath.Join(projectDir, "components")
 	pagesDir := filepath.Join(projectDir, "pages")
@@ -713,39 +714,30 @@ func TestCompile_DictKeyTypoSurfacesWarning(t *testing.T) {
 			"---\n"+
 			`<html><body>{{ Card (dict "Tite" "Hi" "Body" "Hello") }}</body></html>`+"\n"), 0o644)
 
-	outputDir := t.TempDir()
-	result, err := compiler.Compile(projectDir, outputDir, compiler.CompileOptions{})
-	if err != nil {
-		t.Fatalf("compile failed: %v", err)
-	}
-
-	// Find the dict-typo warning amongst all warnings.
-	var found *compiler.FileWarning
-	for i := range result.Warnings {
-		w := result.Warnings[i]
-		if contains(w.Message, `unknown prop "Tite"`) {
-			found = &result.Warnings[i]
-			break
+	// Unknown props are errors: the run fails even without Strict.
+	for _, strict := range []bool{false, true} {
+		_, err := compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{Strict: strict})
+		var diagErr *compiler.DiagnosticsError
+		if !errors.As(err, &diagErr) {
+			t.Fatalf("strict=%v: expected *compiler.DiagnosticsError, got %T: %v", strict, err, err)
 		}
-	}
-	if found == nil {
-		t.Fatalf("expected an `unknown prop` warning for the typo `Tite`; got: %v", result.Warnings)
-	}
 
-	// Warning must reference the page that contains the call site, not
-	// the component being called.
-	if found.File != "pages/index.gastro" {
-		t.Errorf("warning attributed to wrong file: %q", found.File)
-	}
-
-	// Strict mode promotes the warning to an error. The strict compile
-	// surfaces the *first* warning as an error; the dict-key warning
-	// might be queued behind unrelated warnings, so check that any
-	// strict error fires AND that the dict typo is among the warnings
-	// from the non-strict run above.
-	_, err = compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{Strict: true})
-	if err == nil {
-		t.Error("expected strict compile to fail, but it succeeded")
+		// Find the dict-typo diagnostic amongst all diagnostics.
+		var found *compiler.Diagnostic
+		for i := range diagErr.Diagnostics {
+			if contains(diagErr.Diagnostics[i].Message, `unknown prop "Tite"`) {
+				found = &diagErr.Diagnostics[i]
+				break
+			}
+		}
+		if found == nil {
+			t.Fatalf("strict=%v: expected an `unknown prop` error for the typo `Tite`; got: %v", strict, diagErr)
+		}
+		// The diagnostic must reference the page that contains the call
+		// site, not the component being called.
+		if found.File != "pages/index.gastro" || found.Line != 4 {
+			t.Errorf("strict=%v: diagnostic attributed to %s:%d, want pages/index.gastro:4", strict, found.File, found.Line)
+		}
 	}
 }
 

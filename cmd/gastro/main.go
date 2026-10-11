@@ -36,6 +36,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -80,13 +81,13 @@ func main() {
 	case "generate":
 		applyGastroProject()
 		if _, err := runGenerate(true); err != nil {
-			fmt.Fprintf(os.Stderr, "gastro generate: %v\n", err)
+			reportFailure("generate", err)
 			os.Exit(1)
 		}
 	case "build":
 		applyGastroProject()
 		if err := runBuild(); err != nil {
-			fmt.Fprintf(os.Stderr, "gastro build: %v\n", err)
+			reportFailure("build", err)
 			os.Exit(1)
 		}
 	case "dev":
@@ -131,7 +132,7 @@ func main() {
 				// Drift: the diff has already been printed by runCheck.
 				os.Exit(1)
 			}
-			fmt.Fprintf(os.Stderr, "gastro check: %v\n", err)
+			reportFailure("check", err)
 			os.Exit(2)
 		}
 	case "lsp":
@@ -436,13 +437,41 @@ func runGenerate(strict bool) (*compiler.CompileResult, error) {
 	}
 
 	for _, w := range result.Warnings {
-		fmt.Fprintf(os.Stderr, "gastro: warning: %s:%d: %s\n", w.File, w.Line, w.Message)
+		fmt.Fprintln(os.Stderr, w.String())
 	}
 
 	elapsed := time.Since(start).Round(time.Millisecond)
 	fmt.Printf("gastro: done (%d components, %d pages, %s)\n",
 		result.ComponentCount, result.PageCount, elapsed)
 	return result, nil
+}
+
+// generateForDevLoop is the Generate hook of `gastro dev` and `gastro
+// watch`. A failed generation is also sent to the browser as a
+// build-error devreload event; Compile leaves .gastro/ untouched on
+// failure, so the running server keeps serving the last good build.
+func generateForDevLoop() ([]string, error) {
+	result, err := runGenerate(false)
+	if err != nil {
+		if werr := writeBuildErrorSignal("$ gastro generate\n" + err.Error()); werr != nil {
+			fmt.Fprintf(os.Stderr, "gastro: failed to write build-error signal: %v\n", werr)
+		}
+		return nil, err
+	}
+	return result.EmbedDeps, nil
+}
+
+// reportFailure prints a command failure. Compile diagnostics are printed
+// one per line as file:line:col so terminals and editors can jump to them,
+// followed by a count.
+func reportFailure(cmd string, err error) {
+	var diagErr *compiler.DiagnosticsError
+	if errors.As(err, &diagErr) {
+		fmt.Fprintln(os.Stderr, diagErr.Error())
+		fmt.Fprintf(os.Stderr, "gastro %s: %s\n", cmd, diagErr.Summary())
+		return
+	}
+	fmt.Fprintf(os.Stderr, "gastro %s: %v\n", cmd, err)
 }
 
 func runBuild() error {
@@ -593,20 +622,15 @@ func runDev(extraWatch []string) error {
 		return nil
 	}
 
-	// Run the watch loop. Generate hooks into the existing runGenerate
-	// helper (lenient — warnings don't block dev). OnReload writes the
-	// .gastro/.reload signal that pkg/gastro/devreload.go polls. Note
-	// that PollInterval and DebounceDelay are left at the package
-	// defaults (500ms / 200ms) so observable behaviour matches what
-	// `gastro dev` shipped before the devloop extraction.
+	// Run the watch loop. Generate is lenient (warnings don't block dev)
+	// and surfaces errors through the build-error devreload event.
+	// OnReload writes the .gastro/.reload signal that
+	// pkg/gastro/devreload.go polls. Note that PollInterval and
+	// DebounceDelay are left at the package defaults (500ms / 200ms) so
+	// observable behaviour matches what `gastro dev` shipped before the
+	// devloop extraction.
 	loopErr := devloop.Run(ctx, devloop.Config{
-		Generate: func() ([]string, error) {
-			result, err := runGenerate(false)
-			if err != nil {
-				return nil, err
-			}
-			return result.EmbedDeps, nil
-		},
+		Generate:   generateForDevLoop,
 		OnRestart:  startApp,
 		OnReload:   writeReloadSignal,
 		ExtraWatch: extraWatch,

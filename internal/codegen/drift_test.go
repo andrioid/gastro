@@ -146,7 +146,7 @@ type normalisedDiag struct {
 	prefix   string // first 32 bytes of message — message text may diverge in wording but kind must match
 }
 
-func normaliseCodegen(diags []codegen.DictKeyDiagnostic) []normalisedDiag {
+func normaliseCodegen(diags []codegen.TemplateDiagnostic) []normalisedDiag {
 	out := make([]normalisedDiag, 0, len(diags))
 	for _, d := range diags {
 		out = append(out, normalisedDiag{

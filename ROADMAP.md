@@ -23,7 +23,6 @@ These items have been picked up and are being worked on in
   marks fields that must be passed and non-zero (plan §4.6). Replaces
   the former "Optional Props fields" item, which proposed the opposite
   default (`gastro:"optional"`).
-- **Dict-key errors fail non-strict generation** (plan §4.4).
 - **Typed `Render` bypassing the `map[string]any` round-trip**, as
   `Router.Render[P]` (plan §4.5).
 
