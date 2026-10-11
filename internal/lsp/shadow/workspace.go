@@ -599,19 +599,20 @@ func isIdentPart(c byte) bool {
 // routerStub builds the synthetic stub file that lives alongside each
 // shadow virtual file. It defines:
 //
-//   - Router type and the two __gastro_* helper methods that codegen
-//     output calls (__gastro_getTemplate, __gastro_handleError).
-//   - renderAPI type and the package-level Render var.
-//   - For each scanned component: a method on *renderAPI matching the
-//     real Render API surface, plus an XProps alias / synthetic struct
-//     so calls like `Render.Card(CardProps{...})` type-check with
-//     field-by-field accuracy.
+//   - Router type and the __gastro_* helper methods that codegen output
+//     calls (__gastro_getTemplate, __gastro_handleError, …).
+//   - For each scanned component: the XProps type (alias-equivalent or
+//     synthetic struct) and the exported gastroRuntime.Component value,
+//     so frontmatter calls like `gastro.Render(Card, CardProps{...})`
+//     (rewritten by codegen to gastroRuntime.RenderComponent(__router,
+//     …)) type-check with field-by-field accuracy.
 //
-// Cold start (no .gastro/ directory present, no components found):
-// the stub still defines a bare *renderAPI, so `Render.X` errors with
-// "no method X" until `gastro generate` runs and the next workspace
-// invocation picks up the components. This matches the silent
-// fallback the audit document accepted (Q1).
+// The stub deliberately declares no generic method (Router.Render), so
+// it type-checks under gopls builds that predate generic methods.
+//
+// Cold start (no components found): `gastro.Render(Card, …)` errors with
+// "undefined: Card" until the next workspace invocation picks up the
+// components.
 //
 // Implementation: the stub is generated as a string per shadow
 // subpackage (rather than once per workspace) because each shadow
@@ -619,11 +620,16 @@ func isIdentPart(c byte) bool {
 // typically O(10) components — but if it ever becomes a hot path the
 // stub can be cached on the Workspace.
 func (ws *Workspace) routerStub(pkgName string) string {
-	// Aggregate all component-needed imports (deduped by path).
+	// Aggregate all component-needed imports (deduped by path), minus the
+	// ones the stub always imports — a component whose Props uses
+	// template.HTML would otherwise import html/template twice.
+	alwaysImported := map[string]bool{"bytes": true, "html/template": true, "net/http": true}
 	extraImports := map[string]bool{}
 	for _, c := range ws.componentMD {
 		for _, p := range c.neededImports {
-			extraImports[p] = true
+			if !alwaysImported[p] {
+				extraImports[p] = true
+			}
 		}
 	}
 
@@ -635,6 +641,7 @@ func (ws *Workspace) routerStub(pkgName string) string {
 	sb.WriteString("\t\"bytes\"\n")
 	sb.WriteString("\t\"html/template\"\n")
 	sb.WriteString("\t\"net/http\"\n")
+	sb.WriteString("\n\tgastroRuntime \"github.com/andrioid/gastro/pkg/gastro\"\n")
 	// Sorted iteration so the stub is deterministic across runs —
 	// helps debugging by keeping diffs minimal when components
 	// change.
@@ -649,7 +656,7 @@ func (ws *Workspace) routerStub(pkgName string) string {
 	// least one XProps field type — that's why neededImportsForFields
 	// only includes packages whose name appears in a field qualifier
 	// — so they don't need suppression lines.
-	sb.WriteString("var _ http.ResponseWriter\nvar _ template.HTML\nvar _ bytes.Buffer\n\n")
+	sb.WriteString("var _ http.ResponseWriter\nvar _ template.HTML\nvar _ bytes.Buffer\nvar _ gastroRuntime.Attrs\n\n")
 
 	sb.WriteString("type Router struct{}\n\n")
 	sb.WriteString("func (*Router) __gastro_getTemplate(string) *template.Template { return nil }\n")
@@ -660,10 +667,6 @@ func (ws *Workspace) routerStub(pkgName string) string {
 	// works regardless of whether the project registers WithRequestFuncs.
 	sb.WriteString("func (*Router) __gastro_renderPage(string, http.ResponseWriter, *http.Request, any) error { return nil }\n")
 	sb.WriteString("func (*Router) __gastro_renderComponent(string, *http.Request, *bytes.Buffer, any) error { return nil }\n\n")
-
-	sb.WriteString("type renderAPI struct{}\n\n")
-	sb.WriteString("var Render = &renderAPI{}\n\n")
-
 	for _, c := range ws.componentMD {
 		writeComponentStub(&sb, c)
 	}
@@ -685,38 +688,28 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-// writeComponentStub emits the per-component XProps type (alias or
-// synthetic struct) and the corresponding *renderAPI method. The
-// shape mirrors compiler/compiler.go's renderTmpl — the same three
-// cases:
+// writeComponentStub emits the per-component XProps type and the
+// exported Component value. The shape mirrors compiler/compiler.go's
+// renderTmpl — the same three cases:
 //
-//   - HasProps && !HasChildren: XProps is an alias to the user's
-//     hoisted Props struct.
+//   - HasProps && !HasChildren: XProps carries the user's Props fields.
 //   - HasChildren:              XProps is a fresh struct combining
 //     user fields + Children template.HTML.
-//   - !HasProps && !HasChildren: no XProps type; method takes no args.
+//   - !HasProps && !HasChildren: XProps is an empty struct.
 func writeComponentStub(sb *strings.Builder, c componentScan) {
-	switch {
-	case c.hasChildren:
-		fmt.Fprintf(sb, "type %sProps struct {\n", c.exportedName)
+	fmt.Fprintf(sb, "type %sProps struct {\n", c.exportedName)
+	// Project the user's hoisted struct as a fresh declaration rather
+	// than aliasing the unique-renamed codegen type — the codegen-renamed
+	// type lives in the project's .gastro/ package, which the shadow does
+	// not import.
+	if c.hasProps || c.hasChildren {
 		for _, f := range c.propsFields {
 			fmt.Fprintf(sb, "\t%s %s\n", f.Name, f.Type)
 		}
-		sb.WriteString("\tChildren template.HTML\n")
-		sb.WriteString("}\n\n")
-		fmt.Fprintf(sb, "func (*renderAPI) %s(%sProps) (string, error) { return \"\", nil }\n\n", c.exportedName, c.exportedName)
-	case c.hasProps:
-		// Project the user's hoisted struct as a fresh declaration
-		// rather than aliasing the unique-renamed codegen type — the
-		// codegen-renamed type lives in the project's .gastro/
-		// package, which the shadow does not import.
-		fmt.Fprintf(sb, "type %sProps struct {\n", c.exportedName)
-		for _, f := range c.propsFields {
-			fmt.Fprintf(sb, "\t%s %s\n", f.Name, f.Type)
-		}
-		sb.WriteString("}\n\n")
-		fmt.Fprintf(sb, "func (*renderAPI) %s(%sProps) (string, error) { return \"\", nil }\n\n", c.exportedName, c.exportedName)
-	default:
-		fmt.Fprintf(sb, "func (*renderAPI) %s() (string, error) { return \"\", nil }\n\n", c.exportedName)
 	}
+	if c.hasChildren {
+		sb.WriteString("\tChildren template.HTML\n")
+	}
+	sb.WriteString("}\n\n")
+	fmt.Fprintf(sb, "var %s gastroRuntime.Component[%sProps]\n\n", c.exportedName, c.exportedName)
 }

@@ -54,13 +54,16 @@ middleware + a context accessor + a method that returns a `FuncMap`.
 
 ```go
 gastro.New(
+    gastro.WithHandler("POST /{$}", http.HandlerFunc(greet)),
     gastro.WithMiddleware("/{path...}", csrf.Middleware),
     gastro.WithRequestFuncs(csrf.RequestFuncs),
 )
 ```
 
-Two lines. The middleware attaches the token to the context; the binder
-exposes it to templates as `csrfToken` and `csrfField`.
+The middleware attaches the token to the context; the binder exposes it
+to templates as `csrfToken` and `csrfField`. Pages are GET views, so the
+form's POST goes to `greet`, a plain handler registered with
+`WithHandler`; the middleware wraps it like the page.
 
 ### Templates
 

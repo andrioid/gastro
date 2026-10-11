@@ -58,9 +58,9 @@ func TestCompile_WithRequestFuncs(t *testing.T) {
 	// A panicking-helper page exercises the runtime recover path.
 	mustWriteFile(t, filepath.Join(pagesDir, "boom.gastro"),
 		"<p>{{ boom }}</p>\n")
-	// A component used by Render.With(r).Greeting(...) tests. It reads a
+	// A component used by Render(Greeting.With(r), …) tests. It reads a
 	// request-aware helper inside its template body so the test can prove
-	// nested binders work via the Render.With path.
+	// nested binders work via the request-bound Render path.
 	mustWriteFile(t, filepath.Join(componentsDir, "greeting.gastro"),
 		"<span>{{ locale }}-greeting</span>\n")
 	// A no-Props leaf component that reads a binder helper inside its
@@ -424,32 +424,32 @@ func TestNilBinderRejected(t *testing.T) {
 	_ = gastro.WithRequestFuncs(nil)
 }
 
-// TestRenderWithBindsRequest: Render.With(r).Component(props) routes the
-// component render through the request-aware FuncMap path, so binder
-// helpers resolve against r. Without With(r), the static path is taken
-// and binder funcs are absent — in that case the helper renders empty
-// (the placeholder stub returns nil).
+// TestRenderWithBindsRequest: router.Render(Component.With(r), props)
+// routes the component render through the request-aware FuncMap path, so
+// binder helpers resolve against r. Without With(r), the static path is
+// taken and binder funcs are absent — in that case the helper renders
+// empty (the placeholder stub returns nil).
 func TestRenderWithBindsRequest(t *testing.T) {
 	router := gastro.New(gastro.WithRequestFuncs(makeBinder(false)))
 
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("Accept-Language", "fr")
 
-	html, err := router.Render().With(req).Greeting()
+	html, err := router.Render(gastro.Greeting.With(req), gastro.GreetingProps{})
 	if err != nil {
-		t.Fatalf("Render.With.Greeting: %v", err)
+		t.Fatalf("Render(Greeting.With(req)): %v", err)
 	}
-	if !strings.Contains(html, "fr-greeting") {
+	if !strings.Contains(string(html), "fr-greeting") {
 		t.Errorf("expected request-aware locale to flow into component; got %q", html)
 	}
 
-	// The package-level Render takes the static path. The placeholder
+	// An unbound component takes the static path. The placeholder
 	// stub returns nil so {{ locale }} renders as the empty string.
-	htmlStatic, err := router.Render().Greeting()
+	htmlStatic, err := router.Render(gastro.Greeting, gastro.GreetingProps{})
 	if err != nil {
-		t.Fatalf("Render.Greeting: %v", err)
+		t.Fatalf("Render(Greeting): %v", err)
 	}
-	if strings.Contains(htmlStatic, "fr") {
+	if strings.Contains(string(htmlStatic), "fr") {
 		t.Errorf("static path should not see request state; got %q", htmlStatic)
 	}
 }
@@ -510,8 +510,8 @@ func TestWrapSlotInheritsBinder(t *testing.T) {
 // branching.
 func TestRenderWithNilRequestIsHarmless(t *testing.T) {
 	router := gastro.New(gastro.WithRequestFuncs(makeBinder(false)))
-	if _, err := router.Render().With(nil).Greeting(); err != nil {
-		t.Fatalf("Render.With(nil).Greeting: %v", err)
+	if _, err := router.Render(gastro.Greeting.With(nil), gastro.GreetingProps{}); err != nil {
+		t.Fatalf("Render(Greeting.With(nil)): %v", err)
 	}
 }
 

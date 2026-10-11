@@ -91,7 +91,8 @@ func main() {
 ```
 
 `WithHandler` routes share the router's middleware and deps, so
-`gastro.From[T](r.Context())` works in both handlers.
+`gastroRuntime.FromContext[T](r.Context())` works in both handlers (the Go
+spelling of frontmatter's `gastro.From[T]`).
 
 The layout loads the client once:
 

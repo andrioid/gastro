@@ -14,8 +14,11 @@
   and a **template body** (standard Go `html/template`).
 - In frontmatter, **Uppercase** vars are exported to the template (`{{ .Title }}`);
   lowercase vars stay private. Mirrors Go's export rule.
-- `pages/` map to routes (`pages/index.gastro` → `/`, `pages/blog/[slug].gastro`
-  → `/blog/{slug}`); patterns are method-less — branch on `r.Method` in frontmatter.
+- `pages/` map to `GET` routes (`pages/index.gastro` → `GET /{$}`,
+  `pages/blog/[slug].gastro` → `GET /blog/{slug}`). Pages are views: HEAD is
+  served, other methods get 405. Commands (POST/PUT/DELETE) are plain
+  `http.Handler`s registered with `gastro.WithHandler("POST /path", h)`; don't
+  branch on `r.Method` in a page.
 - `components/` are reusable `.gastro` files with a typed `Props` struct.
 - The compiler writes a generated Go package into `./.gastro/` (package name
   `gastro`). `main.go` imports it (`import gastro "<module>/.gastro"`) and mounts
@@ -33,10 +36,10 @@
   auto-prunes its generated file on the next `generate` — do not delete generated
   files by hand and do not commit fixes into them.
 - **Filenames are the public API.** A component's exported name is derived from
-  its path: `/` and `-` fold to PascalCase, but `_` is kept verbatim.
-  `components/post-card.gastro` → `Render.PostCard` / `PostCardProps`;
-  `components/interest_chips.gastro` → `Render.Interest_chips` /
-  `Interest_chipsProps`. Prefer single-word or kebab-case filenames.
+  its path: `/`, `-` and `_` fold to PascalCase.
+  `components/post-card.gastro` → `PostCard` / `PostCardProps`;
+  `components/interest_chips.gastro` → `InterestChips` /
+  `InterestChipsProps`.
 - **Import components per page.** Each page declares the components it uses in
   frontmatter: `import ( Card "components/card.gastro" )`. There is no global
   auto-resolution — a working sibling page gives no signal. The alias must start
@@ -50,11 +53,12 @@
   `gastro fmt` is fence-aware and also sorts/groups frontmatter imports
   (Go group, then component group). The same formatter backs the LSP's
   format-on-save.
-- **`gastro.From[T]` / `gastro.Render.X` are frontmatter-only sugar.** In
-  frontmatter, `gastro.From[T](ctx)` and `gastro.Render.X(...)` are rewritten by
-  the compiler. In plain Go (`main.go`, side-mounted handlers) those symbols do
-  not exist — call `gastro.FromContext[T](ctx)` (from `pkg/gastro`) directly and
-  use the generated package's `Render` API.
+- **`gastro.From[T]` / `gastro.Render` are frontmatter-only sugar.** In
+  frontmatter, `gastro.From[T](ctx)` and `gastro.Render(Card, CardProps{...})`
+  are rewritten by the compiler. In plain Go (`main.go`, `WithHandler`
+  handlers) those symbols do not exist — call `gastro.FromContext[T](ctx)`
+  (from `pkg/gastro`) directly and render with the router:
+  `router.Render(gastro.Card, gastro.CardProps{...})` (returns `template.HTML`).
 - **Components declare `gastro.Props()`.** `type Props struct { ... }` then
   `X := gastro.Props().X`. Components that render `{{ .Children }}` accept nested
   content via `{{ wrap Component (dict ...) }}...{{ end }}`.
@@ -66,7 +70,7 @@
 - `gastro watch --run '<cmd>'` — library-mode dev loop (you keep `main.go`).
 - `gastro generate` — compile `.gastro` → Go into `./.gastro/` (also `go generate ./...`).
 - `gastro build` — generate then `go build` a single self-contained binary.
-- `gastro list [--json]` — list pages/components with their Props signatures.
+- `gastro list [--json]` — list components with their Props signatures and pages with their routes.
 - `gastro fmt [--check]` — format `.gastro` sources.
 - `gastro check` — verify `./.gastro/` is up to date (CI drift gate).
 - `gastro lsp` — language server for editors (pair with `gopls` for frontmatter).

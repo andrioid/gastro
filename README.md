@@ -111,7 +111,7 @@ the box.
 ### Explore Your Project
 
 ```sh
-# List all components and pages with their Props signatures
+# List all components (with Props signatures) and pages (with routes)
 gastro list
 
 # Machine-readable output for scripts and agents
@@ -165,20 +165,22 @@ Items := fetchItems()          // Uppercase -> {{ .Items }}
 <h1>{{ .Title }}</h1>
 ```
 
-Frontmatter has ambient `w http.ResponseWriter` and `r *http.Request`.
-The page handler runs for every HTTP method; branch on `r.Method` to
-handle non-GET requests in the same file.
+Frontmatter has ambient `w http.ResponseWriter` and `r *http.Request`, so
+a page can set status codes, redirect, or write the response itself (the
+template is then skipped).
 
 ### File-Based Routing
 
-| File                       | Route          |
-|----------------------------|----------------|
-| `pages/index.gastro`       | `/`            |
-| `pages/about/index.gastro` | `/about`       |
-| `pages/blog/[slug].gastro` | `/blog/{slug}` |
+| File                       | Route              |
+|----------------------------|--------------------|
+| `pages/index.gastro`       | `GET /{$}`         |
+| `pages/about/index.gastro` | `GET /about`       |
+| `pages/blog/[slug].gastro` | `GET /blog/{slug}` |
 
-Patterns are method-less; the page handles every method (GET, POST,
-etc.) and branches on `r.Method`.
+Pages are `GET` views: `HEAD` is served automatically and other methods
+get `405` with `Allow: GET, HEAD`. Commands (POST, PUT, DELETE, …) are
+ordinary `http.Handler`s registered with
+`gastro.WithHandler("POST /signup", h)`.
 
 ### Static Assets
 
@@ -208,8 +210,8 @@ http.ListenAndServe(":4242", router.Handler())
 
 `gastro.New(opts...)` returns a `*Router` whose `Handler()` you mount on
 your HTTP server. Other options include `WithDeps[T]` for typed dependency
-injection into pages, `WithOverride(pattern, handler)` for replacing an
-auto-generated route with a Go handler, `WithMiddleware(pattern, fn)` for
+injection into pages, `WithHandler(pattern, handler)` for adding command
+routes or replacing a page route with a Go handler, `WithMiddleware(pattern, fn)` for
 wrapping routes (subtree wildcards via `"/admin/{path...}"`),
 `WithRequestFuncs(binder)` for **request-aware template helpers** (i18n
 translators, CSRF tokens, CSP nonces — see [Helpers → Request-aware

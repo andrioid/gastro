@@ -92,6 +92,7 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	// same id. With mangled hoisted decls, that would yield duplicate
 	// package-level symbols.
 	diags = append(diags, findPageIDCollisions(pageFiles, componentFiles)...)
+	diags = append(diags, findGeneratedIdentifierClashes(componentFiles)...)
 
 	outputs := make([]*fileOutput, 0, len(allFiles))
 	for _, relPath := range allFiles {
@@ -314,6 +315,49 @@ func findComponentNameCollisions(componentFiles []string) []Diagnostic {
 		}
 	}
 	return warnings
+}
+
+// generatedIdentifiers are the exported package-level names every
+// generated package declares in routes.go and render.go.
+var generatedIdentifiers = map[string]bool{
+	"New": true, "Routes": true, "Router": true, "Option": true,
+	"WithDevMode": true, "WithFuncs": true, "WithClassMerger": true, "WithDeps": true,
+	"WithHandler": true, "WithMiddleware": true, "WithRequestFuncs": true, "WithErrorHandler": true,
+}
+
+// findGeneratedIdentifierClashes reports components whose exported name
+// would redeclare a package-level identifier of the generated package:
+// each component exports a Component value named after it, next to the
+// generated API and every component's XProps type.
+func findGeneratedIdentifierClashes(componentFiles []string) []Diagnostic {
+	propsTypes := make(map[string]string, len(componentFiles)) // "XProps" -> relPath
+	for _, relPath := range componentFiles {
+		propsTypes[codegen.ExportedComponentName(codegen.HandlerFuncName(relPath))+"Props"] = relPath
+	}
+	var diags []Diagnostic
+	for _, relPath := range componentFiles {
+		exported := codegen.ExportedComponentName(codegen.HandlerFuncName(relPath))
+		var clash string
+		switch {
+		case generatedIdentifiers[exported]:
+			clash = "the generated router API"
+		case propsTypes[exported] != "":
+			clash = fmt.Sprintf("the props type of %q", propsTypes[exported])
+		default:
+			continue
+		}
+		diags = append(diags, Diagnostic{
+			File:     relPath,
+			Line:     1,
+			Col:      1,
+			Severity: codegen.SeverityError,
+			Message: fmt.Sprintf(
+				"component exported name %q clashes with %s in the generated package; rename the file",
+				exported, clash,
+			),
+		})
+	}
+	return diags
 }
 
 // templateMeta holds per-template metadata needed by routes.go to wire up
@@ -543,14 +587,10 @@ func compileFile(absPath, relPath, absProjectDir, version string, propsByPath ma
 	// The attribute-forwarding bag (a field of type gastro.Attrs) is
 	// hoisted verbatim from frontmatter, but render.go is itself package
 	// gastro and imports the runtime under the gastroRuntime alias.
-	// Normalize the type so the inline XProps struct compiles (#41), and
-	// flag the field so Render.X spreads the bag into the props map rather
-	// than nesting it under its own key, where MapToStruct would drop it
-	// (#42).
+	// Normalize the type so the inline XProps struct compiles (#41).
 	for i := range propsFields {
-		if propsFields[i].Type == "gastro.Attrs" || propsFields[i].Type == "gastroRuntime.Attrs" {
+		if propsFields[i].Type == "gastro.Attrs" {
 			propsFields[i].Type = "gastroRuntime.Attrs"
-			propsFields[i].IsAttrs = true
 		}
 	}
 
@@ -727,7 +767,6 @@ import (
 	"regexp"
 	"runtime/debug"
 	"strings"
-	"sync/atomic"
 
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
@@ -750,7 +789,7 @@ type Option func(*config)
 type config struct {
 	funcs        template.FuncMap
 	deps         map[reflect.Type]any
-	overrides    map[string]http.Handler
+	handlers     []handlerEntry
 	middleware   []middlewareEntry
 	devMode      *bool // nil = use GASTRO_DEV env var; non-nil = override
 	errorHandler gastroRuntime.PageErrorHandler
@@ -771,6 +810,13 @@ type config struct {
 type middlewareEntry struct {
 	pattern string
 	fn      gastroRuntime.MiddlewareFunc
+}
+
+// handlerEntry is one WithHandler registration, kept in call order so
+// conflict panics name the earlier registration first.
+type handlerEntry struct {
+	pattern string
+	h       http.Handler
 }
 
 // WithDevMode overrides the GASTRO_DEV environment variable for this Router.
@@ -834,53 +880,41 @@ func WithDeps[T any](deps T) Option {
 	}
 }
 
-// WithOverride replaces the auto-generated handler for a route pattern with
-// a user-supplied http.Handler. The pattern must exactly match one of the
-// gastro auto-routes (e.g. "/", "/blog/{slug}", or the static-asset prefix);
-// New() panics if it does not, to catch typos early.
+// WithHandler registers h for an http.ServeMux pattern next to the
+// generated page routes. The pattern may carry a method ("POST
+// /tasks/{id}/place") or not ("/healthz"). Pages are GET views; commands
+// are ordinary handlers registered here, sharing the router's middleware
+// and deps (gastro.From[T](r.Context()) works inside h).
 //
-// Track B (docs/history/frictions-plan.md §4.2): page patterns are now
-// method-less. Where pre-Track-B you'd write WithOverride for an explicit
-// HTTP method, you now write the path alone and the override receives every
-// method for that path. The static-asset prefix is the lone exception —
-// it keeps its method prefix because static files are read-only.
-//
-// Use this when a page needs typed dependencies that frontmatter cannot
-// express, or when a handler needs full control over the response (streaming,
-// custom status codes, content negotiation).
-func WithOverride(pattern string, h http.Handler) Option {
+// A pattern identical to a page's ("GET /board") or to the static-asset
+// prefix ("GET /static/") replaces that route's handler. Any other
+// pattern adds a route. A registration that http.ServeMux rejects as
+// conflicting panics in New() with a message naming both sources.
+func WithHandler(pattern string, h http.Handler) Option {
 	return func(c *config) {
-		if c.overrides == nil {
-			c.overrides = make(map[string]http.Handler)
-		}
-		c.overrides[pattern] = h
+		c.handlers = append(c.handlers, handlerEntry{pattern: pattern, h: h})
 	}
 }
 
-// WithMiddleware wraps the handler for every auto-route whose pattern
-// matches the supplied http.ServeMux pattern. Patterns use Go's stdlib
-// pattern syntax: "/counter" for an exact path, "/admin/{path...}" for
-// a subtree wildcard, "/blog/{slug}" to match a parametrised route.
+// WithMiddleware wraps the handler of every route — generated page
+// routes and WithHandler routes alike — whose path matches the supplied
+// http.ServeMux pattern. Patterns use Go's stdlib pattern syntax:
+// "/counter" for an exact path, "/admin/{path...}" for a subtree
+// wildcard, "/blog/{slug}" to match a parametrised route.
 //
 // Patterns are path-only — there is no method scoping. Middleware that
 // must only run for, say, POST should branch on r.Method internally.
-// This mirrors WithOverride's path-only contract (Track B,
-// docs/history/frictions-plan.md §4.2) and avoids the asymmetry where
-// override and middleware would accept different pattern shapes.
+// Method-qualified routes ("POST /tasks/{id}/place") are matched by
+// their path part.
 //
 // Validation: at New() time the pattern must match at least one known
-// auto-route, probed via gastroRuntime.PatternMatchesAnyRoute. A
-// pattern that matches nothing panics with a descriptive error — same
-// typo-safety posture as WithOverride.
+// route, probed via gastroRuntime.PatternMatchesAnyRoute. A pattern that
+// matches nothing panics with a descriptive error.
 //
 // Composition: multiple WithMiddleware calls for overlapping patterns
 // compose in registration order. The first call ends up outermost
-// (runs first on the request, last on the response). When both
-// WithOverride and WithMiddleware target the same route, the override
-// replaces the page handler and the middleware then wraps the override
-// — "middleware wraps override".
-//
-// Wave 4 / C2 (docs/history/frictions-plan.md §3 Wave 4).
+// (runs first on the request, last on the response). When WithHandler
+// replaces a page route, the middleware wraps the replacement.
 func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
 	return func(c *config) {
 		c.middleware = append(c.middleware, middlewareEntry{pattern: pattern, fn: fn})
@@ -889,7 +923,7 @@ func WithMiddleware(pattern string, fn gastroRuntime.MiddlewareFunc) Option {
 
 // WithRequestFuncs registers a function-map binder that runs once per
 // request. The returned FuncMap is merged with the static FuncMap built
-// from WithFuncs before the page (or Render.With(r) call) executes.
+// from WithFuncs before the page (or a Render of c.With(r)) executes.
 //
 // Multiple WithRequestFuncs calls compose. Helper names must be unique
 // across the union of built-ins, WithFuncs, and all binders — including
@@ -983,16 +1017,19 @@ func (__r *Router) __gastro_handleError(w http.ResponseWriter, r *http.Request, 
 	gastroRuntime.DefaultErrorHandler(w, r, err)
 }
 
-// __gastro_active is the most-recently-constructed Router, used by the
-// package-level Render variable so existing single-router callers keep
-// working without code changes. Stored atomically so concurrent New()
-// calls (parallel tests, multi-tenant servers) and concurrent Render
-// access don't race.
+// Render renders component c with typed props and returns its HTML. Each
+// file under components/ has a Component value in this package (see
+// render.go):
 //
-// For multi-router scenarios, prefer holding onto the *Router returned by
-// New() and calling router.Render().X(...) directly — that path never
-// touches the global.
-var __gastro_active atomic.Pointer[Router]
+//	html, err := router.Render(gastro.Card, gastro.CardProps{Title: "Hello"})
+//
+// The props struct goes straight to the component, with no map round-trip;
+// props of another component's type fail to compile. Bind the render to a
+// request with c.With(r) so request-aware helpers (WithRequestFuncs) see
+// its state.
+func (__r *Router) Render[P any](c gastroRuntime.Component[P], props P) (template.HTML, error) {
+	return gastroRuntime.RenderComponent(__r, c, props)
+}
 
 // __gastro_componentNames is the sorted list of every component's
 // exported name in this project. Generated from the codegen pipeline
@@ -1185,8 +1222,9 @@ func (__r *Router) __gastro_renderPage(name string, w http.ResponseWriter, r *ht
 }
 
 // __gastro_renderComponent is the request-aware sibling of
-// __gastro_renderPage used by components when invoked via
-// Render.With(r).X(props). It always uses the per-request FuncMap path
+// __gastro_renderPage used by components rendered with a request bound
+// (router.Render(X.With(r), …) or a nested call from a request-aware
+// page). It always uses the per-request FuncMap path
 // (writes into the supplied bytes.Buffer so the caller can return
 // template.HTML). When no binders are registered the per-request path
 // still works — it just produces an empty extras FuncMap and the
@@ -1366,7 +1404,7 @@ func __gastro_probeBinders(cfg *config) map[string]bool {
 //
 //	router := gastro.New(
 //		gastro.WithDeps(BoardDeps{...}),
-//		gastro.WithOverride("/", customHomeHandler),
+//		gastro.WithHandler("POST /tasks/{id}/place", placeTask),
 //	)
 //	http.ListenAndServe(":8080", router.Handler())
 func New(opts ...Option) *Router {
@@ -1413,37 +1451,33 @@ func New(opts ...Option) *Router {
 		binderKeys:   binderKeys,
 	}
 
-	// Validate WithOverride patterns: each must match a known auto-route
-	// (or the static prefix). Catches typos at startup rather than letting
-	// the override silently register a brand-new route.
-	knownPatterns := map[string]bool{
+	// Route table: the static-asset prefix and the GET-only page routes,
+	// then WithHandler registrations — an identical pattern replaces the
+	// generated route, any other pattern adds one.
+	generated := []gastroRuntime.Route{
 {{- if .HasStatic}}
-		"GET /static/": true,
+		{Pattern: "GET /static/", Source: "static assets (static/)", Handler: http.StripPrefix("/static/", http.FileServerFS(gastroRuntime.GetStaticFS(staticAssetFS)))},
 {{- end}}
 {{- range .Routes}}
-		"{{ .Pattern }}": true,
+		{Pattern: {{ printf "%q" .Pattern }}, Source: {{ printf "%q" (print "page " .File) }}, Handler: http.HandlerFunc(__r.{{ .FuncName }})},
 {{- end}}
 	}
-	for pat := range cfg.overrides {
-		if !knownPatterns[pat] {
-			known := make([]string, 0, len(knownPatterns))
-			for p := range knownPatterns {
-				known = append(known, p)
-			}
-			panic(fmt.Sprintf(
-				"gastro: WithOverride: pattern %q does not match any auto-route. known: %v",
-				pat, known,
-			))
-		}
+	handlers := make([]gastroRuntime.Route, 0, len(cfg.handlers))
+	for i, he := range cfg.handlers {
+		handlers = append(handlers, gastroRuntime.Route{
+			Pattern: he.pattern,
+			Source:  fmt.Sprintf("WithHandler(%q) #%d", he.pattern, i+1),
+			Handler: he.h,
+		})
 	}
+	routes := gastroRuntime.MergeRoutes(generated, handlers)
 
 	// Validate WithMiddleware patterns: each must match at least one
-	// known auto-route via gastroRuntime.PatternMatchesAnyRoute. Same
-	// typo-safety posture as WithOverride; the matcher diverges only
-	// because middleware patterns can carry {slug...} wildcards.
-	knownRoutes := make([]string, 0, len(knownPatterns))
-	for p := range knownPatterns {
-		knownRoutes = append(knownRoutes, p)
+	// route (page or WithHandler) via gastroRuntime.PatternMatchesAnyRoute,
+	// so a typo panics at startup instead of silently wrapping nothing.
+	knownRoutes := make([]string, 0, len(routes))
+	for _, rt := range routes {
+		knownRoutes = append(knownRoutes, rt.Pattern)
 	}
 	for _, mw := range cfg.middleware {
 		if err := gastroRuntime.ValidateMiddlewarePattern(mw.pattern, knownRoutes); err != nil {
@@ -1477,51 +1511,21 @@ func New(opts ...Option) *Router {
 		__r.registry[name] = tmpl
 	}
 
-	// applyMiddleware wraps h with every middleware whose pattern matches
-	// route. Middleware composes in registration order: the first
-	// WithMiddleware call ends up outermost (runs first on the request).
-	// This is the "middleware wraps override" branch of
-	// docs/history/frictions-plan.md Q3 — by the time we get here, h is
-	// already either the auto-route handler or the override.
-	applyMiddleware := func(route string, h http.Handler) http.Handler {
-		for i := len(cfg.middleware) - 1; i >= 0; i-- {
-			mw := cfg.middleware[i]
-			if gastroRuntime.MiddlewareApplies(mw.pattern, route) {
-				h = mw.fn(h)
+	// Wrap every route with each middleware whose pattern matches it.
+	// Middleware composes in registration order: the first WithMiddleware
+	// call ends up outermost (runs first on the request). A WithHandler
+	// that replaced a page is wrapped like the page would have been.
+	for i := range routes {
+		for j := len(cfg.middleware) - 1; j >= 0; j-- {
+			mw := cfg.middleware[j]
+			if gastroRuntime.MiddlewareApplies(mw.pattern, routes[i].Pattern) {
+				routes[i].Handler = mw.fn(routes[i].Handler)
 			}
 		}
-		return h
 	}
 
-	// Build the mux. Overrides win over auto-routes by matching pattern,
-	// then any matching middleware wraps the resulting handler.
-	mux := http.NewServeMux()
-{{- if .HasStatic}}
-	{
-		var h http.Handler
-		if over, ok := cfg.overrides["GET /static/"]; ok {
-			h = over
-		} else {
-			staticFS := gastroRuntime.GetStaticFS(staticAssetFS)
-			h = http.StripPrefix("/static/", http.FileServerFS(staticFS))
-		}
-		mux.Handle("GET /static/", applyMiddleware("GET /static/", h))
-	}
-{{- end}}
-{{- range .Routes}}
-	{
-		var h http.Handler
-		if over, ok := cfg.overrides["{{ .Pattern }}"]; ok {
-			h = over
-		} else {
-			h = http.HandlerFunc(__r.{{ .FuncName }})
-		}
-		mux.Handle("{{ .Pattern }}", applyMiddleware("{{ .Pattern }}", h))
-	}
-{{- end}}
-
-	__r.mux = mux
-	__gastro_active.Store(__r)
+	// Conflicting registrations panic here, naming both sources.
+	__r.mux = gastroRuntime.NewRouteMux(routes)
 	return __r
 }
 
@@ -1543,10 +1547,9 @@ func (__r *Router) Handler() http.Handler {
 	return h
 }
 
-// Mux returns the underlying *http.ServeMux. Use this for fine-grained
-// route registration that WithOverride cannot express. Mutations bypass
-// the deps-attachment middleware, so handlers added this way will not see
-// values registered with WithDeps.
+// Mux returns the underlying *http.ServeMux. Prefer WithHandler, which
+// registers next to the page routes and receives WithMiddleware; routes
+// added directly on the mux bypass WithMiddleware and the conflict check.
 func (__r *Router) Mux() *http.ServeMux { return __r.mux }
 
 func (__r *Router) attachDepsMiddleware(next http.Handler) http.Handler {
@@ -1574,37 +1577,21 @@ type renderData struct {
 
 var renderTmpl = template.Must(template.New("render").Parse(`{{ .Header }}
 
-// This file exposes the Render API: typed entry points for rendering
-// components from Go code (HTTP handlers, SSE patch streams, tests).
+// This file declares one typed component handle per file under
+// components/, plus its XProps type. Render a component from Go code
+// (HTTP handlers, SSE patch streams, tests) through the router:
 //
-// Two public surfaces are generated by gastro:
-//
-//   - Routes()  in routes.go — mounts the file-based page routes as an
-//                              http.Handler. Use this from main().
-//   - Render    in this file — typed component rendering for code that
-//                              produces HTML outside the page-routing
-//                              flow (e.g. SSE handlers patching a card).
-//
-// Three ways to call it:
-//
-//	// 1. Package-level Render — simplest, uses the most-recently-
-//	//    constructed Router. Fine for single-router apps.
-//	html, err := gastro.Render.Card(gastro.CardProps{Title: "Hello"})
-//
-//	// 2. Router.Render() — prefer this in tests and multi-router setups
-//	//    (parallel tests, multi-tenant servers). Never touches the global.
 //	router := gastro.New(opts...)
-//	html, err := router.Render().Card(gastro.CardProps{Title: "Hello"})
+//	html, err := router.Render(gastro.Card, gastro.CardProps{Title: "Hello"})
 //
-//	// 3. Render.With(r) — binds the call to a *http.Request so request-
-//	//    aware helpers (WithRequestFuncs) see per-request state. Use from
-//	//    SSE handlers and custom http handlers.
-//	html, err := gastro.Render.With(r).Card(gastro.CardProps{Title: "Hello"})
+// Bind the render to a request so request-aware helpers
+// (WithRequestFuncs) see its state:
 //
-// Each method takes a typed Props value (and optional children for
-// components that accept them) and returns an HTML string plus an error.
-// Internally it calls the unexported componentX function shared with the
-// template renderer, so frontmatter logic runs identically in both paths.
+//	html, err := router.Render(gastro.Card.With(r), gastro.CardProps{Title: "Hello"})
+//
+// The typed props go straight to the component's render function (the
+// same one the template dict path ends in), so frontmatter logic runs
+// identically in both paths without a map[string]any round-trip.
 package gastro
 
 import (
@@ -1621,70 +1608,14 @@ var _ template.HTML
 var _ http.Request
 var _ gastroRuntime.Attrs
 
-// Render is the package-level entry point for rendering components from
-// Go code. It dispatches to the most-recently-constructed Router (set by
-// gastro.New()).
-//
-// Each method on Render corresponds to a component file in components/ and
-// takes that component's typed Props (plus an optional children argument for
-// components with slots). It returns the rendered HTML and any execution
-// error.
-//
-// Use Render from HTTP handlers, SSE patch streams, tests — anywhere outside
-// the page-routing flow exposed by Routes().
-//
-// For parallel tests or multi-tenant servers where multiple Routers coexist,
-// prefer router.Render().X(...) over the package-level Render. The router-
-// scoped path never reads the global, so it's race-free regardless of how
-// many Routers are in flight.
-//
-// See the package-level doc for an example.
-var Render = &renderAPI{}
-
-// Render returns a typed component-rendering API bound to this Router.
-// Unlike the package-level gastro.Render, methods on the returned value
-// dispatch directly to this Router's template registry and never read
-// the global __gastro_active pointer — making it safe to use from
-// parallel tests and multi-router setups.
-func (r *Router) Render() *renderAPI { return &renderAPI{router: r} }
-
-// renderAPI dispatches component-rendering calls to a specific Router.
-// A nil router means "use the most-recently-constructed Router" (the
-// package-level Render value); a non-nil router pins dispatch to that
-// instance.
-//
-// The req field, when non-nil, signals that calls on this renderAPI
-// should route through the request-aware FuncMap path — i.e. binder
-// helpers registered via WithRequestFuncs see per-request state. A nil
-// req routes through the legacy static path. See With() below.
-type renderAPI struct {
-	router *Router
-	req    *http.Request
-}
-
-// resolve returns the Router this renderAPI should dispatch to. If the
-// renderAPI is bound to a specific Router (via Router.Render()), that's
-// returned; otherwise the most-recently-constructed Router is loaded
-// atomically. Returns nil if no Router has been constructed yet.
-func (r *renderAPI) resolve() *Router {
-	if r.router != nil {
-		return r.router
+// __gastro_routerFor recovers this package's *Router from the untyped
+// router a gastroRuntime.Component render function receives.
+func __gastro_routerFor(rt any, component string) (*Router, error) {
+	r, ok := rt.(*Router)
+	if !ok || r == nil {
+		return nil, fmt.Errorf("gastro: component %s must be rendered by the Router of its own generated package", component)
 	}
-	return __gastro_active.Load()
-}
-
-// With returns a request-bound renderAPI. Calls on the returned value
-// route through the per-request FuncMap path, so request-aware helpers
-// (WithRequestFuncs) see the supplied request's state.
-//
-// The returned *renderAPI is reusable within a single request — store
-// it in a local and render multiple components from it. It must not be
-// shared across goroutines or retained beyond the request lifetime. A
-// nil request is allowed and behaves identically to the receiver
-// (useful as a guard so handler code doesn't have to branch on test vs
-// production request availability).
-func (r *renderAPI) With(req *http.Request) *renderAPI {
-	return &renderAPI{router: r.router, req: req}
+	return r, nil
 }
 {{ range .Components }}
 {{- /*
@@ -1695,10 +1626,11 @@ func (r *renderAPI) With(req *http.Request) *renderAPI {
   Three shapes:
     - HasProps && !HasChildren  -> alias to the user's hoisted struct
     - HasChildren               -> real struct: user fields + Children template.HTML
-    - !HasProps && !HasChildren -> no XProps type generated (Render.X())
+    - !HasProps && !HasChildren -> empty struct, so every component has a
+                                   distinct props type
 */ -}}
 {{- if .HasChildren }}
-// {{ .ExportedName }}Props is the typed prop struct for Render.{{ .ExportedName }}.
+// {{ .ExportedName }}Props is the typed prop struct for {{ .ExportedName }}.
 // The Children field carries the rendered HTML children content; it is
 // auto-added by codegen because the component template references {{ "{{ .Children }}" }}.
 type {{ .ExportedName }}Props struct {
@@ -1708,46 +1640,37 @@ type {{ .ExportedName }}Props struct {
 	Children template.HTML
 }
 {{- else if .HasProps }}
-// {{ .ExportedName }}Props is the typed prop struct for Render.{{ .ExportedName }}.
+// {{ .ExportedName }}Props is the typed prop struct for {{ .ExportedName }}.
 type {{ .ExportedName }}Props = {{ .PropsTypeName }}
+{{- else }}
+// {{ .ExportedName }}Props is the (empty) prop struct for {{ .ExportedName }},
+// which declares no Props.
+type {{ .ExportedName }}Props struct{}
 {{- end }}
 
-func (r *renderAPI) {{ .ExportedName }}({{ if or .HasProps .HasChildren }}props {{ .ExportedName }}Props{{ end }}) (string, error) {
-	propsMap := map[string]any{
-{{- range .PropsFields }}
-{{- if not .IsAttrs }}
-		"{{ .Name }}": props.{{ .Name }},
-{{- end }}
-{{- end }}
+// {{ .ExportedName }} is the typed handle for this component. Render it with
+// router.Render({{ .ExportedName }}, {{ .ExportedName }}Props{…}).
+var {{ .ExportedName }} = gastroRuntime.NewComponent(func(rt any, req *http.Request, props {{ .ExportedName }}Props) (template.HTML, error) {
+	r, err := __gastro_routerFor(rt, "{{ .ExportedName }}")
+	if err != nil {
+		return "", err
+	}
 {{- if .HasChildren }}
-		"Children": props.Children,
-{{- end }}
-	}
+{{- if .HasProps }}
+	return r.{{ .FuncName }}__render({{ .PropsTypeName }}{
 {{- range .PropsFields }}
-{{- if .IsAttrs }}
-	// Spread the attribute-forwarding bag into the props map so the
-	// runtime's rest-capture lands the keys on the component's Attrs
-	// field, matching the template dict path. Named props win on collision.
-	for __k, __v := range props.{{ .Name }} {
-		if _, __exists := propsMap[__k]; !__exists {
-			propsMap[__k] = __v
-		}
-	}
+		{{ .Name }}: props.{{ .Name }},
 {{- end }}
+	}, props.Children, req)
+{{- else }}
+	return r.{{ .FuncName }}__render(props.Children, req)
 {{- end }}
-	if r.req != nil {
-		propsMap["__gastro_request"] = r.req
-	}
-	rt := r.resolve()
-	if rt == nil {
-		return "", fmt.Errorf("gastro: Render.{{ .ExportedName }}: no router constructed yet (call gastro.New() first)")
-	}
-	result := rt.{{ .FuncName }}(propsMap)
-	if result == "" {
-		return "", fmt.Errorf("gastro: render {{ .ExportedName }} failed")
-	}
-	return string(result), nil
-}
+{{- else if .HasProps }}
+	return r.{{ .FuncName }}__render(props, "", req)
+{{- else }}
+	return r.{{ .FuncName }}__render("", req)
+{{- end }}
+})
 {{ end }}`))
 
 func generateRenderFile(header string, components []componentMeta, outputDir string) error {

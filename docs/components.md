@@ -101,21 +101,25 @@ Title := "Home"
 ### Filenames are the public API
 
 A component's Go identifier is derived from its file path. Path separators
-(`/`) and dashes (`-`) fold to PascalCase; **underscores are kept verbatim**:
+(`/`), dashes (`-`) and underscores (`_`) fold to PascalCase:
 
-| File | `Render` method / Props type |
+| File | Component value / Props type |
 |------|------------------------------|
-| `components/card.gastro` | `Render.Card` / `CardProps` |
-| `components/post-card.gastro` | `Render.PostCard` / `PostCardProps` |
-| `components/blog/post-card.gastro` | `Render.BlogPostCard` / `BlogPostCardProps` |
-| `components/interest_chips.gastro` | `Render.Interest_chips` / `Interest_chipsProps` |
+| `components/card.gastro` | `Card` / `CardProps` |
+| `components/post-card.gastro` | `PostCard` / `PostCardProps` |
+| `components/blog/post-card.gastro` | `BlogPostCard` / `BlogPostCardProps` |
+| `components/interest_chips.gastro` | `InterestChips` / `InterestChipsProps` |
 
 The import alias (the name left of the path) is what you write in templates
 and is free-form, so the derived name only surfaces when [calling a
-component from Go](#calling-components-from-go). Prefer single-word or
-kebab-case filenames so the generated identifier reads as idiomatic Go —
-`interest-chips.gastro` gives you `Render.InterestChips`, while
-`interest_chips.gastro` gives you the awkward `Render.Interest_chips`.
+component from Go](#calling-components-from-go). Because `-` and `_` fold
+the same way, `interest-chips.gastro` and `interest_chips.gastro` collide;
+`gastro generate` reports the collision.
+
+The generated package's own identifiers — `New`, `Routes`, `Router`,
+`Option`, and every `With*` — are reserved: a component that would export
+one of them (`new.gastro`, `with-handler.gastro`), or whose name equals
+another component's `XProps` type, fails `gastro generate`.
 
 ## Prop Syntax
 
@@ -177,23 +181,38 @@ into Go:
 
 ```gastro
 --- pages/dashboard.gastro
-Header := gastro.Render.Header(HeaderProps{Title: "Dashboard", User: user})
-Stats  := gastro.Render.Stats(StatsProps{Events: 142, Cost: 53.20})
-Items  := gastro.Render.ItemList(ItemListProps{Items: deps.Items})
+HeaderHTML, err := gastro.Render(Header, HeaderProps{Title: "Dashboard", User: user})
+if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+}
+StatsHTML, err := gastro.Render(Stats, StatsProps{Events: 142, Cost: 53.20})
+if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+}
+ItemsHTML, err := gastro.Render(ItemList, ItemListProps{Items: deps.Items})
+if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+}
 
 Title := "Dashboard"
 ---
 {{ wrap Layout (dict "Title" .Title) }}
-  {{ .Header }}
+  {{ .HeaderHTML }}
   <div class="grid">
-    {{ .Stats }}
-    {{ .Items }}
+    {{ .StatsHTML }}
+    {{ .ItemsHTML }}
   </div>
 {{ end }}
 ```
 
-Uppercase frontmatter variables (`Header`, `Stats`, `Items`) are exported
-to the template as `{{ .Header }}`, `{{ .Stats }}`, `{{ .Items }}`. The
+`gastro.Render(Component, Props)` returns `(template.HTML, error)`; the
+component value and its `XProps` type are bare identifiers because
+frontmatter compiles into the generated package. Uppercase frontmatter
+variables (`HeaderHTML`, `StatsHTML`, `ItemsHTML`) are exported
+to the template as `{{ .HeaderHTML }}`, `{{ .StatsHTML }}`, `{{ .ItemsHTML }}`. The
 template has no `dict` calls at all for component rendering — it's just
 a layout skeleton.
 
@@ -202,7 +221,7 @@ a layout skeleton.
 | Template `dict` | Quick, one-off component calls with a few props |
 | Multi-line `dict` | Components with 5+ props — readability |
 | Pre-render in frontmatter | Many components, deeply nested props, full type safety in Go |
-| `gastro.Render` from Go code | SSE handlers, tests, background workers |
+| `router.Render` from Go code | SSE handlers, tests, background workers |
 
 For components that should accept pre-rendered markdown as a prop
 (e.g. a hero block where the body copy lives in a `.md` file), see
@@ -382,13 +401,16 @@ Components can be rendered directly from Go code — useful for SSE handlers tha
 patch the DOM with fresh component markup, for tests, or for any handler that
 produces HTML outside the page-routing flow.
 
-For every component in `components/`, gastro generates a typed method on the
-package-level `Render` value:
+For every component in `components/`, gastro generates a typed component
+value in the generated package (`components/card.gastro` → `gastro.Card`,
+a `gastroRuntime.Component[gastro.CardProps]`). Render it through the
+router:
 
 ```go
 import gastro "myapp/.gastro"
 
-html, err := gastro.Render.Card(gastro.CardProps{
+router := gastro.New()
+html, err := router.Render(gastro.Card, gastro.CardProps{
     Title: "Hello",
     Body:  "World",
 })
@@ -397,12 +419,17 @@ if err != nil {
 }
 ```
 
+`router.Render` returns `(template.HTML, error)`. The props struct goes
+straight to the component (no map round-trip), and passing another
+component's props type is a compile error. Components without a `Props`
+struct get an empty one: `router.Render(gastro.Divider, gastro.DividerProps{})`.
+
 Components with children expose a `Children template.HTML` field on their
 Props struct (auto-added by codegen when the template references
 `{{ .Children }}`):
 
 ```go
-html, err := gastro.Render.Layout(gastro.LayoutProps{
+html, err := router.Render(gastro.Layout, gastro.LayoutProps{
     Title:    "Home",
     Children: template.HTML("<h1>Welcome</h1>"),
 })
@@ -413,50 +440,46 @@ an explicit `template.HTML` field to your `Props` struct and reference it
 as `{{ .Sidebar }}` in the template body. There is no separate `slots:`
 keyword.
 
-`Render` lives in the generated `.gastro/render.go`. Each method calls the same
-underlying component function used by the template renderer, so frontmatter
-logic (computed values, validation) runs identically whether a component is
-invoked from a template or from Go.
+The component values and `XProps` types live in the generated
+`.gastro/render.go`. Each value calls the same underlying component
+function used by the template renderer, so frontmatter logic (computed
+values, validation) runs identically whether a component is invoked from a
+template or from Go. Because rendering goes through a specific `*Router`,
+parallel tests and multi-router setups need no extra care.
 
-### Router-bound `Render()` for parallel tests and multi-router setups
+To bind a render to a request — so request-aware helpers from
+`WithRequestFuncs` resolve — use `.With(r)`:
+`router.Render(gastro.Card.With(r), gastro.CardProps{…})`. See
+[Helpers](helpers.md#request-aware-helpers-withrequestfuncs).
 
-The package-level `gastro.Render` dispatches to the most-recently-constructed
-Router via an internal atomic pointer. That's fine for a single-router app,
-but tests that run `t.Parallel()` and construct a Router per test, or servers
-that host multiple tenants on different Routers, should prefer the
-router-bound API:
-
-```go
-router := gastro.New(opts...)
-html, err := router.Render().Card(gastro.CardProps{Title: "Hello"})
-```
-
-Methods on the value returned by `router.Render()` dispatch directly to that
-Router's template registry and never read the global active-router pointer,
-so they're race-free regardless of how many Routers exist concurrently.
-
-### When to use Render vs Routes
+### When to use Render vs Handler
 
 | Goal | Use |
 |------|-----|
 | Mount file-based page routes on an HTTP server | `router := gastro.New(...); router.Handler()` |
-| Render a single component to an HTML string (single-router app) | `gastro.Render.<Name>(...)` |
-| Render a single component to an HTML string (parallel tests, multi-router) | `router.Render().<Name>(...)` |
+| Render a single component to HTML | `router.Render(gastro.<Name>, gastro.<Name>Props{...})` |
 
-A typical SSE example combines both:
+A typical SSE example combines both: the command is a `WithHandler` route
+that closes over the router to render the patch.
 
 ```go
-mux := http.NewServeMux()
-mux.HandleFunc("GET /api/increment", func(w http.ResponseWriter, r *http.Request) {
-    n := count.Add(1)
-    html, _ := gastro.Render.Counter(gastro.CounterProps{Count: int(n)})
-    sse, err := datastar.NewSSE(w, r)
-    if err != nil {
-        return // the client can no longer be reached
-    }
-    sse.PatchElements(html)
-})
-mux.Handle("/", gastro.Routes())
+var router *gastro.Router
+router = gastro.New(
+    gastro.WithHandler("POST /increment", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        n := count.Add(1)
+        html, err := router.Render(gastro.Counter, gastro.CounterProps{Count: int(n)})
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        sse, err := datastar.NewSSE(w, r)
+        if err != nil {
+            return // the client can no longer be reached
+        }
+        sse.PatchElements(string(html))
+    })),
+)
+http.ListenAndServe(":4242", router.Handler())
 ```
 
 See `examples/sse/` for the full version.

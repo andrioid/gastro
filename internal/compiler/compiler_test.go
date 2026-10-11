@@ -46,12 +46,15 @@ func TestCompile_GeneratesRouteFile(t *testing.T) {
 	content, _ := os.ReadFile(routesFile)
 	s := string(content)
 
-	// Track B: page patterns are method-less (frontmatter branches on r.Method).
-	// Wave 4 / C2: auto-routes register via mux.Handle(pattern, applyMiddleware(...))
-	// so middleware can wrap. The pattern is the assertion target either way.
-	assertStringContains(t, s, `mux.Handle("/{$}"`)
-	assertStringContains(t, s, `mux.Handle("/about"`)
-	assertStringContains(t, s, `applyMiddleware`)
+	// Pages are GET views: each page registers as "GET <path>" in the
+	// route table handed to gastroRuntime.NewRouteMux, and middleware
+	// wraps every route via gastroRuntime.MiddlewareApplies.
+	assertStringContains(t, s, `{Pattern: "GET /{$}", Source: "page pages/index.gastro"`)
+	assertStringContains(t, s, `{Pattern: "GET /about", Source: "page pages/about/index.gastro"`)
+	assertStringContains(t, s, `gastroRuntime.MergeRoutes(generated, handlers)`)
+	assertStringContains(t, s, `gastroRuntime.MiddlewareApplies`)
+	assertStringContains(t, s, `gastroRuntime.NewRouteMux(routes)`)
+	assertStringNotContains(t, s, `WithOverride`)
 }
 
 func TestCompile_GeneratesPageHandlers(t *testing.T) {
@@ -122,8 +125,8 @@ func TestCompile_OmitsStaticHandlerWhenNoDir(t *testing.T) {
 	s := string(content)
 
 	// No static/ dir, so no static handler should be generated
-	if contains(s, "/static/") {
-		t.Error("routes.go should not contain /static/ when no static directory exists")
+	if contains(s, "GetStaticFS") || contains(s, `Pattern: "GET /static/"`) {
+		t.Error("routes.go should not register /static/ when no static directory exists")
 	}
 }
 
@@ -142,16 +145,11 @@ func TestCompile_GeneratesRenderFile(t *testing.T) {
 	}
 	s := string(content)
 
-	// Should have the renderAPI struct and Render var
-	assertStringContains(t, s, "var Render = &renderAPI{}")
-	// renderAPI has both a router (Router this renderAPI dispatches to) and
-	// a req field (set by With(r) to enable WithRequestFuncs binders).
-	assertStringContains(t, s, "type renderAPI struct {")
-	assertStringContains(t, s, "router *Router")
-	assertStringContains(t, s, "req    *http.Request")
-
-	// Should have a Render method for the Layout component (which has Props)
-	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps)")
+	// The package-level Render var, renderAPI and Router.Render() are
+	// gone: components are typed values rendered via router.Render.
+	assertStringNotContains(t, s, "renderAPI")
+	assertStringNotContains(t, s, "var Render")
+	assertStringContains(t, s, "var Layout = gastroRuntime.NewComponent(func(rt any, req *http.Request, props LayoutProps) (template.HTML, error) {")
 
 	// A5: Layout uses {{ .Children }}, so LayoutProps must be a real struct
 	// (not a type alias) with a Children template.HTML field. The variadic
@@ -161,12 +159,17 @@ func TestCompile_GeneratesRenderFile(t *testing.T) {
 	assertStringContains(t, s, "Children template.HTML")
 	assertStringNotContains(t, s, "children ...template.HTML")
 
-	// Per-Router Render() should be exposed for race-free multi-router use.
-	assertStringContains(t, s, "func (r *Router) Render() *renderAPI")
-	assertStringContains(t, s, "return &renderAPI{router: r}")
+	// The typed props go straight to the component's typed core: no props
+	// map is built.
+	assertStringContains(t, s, "componentLayout__render(")
+	assertStringNotContains(t, s, "propsMap")
 
-	// Component methods should resolve through r.resolve(), not the global directly.
-	assertStringContains(t, s, "rt := r.resolve()")
+	// Router.Render is the generic entry point in routes.go.
+	routes, err := os.ReadFile(filepath.Join(outputDir, "routes.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertStringContains(t, string(routes), "func (__r *Router) Render[P any](c gastroRuntime.Component[P], props P) (template.HTML, error)")
 }
 
 // TestCompile_RenderXPropsShapes covers the three XProps generation paths
@@ -195,7 +198,7 @@ func TestCompile_RenderXPropsShapes(t *testing.T) {
 	os.WriteFile(filepath.Join(compDir, "slot.gastro"), []byte(
 		`<section>{{ .Children }}</section>`+"\n"), 0o644)
 
-	// 4. Neither — should have no XProps type and a no-arg Render method.
+	// 4. Neither — should get an empty XProps struct.
 	os.WriteFile(filepath.Join(compDir, "divider.gastro"), []byte(
 		`<hr/>`+"\n"), 0o644)
 
@@ -211,34 +214,33 @@ func TestCompile_RenderXPropsShapes(t *testing.T) {
 	}
 	s := string(render)
 
-	// 1. Card — type alias, props parameter, no Children field.
+	// 1. Card — type alias; props pass through unchanged.
 	assertStringContains(t, s, "type CardProps = __component_card_Props")
-	assertStringContains(t, s, "func (r *renderAPI) Card(props CardProps)")
+	assertStringContains(t, s, "var Card = gastroRuntime.NewComponent(func(rt any, req *http.Request, props CardProps)")
+	assertStringContains(t, s, `r.componentCard__render(props, "", req)`)
 
-	// 2. Layout — real struct, both fields, props parameter.
+	// 2. Layout — real struct; fields copied into the user's Props type.
 	assertStringContains(t, s, "type LayoutProps struct")
-	assertStringContains(t, s, "func (r *renderAPI) Layout(props LayoutProps)")
+	assertStringContains(t, s, "r.componentLayout__render(__component_layout_Props{")
+	assertStringContains(t, s, "Title: props.Title,")
+	assertStringContains(t, s, "}, props.Children, req)")
 
-	// 3. Slot — struct with Children only, props parameter.
+	// 3. Slot — struct with Children only.
 	assertStringContains(t, s, "type SlotProps struct")
-	assertStringContains(t, s, "func (r *renderAPI) Slot(props SlotProps)")
+	assertStringContains(t, s, "r.componentSlot__render(props.Children, req)")
 
-	// 4. Divider — no XProps, no params.
-	assertStringNotContains(t, s, "type DividerProps")
-	assertStringContains(t, s, "func (r *renderAPI) Divider()")
+	// 4. Divider — empty struct, so every component has a distinct type.
+	assertStringContains(t, s, "type DividerProps struct{}")
+	assertStringContains(t, s, `r.componentDivider__render("", req)`)
 
 	// The variadic children parameter is gone everywhere.
 	assertStringNotContains(t, s, "children ...template.HTML")
-
-	// Children is plumbed via the propsMap key, not a separate variadic.
-	assertStringContains(t, s, `"Children": props.Children`)
 }
 
-// TestCompile_RoutesUsesAtomicActiveRouter is a regression test for the
-// audit's P0 #2: the package-level __gastro_active was a plain *Router,
-// causing data races between concurrent New() calls and concurrent Render
-// reads. It must be an atomic.Pointer[Router] now.
-func TestCompile_RoutesUsesAtomicActiveRouter(t *testing.T) {
+// TestCompile_NoActiveRouterGlobal: the package-level Render and its
+// __gastro_active router pointer are gone; rendering always goes through
+// an explicit *Router, so concurrent New() calls share no state.
+func TestCompile_NoActiveRouterGlobal(t *testing.T) {
 	projectDir := filepath.Join("testdata", "basic")
 	outputDir := t.TempDir()
 
@@ -247,28 +249,13 @@ func TestCompile_RoutesUsesAtomicActiveRouter(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	routes, err := os.ReadFile(filepath.Join(outputDir, "routes.go"))
-	if err != nil {
-		t.Fatalf("reading routes.go: %v", err)
-	}
-	rs := string(routes)
-
-	// Atomic declaration and store; no plain-pointer assignment.
-	assertStringContains(t, rs, `"sync/atomic"`)
-	assertStringContains(t, rs, "var __gastro_active atomic.Pointer[Router]")
-	assertStringContains(t, rs, "__gastro_active.Store(__r)")
-	if contains(rs, "__gastro_active = __r") {
-		t.Error("routes.go must not contain plain-pointer assignment to __gastro_active (race-prone)")
-	}
-
-	// render.go must load the active router atomically when no Router is bound.
-	render, err := os.ReadFile(filepath.Join(outputDir, "render.go"))
-	if err != nil {
-		t.Fatalf("reading render.go: %v", err)
-	}
-	assertStringContains(t, string(render), "__gastro_active.Load()")
-	if contains(string(render), "if __gastro_active == nil") {
-		t.Error("render.go must not compare __gastro_active to nil directly (race-prone); use Load()")
+	for _, name := range []string{"routes.go", "render.go"} {
+		b, err := os.ReadFile(filepath.Join(outputDir, name))
+		if err != nil {
+			t.Fatalf("reading %s: %v", name, err)
+		}
+		assertStringNotContains(t, string(b), "__gastro_active")
+		assertStringNotContains(t, string(b), `"sync/atomic"`)
 	}
 }
 
@@ -287,15 +274,13 @@ func TestCompile_RenderFileWithComposition(t *testing.T) {
 	}
 	s := string(content)
 
-	// Should have Render methods for both Badge and Card
-	assertStringContains(t, s, "func (r *renderAPI) Badge(props BadgeProps)")
-	assertStringContains(t, s, "func (r *renderAPI) Card(props CardProps)")
+	// Component values for both Badge and Card
+	assertStringContains(t, s, "var Badge = gastroRuntime.NewComponent(func(rt any, req *http.Request, props BadgeProps)")
+	assertStringContains(t, s, "var Card = gastroRuntime.NewComponent(func(rt any, req *http.Request, props CardProps)")
 
-	// Card calls componentCard internally
-	assertStringContains(t, s, "componentCard(propsMap)")
-
-	// Badge's props should be mapped
-	assertStringContains(t, s, `"Label": props.Label`)
+	// Card renders through its typed core, not the dict-path method.
+	assertStringContains(t, s, "componentCard__render(")
+	assertStringNotContains(t, s, "componentCard(propsMap)")
 }
 
 func TestCompile_ComponentComposition(t *testing.T) {
@@ -558,9 +543,10 @@ func TestCompile_ComponentWithoutFrontmatter(t *testing.T) {
 	}
 	rs := string(renderContent)
 
-	// Prop-less component should have a no-argument Render method
-	assertStringContains(t, rs, "func (r *renderAPI) Divider()")
-	assertStringContains(t, rs, "componentDivider(propsMap)")
+	// Prop-less component gets an empty XProps struct and a typed value
+	assertStringContains(t, rs, "type DividerProps struct{}")
+	assertStringContains(t, rs, "var Divider = gastroRuntime.NewComponent(")
+	assertStringContains(t, rs, `componentDivider__render("", req)`)
 }
 
 func TestCompile_PageWithoutFrontmatter(t *testing.T) {
@@ -737,6 +723,45 @@ func TestCompile_DictKeyTypoSurfacesError(t *testing.T) {
 		// site, not the component being called.
 		if found.File != "pages/index.gastro" || found.Line != 4 {
 			t.Errorf("strict=%v: diagnostic attributed to %s:%d, want pages/index.gastro:4", strict, found.File, found.Line)
+		}
+	}
+}
+
+// TestCompile_ComponentNameClashesWithGeneratedIdentifier: every component
+// exports a package-level Component value, so a component whose exported
+// name equals a generated identifier (New, Router, WithHandler, …) or
+// another component's XProps type would not compile. Both are reported
+// as errors with the offending file.
+func TestCompile_ComponentNameClashesWithGeneratedIdentifier(t *testing.T) {
+	projectDir := t.TempDir()
+	compDir := filepath.Join(projectDir, "components")
+	if err := os.MkdirAll(compDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"new.gastro", "with-handler.gastro", "card.gastro", "card-props.gastro"} {
+		if err := os.WriteFile(filepath.Join(compDir, name), []byte("<b>x</b>\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{})
+	var diagErr *compiler.DiagnosticsError
+	if !errors.As(err, &diagErr) {
+		t.Fatalf("expected *compiler.DiagnosticsError, got %T: %v", err, err)
+	}
+	want := map[string]string{
+		"components/new.gastro":          `"New"`,
+		"components/with-handler.gastro": `"WithHandler"`,
+		"components/card-props.gastro":   `"CardProps"`,
+	}
+	for file, name := range want {
+		found := false
+		for _, d := range diagErr.Diagnostics {
+			if d.File == file && d.IsError() && contains(d.Message, name) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected an error for %s mentioning %s; got: %v", file, name, diagErr)
 		}
 	}
 }

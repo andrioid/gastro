@@ -20,15 +20,20 @@ func main() {
 		port = "4242"
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/dashboard", handleDashboard)
-	mux.Handle("/", gastro.Routes())
+	// Commands and streams register next to the pages; the SSE handler
+	// renders the Dashboard component through the same router.
+	var router *gastro.Router
+	router = gastro.New(
+		gastro.WithHandler("GET /api/dashboard", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			handleDashboard(router, w, r)
+		})),
+	)
 
 	fmt.Printf("Listening on http://localhost:%s\n", port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, router.Handler()))
 }
 
-func handleDashboard(w http.ResponseWriter, r *http.Request) {
+func handleDashboard(router *gastro.Router, w http.ResponseWriter, r *http.Request) {
 	sse, err := datastar.NewSSE(w, r)
 	if err != nil {
 		log.Printf("dashboard: open stream: %v", err)
@@ -41,7 +46,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	send := func() error {
 		d := mock.Generate()
 
-		html, err := gastro.Render.Dashboard(gastro.DashboardProps{
+		html, err := router.Render(gastro.Dashboard, gastro.DashboardProps{
 			ActiveCalls: d.ActiveCalls,
 			AvgWaitSecs: d.AvgWaitSecs,
 			CallsToday:  d.CallsToday,
@@ -52,7 +57,7 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 
-		return sse.PatchElements(html,
+		return sse.PatchElements(string(html),
 			datastar.WithSelector("#dashboard"),
 			datastar.WithMode(datastar.ModeInner),
 		)

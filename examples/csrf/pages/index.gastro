@@ -1,17 +1,3 @@
----
-import (
-    "net/http"
-    "fmt"
-)
-
-if r.Method == http.MethodPost {
-    // The middleware already verified the CSRF token, so any POST that
-    // reaches this point has a valid form submission.
-    name := r.FormValue("name")
-    fmt.Fprintf(w, "Hello, %s! (CSRF-protected)", name)
-    return
-}
----
 <!DOCTYPE html>
 <html lang="en">
 <head>

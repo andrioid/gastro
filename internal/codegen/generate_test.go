@@ -285,6 +285,30 @@ Posts := []string{}`,
 	}
 }
 
+// TestGenerate_FrontmatterRenderRewrite: gastro.Render(c, p) in frontmatter
+// becomes a call to the package-level generic RenderComponent with the
+// handler's router, so generated per-file code never needs a generic
+// method (and the LSP shadow type-checks it under any gopls).
+func TestGenerate_FrontmatterRenderRewrite(t *testing.T) {
+	file := &parser.File{
+		Filename:     "pages/index.gastro",
+		Frontmatter:  `html, err := gastro.Render(Card, CardProps{Title: "x"})` + "\n_ = err\nSnippet := html",
+		TemplateBody: "<main>{{ .Snippet }}</main>",
+	}
+	info := &codegen.FrontmatterInfo{
+		ExportedVars: []codegen.VarInfo{{Name: "Snippet", Line: 3}},
+		IsPage:       true,
+	}
+	out, err := codegen.GenerateHandler(file, info, false, codegen.GenerateOptions{MangleHoisted: true})
+	if err != nil {
+		t.Fatalf("GenerateHandler: %v", err)
+	}
+	assertContains(t, out, `html, err := gastroRuntime.RenderComponent(__router, Card, CardProps{Title: "x"})`)
+	if strings.Contains(out, "gastro.Render") {
+		t.Errorf("gastro.Render marker should be fully rewritten, got:\n%s", out)
+	}
+}
+
 func TestGenerate_NoExportedVars_NoSuppressionLines(t *testing.T) {
 	// A page with no exported vars should not emit any user-facing
 	// `_ = X` lines (only the existing internal suppressions).

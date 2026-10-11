@@ -10,6 +10,7 @@ import (
 	gastro "sse-example/.gastro"
 	"sse-example/app"
 
+	"github.com/andrioid/gastro/datastar"
 	gastroRuntime "github.com/andrioid/gastro/pkg/gastro"
 )
 
@@ -21,31 +22,52 @@ func main() {
 
 	state := app.New()
 
-	// Track B (docs/history/frictions-plan.md §4.10): the increment endpoint is
-	// gone from main.go. Both the GET render and the POST patch live in
-	// pages/index.gastro and branch on r.Method. The router registers
-	// the page for every HTTP method so the same .gastro file handles
-	// both. This is the headline mechanic — one source of truth per
-	// route, no parallel API handler to keep in sync with the page.
+	// pages/index.gastro is the GET view. The increment command is an
+	// ordinary handler registered next to it with WithHandler: it shares
+	// the router's deps (gastroRuntime.FromContext[*app.State] works inside it) and
+	// middleware, and renders the Counter component through the router.
 	//
-	// Wave 4 / C2 (docs/history/frictions-plan.md §3 Wave 4): WithMiddleware
-	// composes route middleware. The pattern uses Go's stdlib syntax —
-	// "/{path...}" is a catch-all that matches every page route. Method
-	// branching, if any, lives inside the middleware itself.
-	router := gastro.New(
+	// WithMiddleware composes route middleware. The pattern uses Go's
+	// stdlib syntax — "/{path...}" is a catch-all that matches every page
+	// and WithHandler route. Method branching, if any, lives inside the
+	// middleware itself.
+	var router *gastro.Router
+	router = gastro.New(
 		gastro.WithDeps(state),
+		gastro.WithHandler("POST /increment", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			increment(router, w, r)
+		})),
+		// The clock streams from its own path because long-lived SSE
+		// streams have a different shape than the request / response /
+		// patch pattern of the increment command.
+		gastro.WithHandler("GET /api/clock", http.HandlerFunc(handleClock)),
 		gastro.WithMiddleware("/{path...}", logRequests),
 	)
 
-	// The clock streams from a separate path because long-lived SSE
-	// streams have a different shape than the request / response /
-	// patch pattern of the index page. It still demonstrates that
-	// page handlers (Track B) and side-mounted SSE handlers coexist.
-	mux := router.Mux()
-	mux.HandleFunc("GET /api/clock", handleClock)
-
 	fmt.Printf("Listening on http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, router.Handler()))
+}
+
+// increment bumps the counter and patches the Counter component into the
+// page over SSE.
+func increment(router *gastro.Router, w http.ResponseWriter, r *http.Request) {
+	state := gastroRuntime.FromContext[*app.State](r.Context())
+	n := state.Count.Add(1)
+
+	html, err := router.Render(gastro.Counter, gastro.CounterProps{Count: int(n)})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("counter: open stream: %v", err)
+		return
+	}
+	if err := sse.PatchElements(string(html)); err != nil {
+		log.Printf("counter: patch: %v", err)
+	}
 }
 
 // logRequests is a tiny middleware that logs each request's method,

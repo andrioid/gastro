@@ -128,17 +128,26 @@ the type explicitly.
 **Render a templated error page** when the response is uncommitted:
 
 ```go
-gastro.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
-    if gastroRuntime.HeaderCommitted(w) || gastroRuntime.BodyWritten(w) {
-        log.Printf("gastro: render failed mid-stream: %v", err)
-        return
-    }
-    w.WriteHeader(http.StatusInternalServerError)
-    gastro.Render.ErrorPage(ErrorPageProps{
-        RequestID: middleware.GetReqID(r.Context()),
-        Message:   "Something went wrong.",
-    })
-})
+var router *gastro.Router
+router = gastro.New(
+    gastro.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error) {
+        if gastroRuntime.HeaderCommitted(w) || gastroRuntime.BodyWritten(w) {
+            log.Printf("gastro: render failed mid-stream: %v", err)
+            return
+        }
+        html, rerr := router.Render(gastro.ErrorPage, gastro.ErrorPageProps{
+            RequestID: middleware.GetReqID(r.Context()),
+            Message:   "Something went wrong.",
+        })
+        if rerr != nil {
+            gastroRuntime.DefaultErrorHandler(w, r, err)
+            return
+        }
+        w.Header().Set("Content-Type", "text/html; charset=utf-8")
+        w.WriteHeader(http.StatusInternalServerError)
+        io.WriteString(w, string(html))
+    }),
+)
 ```
 
 **Attach a request ID** to every error log line:

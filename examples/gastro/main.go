@@ -35,6 +35,7 @@ func main() {
 	defer demo.Close()
 	lspdemo.Register(demo)
 
+	site = gastro.New()
 	mux := http.NewServeMux()
 
 	// Traditional form handler (Post/Redirect/Get)
@@ -56,7 +57,7 @@ func main() {
 	mux.HandleFunc("POST /api/htmx/save/{id}", handleHtmxSave)
 
 	// Gastro page routes (catch-all)
-	mux.Handle("/", gastro.Routes())
+	mux.Handle("/", site.Handler())
 
 	fmt.Printf("Listening on http://localhost:%s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, mux))

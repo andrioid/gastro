@@ -7,6 +7,10 @@ import (
 	"gastro-website/demo"
 )
 
+// site is the gastro router built in main. Handlers render components
+// through it: site.Render(gastro.X, gastro.XProps{…}).
+var site *gastro.Router
+
 // renderEntryListHTML renders a list of guestbook entries as an HTML string
 // wrapped in the guestbook-list container div. The mode parameter ("ds",
 // "htmx", or "") controls which interaction attributes are added to entries.
@@ -20,7 +24,7 @@ func renderEntryListHTML(entries []demo.Entry, mode string, listID string) (stri
 	b.WriteString(`<div id="` + listID + `" class="guestbook-list" role="list" aria-live="polite" aria-label="Guestbook entries">`)
 
 	for _, e := range entries {
-		html, err := gastro.Render.GuestbookEntry(gastro.GuestbookEntryProps{
+		html, err := site.Render(gastro.GuestbookEntry, gastro.GuestbookEntryProps{
 			ID:      e.ID,
 			Name:    e.Name,
 			Message: e.Message,
@@ -30,7 +34,7 @@ func renderEntryListHTML(entries []demo.Entry, mode string, listID string) (stri
 		if err != nil {
 			return "", err
 		}
-		b.WriteString(html)
+		b.WriteString(string(html))
 	}
 
 	b.WriteString(`</div>`)

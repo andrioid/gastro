@@ -10,12 +10,14 @@ import (
 
 	"github.com/andrioid/gastro/internal/codegen"
 	"github.com/andrioid/gastro/internal/parser"
+	"github.com/andrioid/gastro/internal/router"
 )
 
 // listEntry holds the display information for a single .gastro file.
 type listEntry struct {
 	kind   string // "component" or "page"
 	name   string // exported component/page name, e.g. "Card", "Index"
+	route  string // pages only: method-qualified pattern, e.g. "GET /blog/{slug}"
 	path   string // relative source path, e.g. "components/card.gastro"
 	fields []codegen.StructField
 }
@@ -25,10 +27,11 @@ type listEntry struct {
 // appears in the table is present here, plus the raw props array that agents
 // can iterate without parsing the parenthesised string.
 type listJSON struct {
-	Kind  string          `json:"kind"`  // "component" or "page"
-	Name  string          `json:"name"`  // exported name, e.g. "Card"
-	Path  string          `json:"path"`  // relative source path
-	Props []listJSONField `json:"props"` // always an array, never null
+	Kind  string          `json:"kind"`            // "component" or "page"
+	Name  string          `json:"name"`            // exported name, e.g. "Card"
+	Route string          `json:"route,omitempty"` // pages only, e.g. "GET /blog/{slug}"
+	Path  string          `json:"path"`            // relative source path
+	Props []listJSONField `json:"props"`           // always an array, never null
 }
 
 // listJSONField is one entry in the Props array.
@@ -38,7 +41,9 @@ type listJSONField struct {
 }
 
 // runList discovers all .gastro files in the current project and prints each
-// one with its name and Props fields (for components).
+// one with its name, Props fields (for components), and route (for pages).
+// Pages are GET views, so every route is "GET <path>". Routes added at
+// runtime with WithHandler are Go code and are not listed.
 //
 // With --json the output is a JSON array of objects:
 //
@@ -46,8 +51,8 @@ type listJSONField struct {
 //
 // Without --json (default) the output is an aligned human-readable table:
 //
-//	[component]  Card (Title string, Body string)  components/card.gastro
-//	[page]       Index                              pages/index.gastro
+//	[component]  Card (Title string, Body string)            components/card.gastro
+//	[page]       Index                             GET /{$}  pages/index.gastro
 func runList() error {
 	args := os.Args[2:]
 	jsonMode := false
@@ -86,6 +91,9 @@ func runList() error {
 					path: relPath,
 					name: codegen.ExportedComponentName(codegen.HandlerFuncName(relPath)),
 				}
+				if dir == "pages" {
+					entry.route = pageRoute(relPath)
+				}
 			}
 			entries = append(entries, entry)
 		}
@@ -117,6 +125,7 @@ func printListJSON(entries []listEntry) error {
 		out = append(out, listJSON{
 			Kind:  e.kind,
 			Name:  e.name,
+			Route: e.route,
 			Path:  e.path,
 			Props: fields,
 		})
@@ -136,6 +145,7 @@ func printListTable(entries []listEntry) error {
 	// Calculate column widths for alignment.
 	maxKind := len("[component]")
 	maxName := 0
+	maxRoute := 0
 	for _, e := range entries {
 		label := "[" + e.kind + "]"
 		if len(label) > maxKind {
@@ -145,12 +155,19 @@ func printListTable(entries []listEntry) error {
 		if len(display) > maxName {
 			maxName = len(display)
 		}
+		if len(e.route) > maxRoute {
+			maxRoute = len(e.route)
+		}
 	}
 
 	for _, e := range entries {
 		label := "[" + e.kind + "]"
 		display := e.name + formatFields(e.fields)
-		fmt.Printf("%-*s  %-*s  %s\n", maxKind, label, maxName, display, e.path)
+		if maxRoute == 0 {
+			fmt.Printf("%-*s  %-*s  %s\n", maxKind, label, maxName, display, e.path)
+			continue
+		}
+		fmt.Printf("%-*s  %-*s  %-*s  %s\n", maxKind, label, maxName, display, maxRoute, e.route, e.path)
 	}
 
 	return nil
@@ -183,9 +200,11 @@ func buildListEntry(relPath, absPath string) (listEntry, error) {
 	// Derive display name by stripping the kind-specific prefix that
 	// HandlerFuncName prepends ("component" or "page").
 	name := codegen.ExportedComponentName(funcName)
+	route := ""
 	if kind == "page" {
 		// ExportedComponentName only strips "component"; strip "page" for pages.
 		name = strings.TrimPrefix(funcName, "page")
+		route = pageRoute(relPath)
 	}
 
 	var fields []codegen.StructField
@@ -197,9 +216,16 @@ func buildListEntry(relPath, absPath string) (listEntry, error) {
 	return listEntry{
 		kind:   kind,
 		name:   name,
+		route:  route,
 		path:   relPath,
 		fields: fields,
 	}, nil
+}
+
+// pageRoute returns the route pattern gastro registers for a page file,
+// e.g. "GET /blog/{slug}" for pages/blog/[slug].gastro.
+func pageRoute(relPath string) string {
+	return router.BuildRoutes([]string{filepath.ToSlash(relPath)})[0].Pattern
 }
 
 // formatFields returns a parenthesised, comma-separated props summary.

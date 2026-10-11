@@ -14,7 +14,7 @@ import (
 // their respective worlds:
 //
 //   - compiler/compiler.go uses Fields for dict-key validation and HasChildren
-//     to decide whether to add a Children field to the generated Render.X props.
+//     to decide whether to add a Children field to the generated XProps.
 //   - lsp/shadow/workspace.go uses the same data to synthesise XProps
 //     stubs that gopls type-checks against.
 //   - lsp/server/util.go uses ExportedName + RelPath to power auto-import
@@ -65,8 +65,8 @@ type ComponentSchema struct {
 // (nil, nil); per-file read or parse failures are silently skipped.
 // This matches the silent-fallback contract the compiler and shadow
 // workspace already rely on (parse errors surface with full context
-// during the per-file codegen pass; the shadow falls back to a
-// no-method *renderAPI stub for any component it can't read). A hard
+// during the per-file codegen pass; the shadow simply omits the Component
+// value for any component it can't read). A hard
 // error is returned only if the underlying filepath.Walk fails for
 // reasons other than "directory does not exist".
 func ScanComponents(projectRoot string) ([]ComponentSchema, error) {

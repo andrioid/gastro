@@ -1,54 +1,29 @@
 ---
 import (
-    "log"
-    "net/http"
-
     "sse-example/app"
 
     Layout "components/layout.gastro"
     Counter "components/counter.gastro"
-
-    "github.com/andrioid/gastro/datastar"
 )
 
-// Track B (docs/history/frictions-plan.md §4.10) headline pattern: one .gastro
-// file handles both the initial GET render and the POST that updates the
-// page via Datastar. *app.State is registered via gastro.WithDeps in
+// Pages are GET views. The increment command lives in main.go as a
+// WithHandler handler (POST /increment) that patches the Counter
+// component over SSE. *app.State is registered via gastro.WithDeps in
 // main.go and retrieved here through the typed dep API.
 state := gastro.From[*app.State](r.Context())
 
-if r.Method == http.MethodPost {
-    n := state.Count.Add(1)
-
-    html, err := gastro.Render.Counter(CounterProps{Count: int(n)})
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-
-    sse, err := datastar.NewSSE(w, r)
-    if err != nil {
-        log.Printf("counter: open stream: %v", err)
-        return
-    }
-    sse.PatchElements(html)
-    return
-}
-
-// GET — fall through to the template render. The wrapped writer's
-// BodyWritten flag is false here, so the codegen-generated handler runs
-// the template after this frontmatter completes.
 Title := "SSE + Datastar Counter"
 Count := int(state.Count.Load())
 ---
 {{ wrap Layout (dict "Title" .Title) }}
     <h1>SSE + Datastar Counter</h1>
     <p>Click the button to increment the counter via a server-sent event.
-       The same <code>pages/index.gastro</code> file handles both
-       the initial GET render and the POST that patches the counter.</p>
+       <code>pages/index.gastro</code> renders the page; the
+       <code>POST /increment</code> handler registered with
+       <code>WithHandler</code> patches the counter.</p>
 
     {{ Counter (dict "Count" .Count) }}
-    <button data-on:click="@post('/')">Increment</button>
+    <button data-on:click="@post('/increment')">Increment</button>
 
     <h2>Live Clock</h2>
     <p>This clock updates every second via a separate SSE stream.</p>

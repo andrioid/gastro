@@ -283,6 +283,8 @@ var handlerTmpl = template.Must(template.New("handler").Parse(`{{ .Header }}
 package {{ .PackageName }}
 
 import (
+	"bytes"
+	"fmt"
 	"log"
 	"net/http"
 	"html/template"
@@ -294,6 +296,8 @@ import (
 )
 
 // Suppress unused-import warnings for the conditional template path.
+var _ bytes.Buffer
+var _ = fmt.Errorf
 var _ = template.Must
 var _ http.ResponseWriter
 var _ = log.Println
@@ -339,6 +343,7 @@ package {{ .PackageName }}
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"log"
 	"net/http"
@@ -352,6 +357,7 @@ import (
 // Suppress unused import warnings
 var _ = gastroRuntime.DefaultFuncs
 var _ bytes.Buffer
+var _ = fmt.Errorf
 var _ = template.Must
 var _ = log.Println
 var _ http.Request
@@ -361,39 +367,56 @@ var _ http.Request
 {{ .HoistedDecls }}
 {{- end }}
 
-// {{ .FuncName }} is the unexported component method used by templates.
-// To render this component from Go (handlers, SSE patches), call
-// gastro.Render.{{ .ExportedName }}(...) instead. See render.go.
+// {{ .FuncName }} is the template-side entry point: it receives the
+// props map built by a template dict call, converts it to the typed
+// props, and delegates to {{ .FuncName }}__render. To render this component
+// from Go (handlers, SSE patches), call router.Render({{ .ExportedName }}, …)
+// instead. See render.go.
 func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
-	// Children is the dict key injected by TransformTemplate for wrap blocks
-	// and set by Render.X(XProps{Children: ...}) calls. Pulled out of the
-	// map directly so the user's hoisted Props struct stays unmodified.
-	// Renamed from "__children" in A5.
+	// Children is the dict key injected by TransformTemplate for wrap blocks.
+	// Pulled out of the map directly so the user's hoisted Props struct
+	// stays unmodified.
 	var __children template.HTML
 	if __c, __ok := propsMap["Children"]; __ok {
 		__children, _ = __c.(template.HTML)
 		delete(propsMap, "Children")
 	}
-	_ = __children
 
-	// __gastro_request is the sentinel key Render.With(r).{{ .ExportedName }}
-	// injects so this method routes Execute through the request-aware
-	// FuncMap path. Absence means the caller is the legacy static path
-	// (package-level Render or template-driven dispatch); no Clone, no
-	// per-request FuncMap.
-	var __gastro_req *http.Request
+	// __gastro_request is the sentinel key the request-aware dispatcher
+	// closures inject so the render routes Execute through the
+	// request-aware FuncMap path. Absence means the static path; no
+	// Clone, no per-request FuncMap.
+	var __req *http.Request
 	if __rv, __rok := propsMap["__gastro_request"]; __rok {
-		__gastro_req, _ = __rv.(*http.Request)
+		__req, _ = __rv.(*http.Request)
 		delete(propsMap, "__gastro_request")
 	}
-	_ = __gastro_req
 
 	{{- if .PropsTypeName }}
-	__props, __err := gastroRuntime.MapToStruct[{{ .PropsTypeName }}](propsMap)
+	__p, __err := gastroRuntime.MapToStruct[{{ .PropsTypeName }}](propsMap)
 	if __err != nil {
 		log.Printf("gastro: component {{ .FuncName }}: %v", __err)
 		return ""
 	}
+	__html, __err := __router.{{ .FuncName }}__render(__p, __children, __req)
+	{{- else }}
+	__html, __err := __router.{{ .FuncName }}__render(__children, __req)
+	{{- end }}
+	if __err != nil {
+		log.Print(__err)
+		return ""
+	}
+	return __html
+}
+
+// {{ .FuncName }}__render is the typed core shared by the template dict
+// path ({{ .FuncName }}) and Router.Render: it runs the frontmatter and
+// executes the template. A non-nil __gastro_req routes Execute through
+// the request-aware FuncMap path (WithRequestFuncs).
+func (__router *Router) {{ .FuncName }}__render({{ if .PropsTypeName }}__props {{ .PropsTypeName }}, {{ end }}__children template.HTML, __gastro_req *http.Request) (template.HTML, error) {
+	_ = __children
+	_ = __gastro_req
+	{{- if .PropsTypeName }}
 	_ = __props
 	{{- end }}
 
@@ -416,14 +439,12 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 	var __buf bytes.Buffer
 	if __gastro_req != nil {
 		if __err := __router.__gastro_renderComponent("{{ .FuncName }}", __gastro_req, &__buf, __data); __err != nil {
-			log.Printf("gastro: component {{ .FuncName }}: template execution failed: %v", __err)
-			return ""
+			return "", fmt.Errorf("gastro: component {{ .FuncName }}: template execution failed: %w", __err)
 		}
 	} else if __err := __router.__gastro_getTemplate("{{ .FuncName }}").Execute(&__buf, __data); __err != nil {
-		log.Printf("gastro: component {{ .FuncName }}: template execution failed: %v", __err)
-		return ""
+		return "", fmt.Errorf("gastro: component {{ .FuncName }}: template execution failed: %w", __err)
 	}
-	return template.HTML(__buf.String())
+	return template.HTML(__buf.String()), nil
 }
 `))
 
@@ -445,7 +466,8 @@ func (__router *Router) {{ .FuncName }}(propsMap map[string]any) template.HTML {
 //	| gastro.FromContext[T](…)  | gastroRuntime.FromContext[T](…)   |
 //	| gastro.FromContextOK[T]…  | gastroRuntime.FromContextOK[T]…   |
 //	| gastro.NewSSE(w, r)       | gastroRuntime.NewSSE(w, r)        |
-//	| gastro.Render.X(…)        | Render.X(…)                       |
+//	| gastro.Render(c, p)       | gastroRuntime.RenderComponent(    |
+//	|                           |   __router, c, p)                 |
 //
 // Any other gastro.X reference produces a warning: "unknown gastro
 // runtime symbol; did you mean to import a package?". This keeps the
@@ -482,7 +504,6 @@ var gastroMarkerAllowlist = map[string]string{
 	"FromContext":   "gastroRuntime.FromContext",
 	"FromContextOK": "gastroRuntime.FromContextOK",
 	"NewSSE":        "gastroRuntime.NewSSE",
-	"Render":        "Render",
 
 	// Type-position marker: gastro.Attrs is the attribute-forwarding bag
 	// (see pkg/gastro/attrs.go). Rewritten to the runtime alias so a
@@ -495,6 +516,7 @@ var gastroMarkerAllowlist = map[string]string{
 	// `_ = gastro.Props` without parens, which the call-pass won't catch).
 	"Props":   "",
 	"Context": "",
+	"Render":  "",
 }
 
 // markerEdit is one substitution to apply to the frontmatter source.
@@ -532,7 +554,8 @@ func rewriteGastroMarkers(frontmatter string) (string, []Warning) {
 	var warnings []Warning
 	handledSelector := make(map[token.Pos]bool)
 
-	// Pass 1: full-call rewrites for gastro.Props() and gastro.Context().
+	// Pass 1: call rewrites for gastro.Props(), gastro.Context() and
+	// gastro.Render(…).
 	ast.Inspect(file, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -565,6 +588,17 @@ func rewriteGastroMarkers(frontmatter string) (string, []Warning) {
 				Line:    fmLine(call.Pos()),
 				Message: "gastro.Context() is deprecated; use the ambient `r *http.Request` and `w http.ResponseWriter` directly (see docs/pages.md). Slated for removal two minor releases after this warning lands.",
 			})
+		case "Render":
+			// gastro.Render(c, props) → gastroRuntime.RenderComponent(__router, c, props).
+			// A package-level generic function rather than the generic
+			// Router.Render method keeps frontmatter (and the LSP shadow,
+			// which type-checks it) free of generic methods.
+			s, e := fmOffset(sel.Pos()), fmOffset(call.Lparen)+1
+			if s < 0 || e > len(frontmatter) {
+				return true
+			}
+			edits = append(edits, markerEdit{start: s, end: e, text: "gastroRuntime.RenderComponent(__router, "})
+			handledSelector[sel.Pos()] = true
 		}
 		return true
 	})
@@ -592,7 +626,7 @@ func rewriteGastroMarkers(frontmatter string) (string, []Warning) {
 			})
 			return true
 		}
-		if sel.Sel.Name == "Props" || sel.Sel.Name == "Context" {
+		if sel.Sel.Name == "Props" || sel.Sel.Name == "Context" || sel.Sel.Name == "Render" {
 			// Bare reference (no parens) to a marker. Pass 1 didn't
 			// catch it because there's no enclosing CallExpr. Surface
 			// it as a warning rather than a silent rewrite.
@@ -629,10 +663,11 @@ func rewriteGastroMarkers(frontmatter string) (string, []Warning) {
 // Track B for http.Error / http.Redirect) does not produce a duplicate
 // import in the generated output.
 var autoImported = map[string]bool{
+	"bytes":         true,
+	"fmt":           true,
 	"log":           true,
 	"net/http":      true,
 	"html/template": true,
-	"bytes":         true, // imported by componentTmpl
 }
 
 // dedupeAutoImports filters out import paths that the codegen already
@@ -659,9 +694,8 @@ func ExportedComponentName(funcName string) string {
 
 // StructField represents a field in a parsed Props struct.
 type StructField struct {
-	Name    string
-	Type    string
-	IsAttrs bool
+	Name string
+	Type string
 }
 
 // ParseStructFields extracts field names and types from a hoisted type
