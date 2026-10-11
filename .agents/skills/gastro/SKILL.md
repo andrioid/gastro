@@ -372,8 +372,16 @@ func handleUpdates(w http.ResponseWriter, r *http.Request) {
 
 ### Datastar integration
 
+Datastar support lives in the separate module
+`github.com/andrioid/gastro/datastar` (a facade over the official SDK). It
+also embeds the matching browser client: mount
+`mux.Handle(datastar.ClientPattern, datastar.ClientHandler())`, register
+`gastro.WithFuncs(datastar.Funcs())`, and put `{{ datastarScript }}` in the
+layout's `<head>`. Pages open one long-lived stream; commands return 204.
+See docs/sse.md.
+
 ```go
-import "github.com/andrioid/gastro/pkg/gastro/datastar"
+import "github.com/andrioid/gastro/datastar"
 
 func handleIncrement(w http.ResponseWriter, r *http.Request) {
     html, err := gastro.Render.Counter(gastro.CounterProps{Count: 42})
@@ -382,7 +390,10 @@ func handleIncrement(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(html)
 }
 ```

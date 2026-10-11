@@ -204,7 +204,7 @@ import (
 
     "myapp/forms"
 
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+    "github.com/andrioid/gastro/datastar"
 )
 
 if r.Method == http.MethodPost {
@@ -213,7 +213,10 @@ if r.Method == http.MethodPost {
         return
     }
 
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(`<p id="msg">Thanks!</p>`)
     return
 }
@@ -514,11 +517,14 @@ Page frontmatter can open an SSE stream directly:
 import (
     "net/http"
 
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+    "github.com/andrioid/gastro/datastar"
 )
 
 if r.Method == http.MethodPost {
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(html)
     return
 }

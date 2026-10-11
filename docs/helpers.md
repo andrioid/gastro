@@ -228,7 +228,11 @@ call to a specific request, use `Render.With(r)`:
 ```go
 func handleUpdate(w http.ResponseWriter, r *http.Request) {
     html, _ := gastro.Render.With(r).Card(gastro.CardProps{Title: "Hello"})
-    datastar.NewSSE(w, r).PatchElements(html)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
+    sse.PatchElements(html)
 }
 ```
 

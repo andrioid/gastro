@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,7 +12,7 @@ import (
 	"gastro-website/lspdemo"
 	"gastro-website/md"
 
-	"github.com/andrioid/gastro/pkg/gastro/datastar"
+	"github.com/andrioid/gastro/datastar"
 )
 
 // handleLSPDemoHover serves the live-LSP demo's hover tooltip.
@@ -57,7 +58,11 @@ func newLSPDemoHoverHandler(demo *lspdemo.Demo) http.HandlerFunc {
 		defer cancel()
 
 		markdown, err := demo.HoverOrDiagnostic(ctx, line, col)
-		sse := datastar.NewSSE(w, r)
+		sse, sseErr := datastar.NewSSE(w, r)
+		if sseErr != nil {
+			log.Printf("lsp demo: open stream: %v", sseErr)
+			return
+		}
 		if err != nil || markdown == "" {
 			// Empty tooltip. Datastar replaces the element's
 			// contents, so this clears whatever was last shown.
