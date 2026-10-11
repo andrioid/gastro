@@ -426,7 +426,7 @@ func degrade(d *Demo, logf func(string, ...any), format string, args ...any) {
 // own dependency graph from there.
 func writeTempProject(dir, gastroRoot string) error {
 	goMod := "module gastro-lspdemo\n\n" +
-		"go 1.26.1\n\n" +
+		"go 1.27.2\n\n" +
 		"require github.com/andrioid/gastro v0.0.0\n\n" +
 		"replace github.com/andrioid/gastro => " + gastroRoot + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(goMod), 0o644); err != nil {

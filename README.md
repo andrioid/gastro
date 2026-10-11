@@ -80,7 +80,7 @@ existing tree), and the dev-loop command (`gastro dev` vs
 
 ### Prerequisites
 
-- Go 1.26+
+- Go 1.27+
 - One of: [mise](https://mise.jdx.dev/), `go install`, or `go get -tool`
 
 ### All install methods

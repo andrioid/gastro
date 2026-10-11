@@ -56,7 +56,7 @@ func TestCompile_WithMiddlewareComposition(t *testing.T) {
 
 	mustWriteFile(t, filepath.Join(projectDir, "go.mod"),
 		"module gastro_middleware_repro\n\n"+
-			"go 1.26.1\n\n"+
+			"go 1.27.2\n\n"+
 			"require github.com/andrioid/gastro v0.0.0\n\n"+
 			"replace github.com/andrioid/gastro => "+repoRoot+"\n")
 

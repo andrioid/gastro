@@ -32,7 +32,7 @@ The resulting binary contains everything: your Go handlers, compiled templates, 
 A multi-stage Dockerfile keeps the image small. The build stage compiles everything, and the runtime stage contains only the binary:
 
 ```dockerfile
-FROM golang:1.26-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 
 # Install the gastro CLI

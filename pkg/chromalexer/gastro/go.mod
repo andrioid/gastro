@@ -1,6 +1,6 @@
 module github.com/andrioid/gastro/pkg/chromalexer/gastro
 
-go 1.26.1
+go 1.27.2
 
 require github.com/alecthomas/chroma/v2 v2.23.1
 

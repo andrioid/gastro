@@ -1,6 +1,6 @@
 # Getting Started — Framework Mode
 
-Set up your first Gastro project in under a minute. You'll need Go 1.26+ installed.
+Set up your first Gastro project in under a minute. You'll need Go 1.27+ installed.
 
 This page is for **building a new Gastro site from scratch**. If you're adding
 gastro to an existing Go project (an API service growing an admin UI, an

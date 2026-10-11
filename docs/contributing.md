@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Go 1.26+
+- Go 1.27+
 - [mise](https://mise.jdx.dev/) for managed tooling
 
 ```sh

@@ -1,6 +1,6 @@
 module sse-example
 
-go 1.26.1
+go 1.27.2
 
 require github.com/andrioid/gastro v0.0.0
 
