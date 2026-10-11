@@ -10,16 +10,16 @@
 //
 // The translation flow:
 //
-//   1. Catalog.Load reads embedded *.po files and parses each into a
-//      Localizer (one per locale).
-//   2. Catalog.Middleware picks a Localizer for each request based on
-//      the URL path (/da/..., /de/...), the gastro_locale cookie, or
-//      the Accept-Language header — in that order. The chosen
-//      Localizer is attached to the request context.
-//   3. FromCtx pulls the Localizer back out at template time. The
-//      WithRequestFuncs binder calls FromCtx, then returns a FuncMap
-//      with method values closed over that Localizer (so {{ t "hi" }}
-//      resolves against the right locale).
+//  1. Catalog.Load reads embedded *.po files and parses each into a
+//     Localizer (one per locale).
+//  2. Catalog.Middleware picks a Localizer for each request based on
+//     the URL path (/da/..., /de/...), the gastro_locale cookie, or
+//     the Accept-Language header — in that order. The chosen
+//     Localizer is attached to the request context.
+//  3. FromCtx pulls the Localizer back out at template time. The
+//     WithRequestFuncs binder calls FromCtx, then returns a FuncMap
+//     with method values closed over that Localizer (so {{ t "hi" }}
+//     resolves against the right locale).
 //
 // Per the WithRequestFuncs contract (docs/helpers.md §"The binder
 // contract"), FromCtx tolerates an empty context: a probe request at
@@ -183,11 +183,11 @@ func (c *Catalog) Fallback() string { return c.fallback }
 // Middleware attaches a Localizer to every incoming request. Locale is
 // selected in this priority order:
 //
-//   1. URL path prefix: /da/..., /de/...
-//   2. gastro_locale cookie
-//   3. Accept-Language header (first matching locale, no quality-weight
-//      parsing — keeps the example small)
-//   4. The catalogue's fallback locale
+//  1. URL path prefix: /da/..., /de/...
+//  2. gastro_locale cookie
+//  3. Accept-Language header (first matching locale, no quality-weight
+//     parsing — keeps the example small)
+//  4. The catalogue's fallback locale
 //
 // The request URL is not rewritten; downstream handlers see the same
 // r.URL.Path that came in. This lets the gastro auto-routes match

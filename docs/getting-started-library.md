@@ -137,7 +137,6 @@ import (
     "net/http"
 
     web "myapp/internal/web/.gastro"
-    "github.com/andrioid/gastro/pkg/gastro"
 )
 
 func main() {
@@ -147,9 +146,9 @@ func main() {
 
     // Construct the gastro router. Same API as framework mode.
     gastroRouter := web.New(
-        gastro.WithDeps(db),
-        gastro.WithDeps(cache),
-        gastro.WithMiddleware("/{path...}", requestLogger),
+        web.WithDeps(db),
+        web.WithDeps(cache),
+        web.WithMiddleware("/{path...}", requestLogger),
     )
 
     // Compose with your existing routes.

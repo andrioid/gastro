@@ -16,6 +16,12 @@ func main() {
 		port = "4242"
 	}
 
+	// Pages are GET views. Register commands (POST, PUT, DELETE, ...) and
+	// other endpoints next to them as ordinary handlers:
+	//
+	//	gastro.New(gastro.WithHandler("POST /signup", http.HandlerFunc(signup)))
+	//
+	// Render components from Go with router.Render(gastro.X, gastro.XProps{...}).
 	handler := gastro.New().Handler()
 
 	fmt.Printf("Listening on http://localhost:%s\n", port)

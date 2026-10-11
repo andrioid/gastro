@@ -14,7 +14,7 @@
 // to a subscriber, request cancellation. The demo opens the embedded
 // file once at app boot and never edits it.
 //
-// Concurrency
+// # Concurrency
 //
 // A single dispatcher goroutine owns the stdout bufio.Reader, demuxes
 // responses (by id) to per-request channels, and routes notifications

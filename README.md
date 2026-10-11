@@ -16,6 +16,8 @@ See [`ROADMAP.md`](ROADMAP.md) for deferred work and known
 limitations, and [`DECISIONS.md`](DECISIONS.md) for the chronological
 design log.
 
+Upgrading from v0.3? Read the [v0.4 migration guide](docs/migrations/v0.4.md).
+
 
 ## Scope
 
@@ -301,6 +303,7 @@ dynamic pages, template helpers, and static assets.
 - [Dev Mode](docs/dev-mode.md) -- `gastro dev`, `gastro watch`, env vars, composed setups
 - [Error Handling](docs/error-handling.md) -- Failure modes and `WithErrorHandler`
 - [Compatibility](docs/compatibility.md) -- Versioning, breaking changes, and generated-code compatibility
+- [Migrating to v0.4](docs/migrations/v0.4.md) -- GET-only pages, `WithHandler`, typed `router.Render`, the `datastar` module
 - [Design](docs/design.md) -- Complete design document with all decisions
 - [Architecture](docs/architecture.md) -- Code architecture and package guide
 - [Contributing](docs/contributing.md) -- How to contribute

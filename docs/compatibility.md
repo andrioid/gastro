@@ -29,6 +29,11 @@ Every breaking change ships with:
 - a `BREAKING CHANGE:` footer on the commit, so the release notes call it
   out.
 
+Migration guides so far:
+
+- [v0.4](migrations/v0.4.md) — GET-only pages and `WithHandler`, typed
+  `router.Render`, the `datastar` module, Go 1.27.
+
 There are no deprecation shims. When an API changes, the old form is removed
 in the same release and the migration guide explains the replacement; gastro
 does not keep the old and the new behaviour side by side.

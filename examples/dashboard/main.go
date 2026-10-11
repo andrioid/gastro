@@ -20,10 +20,14 @@ func main() {
 		port = "4242"
 	}
 
-	// Commands and streams register next to the pages; the SSE handler
-	// renders the Dashboard component through the same router.
+	// The page opens one stream (GET /api/dashboard), registered next to
+	// the pages with WithHandler; it re-renders the Dashboard component through the same router.
 	var router *gastro.Router
 	router = gastro.New(
+		// {{ datastarScript }} in the layout, and the embedded Datastar
+		// client it points at.
+		gastro.WithFuncs(datastar.Funcs()),
+		gastro.WithHandler(datastar.ClientPattern, datastar.ClientHandler()),
 		gastro.WithHandler("GET /api/dashboard", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			handleDashboard(router, w, r)
 		})),

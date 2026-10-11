@@ -1061,6 +1061,8 @@ Three concrete reasons drove the change:
    API adds `gastro.WithOverride(pattern, http.Handler)` which replaces
    exactly one auto-route, and panics at `New()` time when the pattern
    does not match a known auto-route to catch typos loudly.
+   *(Superseded in v0.4: `WithOverride` was replaced by `WithHandler`;
+   see* Pages are queries, commands are handlers *below.)*
 
 ### Render API discoverability
 
@@ -1071,6 +1073,8 @@ downstream consumer to mis-read the public API and propose forking.
 `docs/components.md` now has a *Calling Components from Go* section, the
 generated `render.go` has a top-of-file package doc, and each generated
 `componentX` carries a comment pointing at `Render.X`.
+*(Superseded in v0.4: the `Render` struct gave way to typed component
+values rendered with `router.Render(gastro.X, gastro.XProps{…})`.)*
 
 ### `gastro.Context()` clarification
 
@@ -1106,7 +1110,8 @@ Two items from the friction report were not addressed in this iteration:
   via `MapToStruct[T]`. The cost is invisible on a normal page render
   but becomes measurable in SSE hot paths that re-render single
   components per event. Deferred until a benchmark identifies a real
-  bottleneck.
+  bottleneck. *(Shipped in v0.4 as `Router.Render[P]`, which passes the
+  typed props straight to the component.)*
 
 - **Frontmatter `Deps := gastro.Deps[T]()` declaration.** A nicer-looking
   alternative to the runtime `gastro.From[T](ctx)` accessor, but it
@@ -1114,6 +1119,11 @@ Two items from the friction report were not addressed in this iteration:
   pending real-world feedback on the runtime form.
 
 ### Page model v2 — ambient `(w, r)` + conditional render (Track B)
+
+> **Routing superseded in v0.4.** Pages are `GET`-only again and
+> commands are `WithHandler` handlers; see *Pages are queries, commands
+> are handlers* below. Ambient `(w, r)` and conditional render remain.
+> The text below records the Track B design as it shipped.
 
 **Trigger.** The handler-instance refactor closed the multi-router and
 typed-deps gaps but left a separate friction in place: a page that
@@ -1231,17 +1241,47 @@ idiom, surfaced through a build-time lint.
 frontmatter should be able to receive a `*http.Request` as a typed
 dependency via `WithDeps[T]` is flagged as a follow-up.
 
+### Pages are queries, commands are handlers (v0.4)
+
+**Trigger.** Under Track B, git-pm ended up with 20 of its 24 pages as
+template-less command handlers inside `.gastro` files, each opening its
+own SSE response to patch regions by hand. That is the opposite of the
+[Tao of Datastar](https://data-star.dev/guide/the_tao_of_datastar):
+pages should be queries (GET views with one long-lived stream and fat
+morphs) and commands should be plain handlers that write and return
+`204`.
+
+**Shape.** Recorded in `plans/v0.4-cqrs-datastar.md` and the
+2026-10-11 entries in `DECISIONS.md`:
+
+1. Auto-routes register as `GET <path>` (HEAD is served; other methods
+   get 405). Frontmatter keeps ambient `(w, r)`.
+2. `gastro.WithHandler(pattern, h)` replaces `WithOverride`: a pattern
+   identical to a page's (`"GET /board"`) or to `"GET /static/"`
+   overrides it; any other pattern adds a route. Conflicts panic in
+   `New()`. Middleware and deps reach these handlers too.
+3. `Router.Render[P]` replaces the generated `Render` struct; each
+   component is an exported `gastro.Component[XProps]` value, and props
+   skip the `map[string]any` round-trip.
+4. Datastar support lives in the separate module
+   `github.com/andrioid/gastro/datastar`, a facade over the official Go
+   SDK with an embedded, version-matched client.
+
+The [v0.4 migration guide](migrations/v0.4.md) lists every breaking
+change with before/after code.
+
 ### Authoritative reference
 
 For the current API, defer to:
 
 - [README](../README.md) — quick start and main-package wiring.
-- [pages.md](pages.md) — page model v2, ambient `(w, r)`, method
-  branching, `WithDeps` / `From[T]`, `WithOverride`.
-- [components.md](components.md) — component authoring and the `Render`
-  API.
-- [sse.md](sse.md) — SSE-from-page (the headline pattern) and
-  side-mounted SSE handlers.
+- [pages.md](pages.md) — GET-only pages, ambient `(w, r)`,
+  `WithHandler`, `WithDeps` / `From[T]`.
+- [components.md](components.md) — component authoring, required props
+  and `router.Render`.
+- [sse.md](sse.md) — pages as queries, one stream per page, commands
+  returning `204`, and the `datastar` module.
+- [migrations/v0.4.md](migrations/v0.4.md) — upgrading from v0.3.
 - [deployment.md](deployment.md) — `gastro check` and CI integration.
 - [DECISIONS.md](../DECISIONS.md) — dated entries for each design
   choice landed since this document was written, including the

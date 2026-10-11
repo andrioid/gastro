@@ -86,7 +86,10 @@ SearchInputClass := "w-full px-[0.85rem] py-[0.6rem] pr-10 border border-border 
     demo.AddEntry(name, message)
 
     // Patch the list with new entries
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return
+    }
     sse.PatchElements(listHTML)
 
     // Patch the form with a success message

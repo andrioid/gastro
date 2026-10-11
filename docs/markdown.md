@@ -85,8 +85,8 @@ This example site renders fenced ` ```mermaid ` blocks as flowcharts
 and sequence diagrams using [mermaid.js](https://mermaid.js.org/). A
 small extension lives next to the renderer in
 [`md/mermaid.go`](https://github.com/andrioid/gastro/blob/main/examples/gastro/md/mermaid.go);
-the SSE doc has a [live example](/docs/sse#sse-from-page-the-headline)
-of the GET/POST page lifecycle as a flowchart.
+the SSE doc has a [live example](/docs/sse#the-shape-pages-are-queries-commands-are-handlers)
+of the page / stream / command lifecycle as a sequence diagram.
 
 The pattern is small enough to copy verbatim and zero new Go
 dependencies are required — it composes the same `goldmark`,

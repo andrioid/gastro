@@ -138,7 +138,7 @@ Count := state.Count()
 
 ```go
 func counterStream(router *gastro.Router, w http.ResponseWriter, r *http.Request) {
-    state := gastroRuntime.From[*app.State](r.Context())
+    state := gastroRuntime.FromContext[*app.State](r.Context())
 
     sse, err := datastar.NewSSE(w, r, datastar.WithCompression())
     if err != nil {
@@ -190,7 +190,7 @@ func increment(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    state := gastroRuntime.From[*app.State](r.Context())
+    state := gastroRuntime.FromContext[*app.State](r.Context())
     state.Increment(max(in.Step, 1)) // notifies subscribers
 
     w.WriteHeader(http.StatusNoContent)
