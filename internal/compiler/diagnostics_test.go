@@ -207,3 +207,25 @@ func TestCompile_WarningsCarryPositionsAndDoNotFailNonStrict(t *testing.T) {
 		t.Fatalf("strict compile should fail with the warning promoted to an error, got %v", err)
 	}
 }
+
+func TestCompile_HeaderMutationIsNotAResponseWrite(t *testing.T) {
+	projectDir := t.TempDir()
+	writeFiles(t, projectDir, map[string]string{
+		"go.mod": "module example.com/m\n\ngo 1.27\n",
+		"pages/index.gastro": "---\n" +
+			"w.Header().Set(\"Cache-Control\", \"no-store\")\n" +
+			"w.Header().Add(\"Vary\", \"Accept\")\n" +
+			"Title := \"hi\"\n" +
+			"---\n" +
+			"<h1>{{ .Title }}</h1>\n",
+	})
+
+	// Strict promotes any warning to an error.
+	result, err := compiler.Compile(projectDir, t.TempDir(), compiler.CompileOptions{Strict: true})
+	if err != nil {
+		t.Fatalf("header mutations must not be reported as response writes: %v", err)
+	}
+	if len(result.Warnings) != 0 {
+		t.Errorf("expected no warnings, got %v", result.Warnings)
+	}
+}
