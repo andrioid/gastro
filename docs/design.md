@@ -1187,7 +1187,7 @@ import (
     Layout  "components/layout.gastro"
     Counter "components/counter.gastro"
 
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+    "github.com/andrioid/gastro/datastar"
 )
 
 state := gastro.From[*app.State](r.Context())
@@ -1199,7 +1199,10 @@ if r.Method == http.MethodPost {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(html)
     return
 }

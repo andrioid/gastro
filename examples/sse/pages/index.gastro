@@ -1,5 +1,6 @@
 ---
 import (
+    "log"
     "net/http"
 
     "sse-example/app"
@@ -7,7 +8,7 @@ import (
     Layout "components/layout.gastro"
     Counter "components/counter.gastro"
 
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+    "github.com/andrioid/gastro/datastar"
 )
 
 // Track B (docs/history/frictions-plan.md §4.10) headline pattern: one .gastro
@@ -25,7 +26,11 @@ if r.Method == http.MethodPost {
         return
     }
 
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        log.Printf("counter: open stream: %v", err)
+        return
+    }
     sse.PatchElements(html)
     return
 }

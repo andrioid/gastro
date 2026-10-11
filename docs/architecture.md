@@ -255,11 +255,17 @@ logs them, and returns 500.
 stream. Provides `Send(eventType, data...)`, `IsClosed()`, and `Context()`.
 Framework-agnostic -- works with Datastar, HTMX, or any SSE client.
 
-#### `datastar/` (subpackage)
+### `datastar/` (separate module)
 
-`pkg/gastro/datastar` wraps the generic SSE helper with Datastar-specific
-convenience methods: `PatchElements()`, `PatchSignals()`, `RemoveElement()`.
-See [sse.md](sse.md) for usage.
+`github.com/andrioid/gastro/datastar` is a nested Go module, released in
+lockstep with gastro (tags `datastar/vX.Y.Z`). It is a facade over the
+official Datastar Go SDK (`github.com/starfederation/datastar-go`), so the
+SDK and its dependency tree never reach adopters of core. It adds error
+returns where the SDK panics, a CR/LF guard against SSE field injection,
+and the version-matched Datastar browser client, embedded and served at a
+content-hashed path (`ClientPattern`, `ClientHandler()`, and the
+`{{ datastarScript }}` template helper from `Funcs()`). See
+[sse.md](sse.md) for usage.
 
 ### `internal/lsp/`
 

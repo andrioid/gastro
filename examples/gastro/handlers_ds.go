@@ -2,13 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 
 	gastro "gastro-website/.gastro"
 	"gastro-website/demo"
 
-	"github.com/andrioid/gastro/pkg/gastro/datastar"
+	"github.com/andrioid/gastro/datastar"
 )
 
 // dsSignals represents the JSON blob Datastar sends. For @get requests it
@@ -48,7 +49,11 @@ func handleDsSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("datastar: open stream: %v", err)
+		return
+	}
 	sse.PatchElements(html)
 }
 
@@ -65,7 +70,11 @@ func handleDsAdd(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	message := strings.TrimSpace(r.FormValue("message"))
 
-	sse := datastar.NewSSE(w, r)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("datastar: open stream: %v", err)
+		return
+	}
 
 	if name == "" || message == "" {
 		errorMsg := "Both name and message are required."
@@ -121,7 +130,11 @@ func handleDsEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("datastar: open stream: %v", err)
+		return
+	}
 	sse.PatchElements(html)
 }
 
@@ -160,6 +173,10 @@ func handleDsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sse := datastar.NewSSE(w, r)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("datastar: open stream: %v", err)
+		return
+	}
 	sse.PatchElements(html)
 }

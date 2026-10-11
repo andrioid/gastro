@@ -11,7 +11,7 @@ import (
 
 	"dashboard/mock"
 
-	"github.com/andrioid/gastro/pkg/gastro/datastar"
+	"github.com/andrioid/gastro/datastar"
 )
 
 func main() {
@@ -29,7 +29,11 @@ func main() {
 }
 
 func handleDashboard(w http.ResponseWriter, r *http.Request) {
-	sse := datastar.NewSSE(w, r)
+	sse, err := datastar.NewSSE(w, r)
+	if err != nil {
+		log.Printf("dashboard: open stream: %v", err)
+		return
+	}
 
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()

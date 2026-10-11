@@ -444,7 +444,10 @@ mux := http.NewServeMux()
 mux.HandleFunc("GET /api/increment", func(w http.ResponseWriter, r *http.Request) {
     n := count.Add(1)
     html, _ := gastro.Render.Counter(gastro.CounterProps{Count: int(n)})
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(html)
 })
 mux.Handle("/", gastro.Routes())

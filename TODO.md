@@ -12,7 +12,7 @@
 - [x] SSE: Type-safe component rendering via `gastro.Render` struct
 - [x] Server-Side-Events response after initial render for pages. For use with DataStar and HTMX
   - [x] Generic SSE runtime helper (`pkg/gastro/sse.go`)
-  - [x] Datastar sugar subpackage (`pkg/gastro/datastar/`)
+  - [x] Datastar sugar (now the separate `datastar/` module, `github.com/andrioid/gastro/datastar`)
   - [x] Documentation (`docs/sse.md`) and example app (`examples/sse/`)
 - [x] Component composition -- components can now use other components via `import` declarations
 

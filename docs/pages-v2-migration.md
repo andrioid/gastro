@@ -106,7 +106,10 @@ func handleTaskPlace(w http.ResponseWriter, r *http.Request) {
         Status: r.PathValue("status"),
         Items:  cols[r.PathValue("status")],
     })
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(html)
 }
 ```
@@ -120,7 +123,7 @@ import (
 
     Board "components/board.gastro"
 
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+    "github.com/andrioid/gastro/datastar"
 )
 
 deps := gastro.From[BoardDeps](r.Context())
@@ -140,7 +143,10 @@ if r.Method == http.MethodPost {
         http.Error(w, err.Error(), http.StatusInternalServerError)
         return
     }
-    sse := datastar.NewSSE(w, r)
+    sse, err := datastar.NewSSE(w, r)
+    if err != nil {
+        return // the client can no longer be reached
+    }
     sse.PatchElements(html)
     return
 }
@@ -274,7 +280,7 @@ import (
 
     Board "components/board.gastro"
 
-    "github.com/andrioid/gastro/pkg/gastro/datastar"
+    "github.com/andrioid/gastro/datastar"
 )
 
 if r.Method != http.MethodPost {
@@ -300,7 +306,10 @@ if err != nil {
     return
 }
 
-sse := datastar.NewSSE(w, r)
+sse, err := datastar.NewSSE(w, r)
+if err != nil {
+    return // the client can no longer be reached
+}
 sse.PatchElements(html)
 return
 ---

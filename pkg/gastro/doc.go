@@ -70,8 +70,8 @@
 //
 //   - [Context] — request/response handle passed to page handlers.
 //   - [NewSSE] / [SSE] — upgrade an http.ResponseWriter to a
-//     Server-Sent Events stream. See also the [datastar] subpackage
-//     for Datastar-formatted events.
+//     Server-Sent Events stream. See also the separate [datastar]
+//     module for Datastar events and the embedded Datastar client.
 //   - [FromContext], [FromContextOK] — read a typed dependency
 //     attached via the generated package's WithDeps option.
 //   - [NewDevReloader] — opt-in dev-mode browser auto-reload.
@@ -85,5 +85,5 @@
 // the examples/ directory in the repository for full-app demos:
 // https://github.com/andrioid/gastro/tree/main/examples
 //
-// [datastar]: https://pkg.go.dev/github.com/andrioid/gastro/pkg/gastro/datastar
+// [datastar]: https://pkg.go.dev/github.com/andrioid/gastro/datastar
 package gastro
