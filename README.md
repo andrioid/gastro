@@ -298,6 +298,7 @@ dynamic pages, template helpers, and static assets.
 - [Markdown](docs/markdown.md) -- Embedding markdown via `//gastro:embed` and rendering with goldmark
 - [Dev Mode](docs/dev-mode.md) -- `gastro dev`, `gastro watch`, env vars, composed setups
 - [Error Handling](docs/error-handling.md) -- Failure modes and `WithErrorHandler`
+- [Compatibility](docs/compatibility.md) -- Versioning, breaking changes, and generated-code compatibility
 - [Design](docs/design.md) -- Complete design document with all decisions
 - [Architecture](docs/architecture.md) -- Code architecture and package guide
 - [Contributing](docs/contributing.md) -- How to contribute
