@@ -49,7 +49,7 @@ func TestRemapBuildOutput(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pages, "index.gastro"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module ex\n\ngo 1.24\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module ex\n\ngo 1.27\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

@@ -1065,7 +1065,7 @@ func TestCompile_EmbedDirective_MissingFileSurfacesError(t *testing.T) {
 	if err := os.MkdirAll(pages, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.24\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.27\n"), 0o644); err != nil {
 		t.Fatalf("go.mod: %v", err)
 	}
 	src := `---
@@ -1097,7 +1097,7 @@ func TestCompile_BareUnimportedComponentSurfacesError(t *testing.T) {
 	if err := os.MkdirAll(pages, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.24\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.27\n"), 0o644); err != nil {
 		t.Fatalf("go.mod: %v", err)
 	}
 	src := "<main>{{ Widget (dict \"X\" \"1\") }}</main>\n"
@@ -1218,7 +1218,7 @@ func TestCompile_SnakeKebabComponentCollision(t *testing.T) {
 	if err := os.MkdirAll(comps, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.24\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, "go.mod"), []byte("module example.com/m\n\ngo 1.27\n"), 0o644); err != nil {
 		t.Fatalf("go.mod: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(comps, "interest_chips.gastro"), []byte("<p>a</p>\n"), 0o644); err != nil {

@@ -83,7 +83,7 @@ func makeGastroProject(t *testing.T, dir string) string {
 
 	// go.mod so generated code can compile.
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"),
-		[]byte("module testproject\n\ngo 1.22\n"), 0o644); err != nil {
+		[]byte("module testproject\n\ngo 1.27\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

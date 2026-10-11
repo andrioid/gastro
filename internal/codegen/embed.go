@@ -734,3 +734,10 @@ func findModuleRoot(start string) string {
 func FindModuleRootForFile(absFilePath string) string {
 	return findModuleRoot(filepath.Dir(absFilePath))
 }
+
+// FindModuleRoot walks up from the absolute directory dir until it
+// finds a go.mod, returning the directory that contains it. Returns ""
+// if no go.mod is found between dir and the filesystem root.
+func FindModuleRoot(dir string) string {
+	return findModuleRoot(dir)
+}

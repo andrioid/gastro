@@ -45,6 +45,14 @@ type CompileResult struct {
 // Compile reads all .gastro files from a project directory, processes them
 // through the parser and code generator, and writes the output to outputDir.
 func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult, error) {
+	absProjectDir, err := filepath.Abs(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolving project dir: %w", err)
+	}
+	if err := checkGoDirective(absProjectDir); err != nil {
+		return nil, err
+	}
+
 	// Ensure output subdirectories exist
 	for _, sub := range []string{"pages", "components", "templates"} {
 		if err := os.MkdirAll(filepath.Join(outputDir, sub), 0o755); err != nil {
@@ -69,10 +77,6 @@ func Compile(projectDir, outputDir string, opts CompileOptions) (*CompileResult,
 	var templates []templateMeta
 	var allWarnings []FileWarning
 	var allEmbedDeps []string
-	absProjectDir, err := filepath.Abs(projectDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolving project dir: %w", err)
-	}
 
 	// Pre-pass: gather every component's Props field list so the per-file
 	// pass can validate (dict ...) keys against the destination schema.
