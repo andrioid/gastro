@@ -25,7 +25,20 @@
           "path": "editors/zed/extension.toml",
           "jsonpath": "$.version"
         }
-      ]
+      ],
+      "component": "gastro"
+    },
+    "datastar": {
+      "component": "datastar",
+      "include-component-in-tag": true,
+      "tag-separator": "/"
     }
-  }
+  },
+  "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "gastro",
+      "components": ["gastro", "datastar"]
+    }
+  ]
 }

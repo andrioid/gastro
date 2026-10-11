@@ -14,8 +14,8 @@ jobs:
       - uses: jdx/mise-action@v4
       - run: mise run test
       # `mise run test` only walks the root module. Sub-modules
-      # (examples/* and pkg/chromalexer/*) each have their own
-      # go.mod; verify discovers and tests them.
+      # (examples/*, pkg/chromalexer/* and datastar/) each have their
+      # own go.mod; verify discovers and tests them.
       - run: mise run verify
       # Smoke check: `go generate ./...` for the example must succeed
       # against the freshly-cloned tree (no committed static/styles.css,

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-#MISE description="Run go test -race in every sub-module (examples/* and pkg/chromalexer/*)"
+#MISE description="Run go test -race in every sub-module (examples/*, pkg/chromalexer/*, datastar/)"
 
 # `mise run test` runs `go test ./... -race` from the repo root, which
 # does not cross module boundaries. Every example app and the
-# pkg/chromalexer/gastro sub-module has its own go.mod and is invisible
-# to that command. This task discovers all such sub-modules and runs
+# pkg/chromalexer/gastro and datastar sub-modules have their own go.mod
+# and are invisible to that command. This task discovers all such sub-modules and runs
 # their tests, complementing `mise run test` to cover the full
 # repository.
 #
