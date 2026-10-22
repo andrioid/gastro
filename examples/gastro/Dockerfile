@@ -39,6 +39,9 @@ COPY go.mod go.sum* ./
 COPY cmd/ cmd/
 COPY internal/ internal/
 COPY pkg/ pkg/
+# Sub-module required by examples/gastro via
+# `replace github.com/andrioid/gastro/datastar => ../../datastar`.
+COPY datastar/ datastar/
 # Markdown source referenced by {{ markdown "../../../../docs/*.md" }}
 # directives in examples/gastro/pages/docs/*.gastro.
 COPY docs/ docs/
