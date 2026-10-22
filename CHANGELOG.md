@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/andrioid/gastro/compare/v0.5.0...v0.5.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **examples:** copy datastar module into website Docker build ([de965cc](https://github.com/andrioid/gastro/commit/de965cc169fb18ed6a66c50112f5be4c09241b33))
+
 ## [0.5.0](https://github.com/andrioid/gastro/compare/v0.4.0...v0.5.0) (2026-10-11)
 
 
